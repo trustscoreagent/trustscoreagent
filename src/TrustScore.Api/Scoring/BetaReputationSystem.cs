@@ -1,0 +1,123 @@
+using TrustScore.Core.Interfaces;
+using TrustScore.Core.Models;
+
+namespace TrustScore.Api.Scoring;
+
+public sealed class BetaReputationSystem : IScoringEngine
+{
+    private const double Lambda = 0.995;
+    private const double AvailabilityWeight = 0.4;
+    private const double LatencyWeight = 0.35;
+    private const double ConformityWeight = 0.25;
+    private const int LatencyThresholdMs = 2000;
+
+    public ServiceScore CalculateScore(ServiceEntity service)
+    {
+        var availability = BetaScore(service.AlphaAvailability, service.BetaAvailability);
+        var latency = BetaScore(service.AlphaLatency, service.BetaLatency);
+        var conformity = BetaScore(service.AlphaConformity, service.BetaConformity);
+
+        var globalScore = AvailabilityWeight * availability
+                        + LatencyWeight * latency
+                        + ConformityWeight * conformity;
+
+        var totalAlpha = service.Alpha;
+        var totalBeta = service.Beta;
+        var confidence = 1.0 - BetaVariance(totalAlpha, totalBeta);
+
+        return new ServiceScore
+        {
+            ServiceDid = service.Did,
+            Score = Math.Round(globalScore, 4),
+            Confidence = Math.Round(Math.Max(0, confidence), 4),
+            RatingsCount = service.RatingsCount,
+            Dimensions = new DimensionScores
+            {
+                Availability = Math.Round(availability, 4),
+                Latency = Math.Round(latency, 4),
+                Conformity = Math.Round(conformity, 4),
+            },
+            RecentIncidents = 0, // Phase 2: track incidents over sliding window
+            LastRatedAt = service.LastRatedAt,
+            ServiceSupportsReceipts = service.SupportsReceipts,
+        };
+    }
+
+    public ServiceEntity ApplyRating(ServiceEntity service, Rating rating)
+    {
+        var weight = rating.Weight;
+        var metrics = rating.Metrics;
+
+        // Apply forgetting factor
+        service.Alpha = service.Alpha * Lambda;
+        service.Beta = service.Beta * Lambda;
+        service.AlphaAvailability *= Lambda;
+        service.BetaAvailability *= Lambda;
+        service.AlphaLatency *= Lambda;
+        service.BetaLatency *= Lambda;
+        service.AlphaConformity *= Lambda;
+        service.BetaConformity *= Lambda;
+
+        // Availability: 2xx = positive, 5xx = negative, others = neutral
+        if (metrics.StatusCode >= 200 && metrics.StatusCode < 300)
+        {
+            service.AlphaAvailability += weight;
+            service.Alpha += weight;
+        }
+        else if (metrics.StatusCode >= 500)
+        {
+            service.BetaAvailability += weight;
+            service.Beta += weight;
+        }
+
+        // Latency: below threshold = positive, above = negative
+        if (metrics.LatencyMs > 0 && metrics.LatencyMs <= LatencyThresholdMs)
+        {
+            service.AlphaLatency += weight;
+            service.Alpha += weight;
+        }
+        else if (metrics.LatencyMs > LatencyThresholdMs)
+        {
+            service.BetaLatency += weight;
+            service.Beta += weight;
+        }
+
+        // Conformity: schema valid = positive, invalid = negative
+        if (metrics.SchemaValid == true)
+        {
+            service.AlphaConformity += weight;
+            service.Alpha += weight;
+        }
+        else if (metrics.SchemaValid == false)
+        {
+            service.BetaConformity += weight;
+            service.Beta += weight;
+        }
+
+        // Quality score modulation (optional, 1-5 scale)
+        if (rating.QualityScore.HasValue)
+        {
+            var qualityFactor = (rating.QualityScore.Value - 3.0) / 2.0; // -1.0 to +1.0
+            var qualityWeight = weight * 0.25; // quality counts for 25% max
+            if (qualityFactor > 0)
+                service.Alpha += qualityWeight * qualityFactor;
+            else
+                service.Beta += qualityWeight * Math.Abs(qualityFactor);
+        }
+
+        service.RatingsCount++;
+        service.LastRatedAt = DateTimeOffset.UtcNow;
+        service.UpdatedAt = DateTimeOffset.UtcNow;
+
+        if (rating.ReceiptVerified)
+            service.SupportsReceipts = true;
+
+        return service;
+    }
+
+    private static double BetaScore(double alpha, double beta)
+        => alpha / (alpha + beta);
+
+    private static double BetaVariance(double alpha, double beta)
+        => (alpha * beta) / ((alpha + beta) * (alpha + beta) * (alpha + beta + 1));
+}
