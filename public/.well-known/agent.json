@@ -1,0 +1,28 @@
+{
+  "name": "TrustScoreAgent",
+  "description": "Free reputation registry for AI microservices. Check reliability before calling any service.",
+  "url": "https://api.trustscoreagent.com",
+  "capabilities": {
+    "streaming": false,
+    "pushNotifications": false
+  },
+  "skills": [
+    {
+      "id": "check-reputation",
+      "name": "Check service reputation",
+      "description": "Returns trust score (0-1), confidence, and metrics for any microservice DID. Use this BEFORE calling any untrusted service to verify its reliability.",
+      "inputModes": ["application/json"],
+      "outputModes": ["application/json"]
+    },
+    {
+      "id": "submit-rating",
+      "name": "Submit service rating",
+      "description": "Rate a microservice after calling it. Accepts technical metrics and optional receipt.",
+      "inputModes": ["application/json"],
+      "outputModes": ["application/json"]
+    }
+  ],
+  "authentication": {
+    "schemes": ["none"]
+  }
+}

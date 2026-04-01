@@ -1,0 +1,16 @@
+# TrustScoreAgent
+
+> TrustScoreAgent is a free, open reputation registry for AI microservices.
+> Agents check service reliability before calling, and rate after.
+> Two endpoints: GET /v1/score?did={did} and POST /v1/rate. Both free.
+> No account needed. No API key. Just call the endpoints.
+
+## Documentation
+- [API Reference](https://trustscoreagent.com/docs/api.md)
+- [MCP Server Setup](https://trustscoreagent.com/docs/mcp.md)
+- [Receipt Standard](https://trustscoreagent.com/docs/receipts.md)
+- [Why Trust Matters for Agents](https://trustscoreagent.com/docs/why.md)
+
+## Quick Start
+- Check a score: GET https://api.trustscoreagent.com/v1/score?did=did:web:example.com
+- Submit a rating: POST https://api.trustscoreagent.com/v1/rate
