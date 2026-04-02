@@ -21,6 +21,7 @@ builder.Services.AddScoped<IRatingRepository, RatingRepository>();
 // Redis
 builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
     ConnectionMultiplexer.Connect(ConfigurationOptions.Parse(redisConnectionString)));
+builder.Services.AddSingleton<ICacheService, RedisCacheService>();
 
 // Scoring
 builder.Services.AddSingleton<IScoringEngine, BetaReputationSystem>();

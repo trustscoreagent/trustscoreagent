@@ -1,5 +1,5 @@
-using StackExchange.Redis;
 using TrustScore.Api.Data;
+using TrustScore.Core.Interfaces;
 
 namespace TrustScore.Api.Endpoints;
 
@@ -7,12 +7,11 @@ public static class HealthEndpoints
 {
     public static void MapHealthEndpoints(this WebApplication app)
     {
-        app.MapGet("/health", async (DbConnectionFactory db, IConnectionMultiplexer redis) =>
+        app.MapGet("/health", async (DbConnectionFactory db, ICacheService cache) =>
         {
             var checks = new Dictionary<string, string>();
             var healthy = true;
 
-            // Check PostgreSQL
             try
             {
                 using var conn = db.CreateConnection();
@@ -25,18 +24,9 @@ public static class HealthEndpoints
                 healthy = false;
             }
 
-            // Check Redis
-            try
-            {
-                var redisDb = redis.GetDatabase();
-                await redisDb.PingAsync();
-                checks["redis"] = "ok";
-            }
-            catch
-            {
-                checks["redis"] = "error";
-                healthy = false;
-            }
+            var redisOk = await cache.IsAvailableAsync();
+            checks["redis"] = redisOk ? "ok" : "error";
+            if (!redisOk) healthy = false;
 
             var response = new
             {

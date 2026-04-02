@@ -1,5 +1,3 @@
-using System.Text.Json;
-using StackExchange.Redis;
 using TrustScore.Core.Interfaces;
 using TrustScore.Core.Models;
 
@@ -17,7 +15,7 @@ public static class RateEndpoints
             IServiceRepository serviceRepo,
             IRatingRepository ratingRepo,
             IScoringEngine scoringEngine,
-            IConnectionMultiplexer redis) =>
+            ICacheService cache) =>
         {
             // Validate required fields
             if (string.IsNullOrWhiteSpace(request.ServiceDid))
@@ -90,15 +88,7 @@ public static class RateEndpoints
             await ratingRepo.InsertAsync(rating);
 
             // Invalidate cache
-            try
-            {
-                var redisDb = redis.GetDatabase();
-                await redisDb.KeyDeleteAsync($"score:{request.ServiceDid}");
-            }
-            catch
-            {
-                // Redis unavailable — cache will expire naturally
-            }
+            await cache.RemoveAsync($"score:{request.ServiceDid}");
 
             var score = scoringEngine.CalculateScore(service);
 
