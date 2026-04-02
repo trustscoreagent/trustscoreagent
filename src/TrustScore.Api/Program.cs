@@ -51,9 +51,8 @@ var app = builder.Build();
 // Run database migrations
 if (args.Contains("--migrate") || app.Environment.IsDevelopment())
 {
-    var migrationPath = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "migrations");
-    if (!Directory.Exists(migrationPath))
-        migrationPath = Path.Combine(AppContext.BaseDirectory, "migrations");
+    // Walk up from the binary directory to find the migrations folder
+    var migrationPath = FindMigrationsFolder();
 
     var upgrader = DeployChanges.To
         .PostgresqlDatabase(dbConnectionString)
@@ -87,4 +86,29 @@ app.MapGet("/llms.txt", () => Results.File("public/llms.txt", "text/plain"))
 app.Run();
 
 // Make Program accessible for integration tests
-public partial class Program { }
+public partial class Program
+{
+    static string FindMigrationsFolder()
+    {
+        // Try from current working directory first (dotnet run scenario)
+        var cwd = Directory.GetCurrentDirectory();
+        var candidate = Path.Combine(cwd, "migrations");
+        if (Directory.Exists(candidate)) return candidate;
+
+        // Walk up from cwd to find repo root with migrations/
+        var dir = new DirectoryInfo(cwd);
+        while (dir != null)
+        {
+            candidate = Path.Combine(dir.FullName, "migrations");
+            if (Directory.Exists(candidate)) return candidate;
+            dir = dir.Parent;
+        }
+
+        // Fallback: next to the binary (Docker scenario)
+        candidate = Path.Combine(AppContext.BaseDirectory, "migrations");
+        if (Directory.Exists(candidate)) return candidate;
+
+        throw new DirectoryNotFoundException(
+            $"Could not find 'migrations' folder. Searched from: {cwd}");
+    }
+}

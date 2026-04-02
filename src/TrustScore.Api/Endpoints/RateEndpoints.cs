@@ -85,9 +85,9 @@ public static class RateEndpoints
             // Apply rating to scoring model
             service = scoringEngine.ApplyRating(service, rating);
 
-            // Persist
-            await ratingRepo.InsertAsync(rating);
+            // Persist — service first (ratings has FK to services)
             await serviceRepo.UpsertAsync(service);
+            await ratingRepo.InsertAsync(rating);
 
             // Invalidate cache
             try
@@ -125,17 +125,33 @@ public static class RateEndpoints
 
 public sealed record RateRequest
 {
+    [System.Text.Json.Serialization.JsonPropertyName("service_did")]
     public string? ServiceDid { get; init; }
+
+    [System.Text.Json.Serialization.JsonPropertyName("metrics")]
     public RateRequestMetrics? Metrics { get; init; }
+
+    [System.Text.Json.Serialization.JsonPropertyName("quality_score")]
     public int? QualityScore { get; init; }
+
+    [System.Text.Json.Serialization.JsonPropertyName("comment")]
     public string? Comment { get; init; }
+
+    [System.Text.Json.Serialization.JsonPropertyName("receipt")]
     public string? Receipt { get; init; }
 }
 
 public sealed record RateRequestMetrics
 {
+    [System.Text.Json.Serialization.JsonPropertyName("status_code")]
     public int StatusCode { get; init; }
+
+    [System.Text.Json.Serialization.JsonPropertyName("latency_ms")]
     public int LatencyMs { get; init; }
+
+    [System.Text.Json.Serialization.JsonPropertyName("response_size_bytes")]
     public int? ResponseSizeBytes { get; init; }
+
+    [System.Text.Json.Serialization.JsonPropertyName("schema_valid")]
     public bool? SchemaValid { get; init; }
 }

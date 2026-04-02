@@ -56,3 +56,4 @@ mcp-server/dist/
 # Logs
 *.log
 logs/
+src/src.sln
