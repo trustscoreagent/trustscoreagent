@@ -1,0 +1,75 @@
+name: Deploy Staging
+
+on:
+  push:
+    branches: [main]
+
+env:
+  GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  GCP_REGION: europe-west1
+  SERVICE_NAME: trustscoreagent-api-staging
+  IMAGE_NAME: europe-west1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/trustscoreagent/api
+
+jobs:
+  deploy:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    environment: staging
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Setup Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker europe-west1-docker.pkg.dev --quiet
+
+      - name: Build and push Docker image
+        run: |
+          IMAGE="${IMAGE_NAME}:${{ github.sha }}"
+          docker build -f src/TrustScore.Api/Dockerfile -t "$IMAGE" .
+          docker push "$IMAGE"
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy $SERVICE_NAME \
+            --image "${IMAGE_NAME}:${{ github.sha }}" \
+            --region $GCP_REGION \
+            --platform managed \
+            --allow-unauthenticated \
+            --min-instances 0 \
+            --max-instances 5 \
+            --concurrency 200 \
+            --cpu 1 \
+            --memory 512Mi \
+            --set-env-vars "ASPNETCORE_ENVIRONMENT=Staging" \
+            --set-secrets "ConnectionStrings__PostgreSQL=db-connection-string:latest,ConnectionStrings__Redis=redis-connection-string:latest" \
+            --quiet
+
+      - name: Get staging URL
+        run: |
+          URL=$(gcloud run services describe $SERVICE_NAME --region $GCP_REGION --format 'value(status.url)')
+          echo "Staging URL: $URL"
+          echo "STAGING_URL=$URL" >> $GITHUB_ENV
+
+      - name: Smoke test
+        run: |
+          sleep 10
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$STAGING_URL/health")
+          if [ "$HTTP_CODE" != "200" ] && [ "$HTTP_CODE" != "503" ]; then
+            echo "Smoke test failed: HTTP $HTTP_CODE"
+            exit 1
+          fi
+          echo "Smoke test passed: HTTP $HTTP_CODE"
+          curl -s "$STAGING_URL/health"

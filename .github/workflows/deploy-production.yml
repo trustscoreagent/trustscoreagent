@@ -1,0 +1,102 @@
+name: Deploy Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Git ref to deploy (commit SHA or tag)'
+        required: true
+        default: 'main'
+
+env:
+  GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  GCP_REGION: europe-west1
+  SERVICE_NAME: trustscoreagent-api
+  IMAGE_NAME: europe-west1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/trustscoreagent/api
+
+jobs:
+  deploy:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    environment: production  # Requires manual approval in GitHub
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Setup Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker europe-west1-docker.pkg.dev --quiet
+
+      - name: Build and push Docker image
+        run: |
+          IMAGE="${IMAGE_NAME}:${{ github.sha }}"
+          docker build -f src/TrustScore.Api/Dockerfile -t "$IMAGE" .
+          docker push "$IMAGE"
+
+      - name: Deploy canary (0% traffic)
+        run: |
+          gcloud run deploy $SERVICE_NAME \
+            --image "${IMAGE_NAME}:${{ github.sha }}" \
+            --region $GCP_REGION \
+            --platform managed \
+            --allow-unauthenticated \
+            --min-instances 1 \
+            --max-instances 100 \
+            --concurrency 200 \
+            --cpu 2 \
+            --memory 1Gi \
+            --set-env-vars "ASPNETCORE_ENVIRONMENT=Production" \
+            --set-secrets "ConnectionStrings__PostgreSQL=db-connection-string:latest,ConnectionStrings__Redis=redis-connection-string:latest" \
+            --tag canary \
+            --no-traffic \
+            --quiet
+
+      - name: Route 5% traffic to canary
+        run: |
+          gcloud run services update-traffic $SERVICE_NAME \
+            --region $GCP_REGION \
+            --to-tags canary=5
+
+      - name: Verify canary (5 min)
+        run: |
+          URL=$(gcloud run services describe $SERVICE_NAME --region $GCP_REGION --format 'value(status.url)')
+          echo "Waiting 5 minutes to verify canary..."
+          for i in $(seq 1 10); do
+            sleep 30
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$URL/health")
+            echo "Check $i/10: HTTP $HTTP_CODE"
+            if [ "$HTTP_CODE" != "200" ] && [ "$HTTP_CODE" != "503" ]; then
+              echo "Canary check failed, rolling back..."
+              gcloud run services update-traffic $SERVICE_NAME \
+                --region $GCP_REGION \
+                --to-latest
+              exit 1
+            fi
+          done
+          echo "Canary passed all checks."
+
+      - name: Promote to 100% traffic
+        run: |
+          gcloud run services update-traffic $SERVICE_NAME \
+            --region $GCP_REGION \
+            --to-latest
+          echo "Production deployment complete."
+
+      - name: Get production URL
+        run: |
+          URL=$(gcloud run services describe $SERVICE_NAME --region $GCP_REGION --format 'value(status.url)')
+          echo "Production URL: $URL"
