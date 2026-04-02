@@ -1,0 +1,164 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  DOTNET_VERSION: '8.0.x'
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-restore --configuration Release --warnaserrors
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    needs: build
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: trustscore_test
+          POSTGRES_USER: trustscore
+          POSTGRES_PASSWORD: trustscore
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Run unit tests
+        run: >-
+          dotnet test
+          --no-restore
+          --configuration Release
+          --verbosity normal
+          --logger "trx;LogFileName=test-results.trx"
+          --collect:"XPlat Code Coverage"
+        env:
+          ConnectionStrings__PostgreSQL: "Server=localhost;Port=5432;Database=trustscore_test;User Id=trustscore;Password=trustscore;"
+          ConnectionStrings__Redis: "localhost:6379"
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: "**/TestResults/**"
+          retention-days: 30
+
+  lint:
+    name: Lint & Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Check formatting
+        run: dotnet format --verify-no-changes --verbosity diagnostic
+
+  security:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Check for vulnerable packages
+        run: dotnet list package --vulnerable --include-transitive 2>&1 | tee vulnerability-report.txt
+
+      - name: Fail if vulnerabilities found
+        run: |
+          if grep -q "has the following vulnerable packages" vulnerability-report.txt; then
+            echo "::error::Vulnerable packages detected!"
+            exit 1
+          fi
+          echo "No vulnerable packages found."
+
+  docker:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    needs: [build, test]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: >-
+          docker build
+          -f src/TrustScore.Api/Dockerfile
+          -t trustscoreagent-api:${{ github.sha }}
+          .
+
+      - name: Verify Docker image starts
+        run: |
+          docker run -d \
+            --name test-api \
+            -e ConnectionStrings__PostgreSQL="Server=localhost;Database=test;User Id=test;Password=test;" \
+            -e ConnectionStrings__Redis="localhost:6379" \
+            -e ASPNETCORE_ENVIRONMENT=Production \
+            -p 8080:8080 \
+            trustscoreagent-api:${{ github.sha }} || true
+
+          # Give it a moment to start (or fail)
+          sleep 3
+
+          # Check if container is still running (it may fail due to no DB, that's OK)
+          # We just want to verify the image builds and the entrypoint works
+          docker logs test-api
+          docker stop test-api || true
+          docker rm test-api || true

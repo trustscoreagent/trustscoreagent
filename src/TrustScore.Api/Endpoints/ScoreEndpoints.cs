@@ -1,5 +1,4 @@
 using System.Text.Json;
-using StackExchange.Redis;
 using TrustScore.Core.Interfaces;
 
 namespace TrustScore.Api.Endpoints;
@@ -14,28 +13,19 @@ public static class ScoreEndpoints
             string did,
             IServiceRepository serviceRepo,
             IScoringEngine scoringEngine,
-            IConnectionMultiplexer redis) =>
+            ICacheService cache) =>
         {
             if (string.IsNullOrWhiteSpace(did))
                 return Results.BadRequest(new { error = "missing_did", message = "Query parameter 'did' is required" });
 
-            // Try Redis cache first
-            try
+            // Try cache first
+            var cached = await cache.GetAsync($"score:{did}");
+            if (cached is not null)
             {
-                var redisDb = redis.GetDatabase();
-                var cached = await redisDb.StringGetAsync($"score:{did}");
-                if (cached.HasValue)
-                {
-                    var cachedScore = JsonSerializer.Deserialize<object>(cached!);
-                    return Results.Ok(cachedScore);
-                }
-            }
-            catch
-            {
-                // Redis unavailable — continue with DB
+                var cachedScore = JsonSerializer.Deserialize<object>(cached);
+                return Results.Ok(cachedScore);
             }
 
-            // Lookup in PostgreSQL
             var service = await serviceRepo.GetByDidAsync(did);
             if (service is null)
                 return Results.NotFound(new { error = "service_not_found", message = "No ratings found for this service DID" });
@@ -59,17 +49,7 @@ public static class ScoreEndpoints
                 service_supports_receipts = score.ServiceSupportsReceipts,
             };
 
-            // Cache the result
-            try
-            {
-                var redisDb = redis.GetDatabase();
-                var json = JsonSerializer.Serialize(response);
-                await redisDb.StringSetAsync($"score:{did}", json, CacheTtl);
-            }
-            catch
-            {
-                // Redis unavailable — continue without cache
-            }
+            await cache.SetAsync($"score:{did}", JsonSerializer.Serialize(response), CacheTtl);
 
             return Results.Ok(response);
         })
