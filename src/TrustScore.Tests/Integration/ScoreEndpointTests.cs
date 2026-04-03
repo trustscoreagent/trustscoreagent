@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using FluentAssertions;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using StackExchange.Redis;
 using TrustScore.Core.Interfaces;
@@ -55,6 +56,13 @@ public class ScoreEndpointTests : IClassFixture<WebApplicationFactory<Program>>
     {
         return factory.WithWebHostBuilder(builder =>
         {
+            builder.ConfigureAppConfiguration((_, config) =>
+            {
+                config.AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["SkipMigrations"] = "true",
+                });
+            });
             builder.ConfigureServices(services =>
             {
                 // Replace real implementations with fakes

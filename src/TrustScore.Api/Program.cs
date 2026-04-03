@@ -49,8 +49,9 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
-// Run database migrations
-if (args.Contains("--migrate") || app.Environment.IsDevelopment())
+// Run database migrations (skip when running in test host)
+var skipMigrations = builder.Configuration.GetValue<bool>("SkipMigrations");
+if (!skipMigrations && (args.Contains("--migrate") || app.Environment.IsDevelopment()))
 {
     // Walk up from the binary directory to find the migrations folder
     var migrationPath = FindMigrationsFolder();
