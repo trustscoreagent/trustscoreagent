@@ -280,6 +280,33 @@ internal class FakeServiceRepository : IServiceRepository
         return Task.CompletedTask;
     }
 
+    public Task<IReadOnlyList<ServiceEntity>> ListAsync(ServiceListFilter filter)
+    {
+        var query = _services.Values.AsEnumerable();
+
+        if (filter.MinRatings.HasValue)
+            query = query.Where(s => s.RatingsCount >= filter.MinRatings.Value);
+
+        if (filter.MinScore.HasValue)
+            query = query.Where(s => s.Alpha / (s.Alpha + s.Beta) >= filter.MinScore.Value);
+
+        query = filter.SortBy switch
+        {
+            "ratings_count" => filter.Order == "asc"
+                ? query.OrderBy(s => s.RatingsCount)
+                : query.OrderByDescending(s => s.RatingsCount),
+            "last_rated" => filter.Order == "asc"
+                ? query.OrderBy(s => s.LastRatedAt)
+                : query.OrderByDescending(s => s.LastRatedAt),
+            _ => filter.Order == "asc"
+                ? query.OrderBy(s => s.Alpha / (s.Alpha + s.Beta))
+                : query.OrderByDescending(s => s.Alpha / (s.Alpha + s.Beta)),
+        };
+
+        var results = query.Skip(filter.Offset).Take(filter.Limit).ToList().AsReadOnly();
+        return Task.FromResult<IReadOnlyList<ServiceEntity>>(results);
+    }
+
     public Task<bool> ExistsAsync(string did)
         => Task.FromResult(_services.ContainsKey(did));
 }
