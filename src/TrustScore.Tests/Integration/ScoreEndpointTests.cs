@@ -70,6 +70,8 @@ public class ScoreEndpointTests : IClassFixture<WebApplicationFactory<Program>>
                 ReplaceService<IRatingRepository, FakeRatingRepository>(services);
                 ReplaceService<ICacheService, FakeCacheService>(services);
                 ReplaceService<IRateLimiter, FakeRateLimiter>(services);
+                ReplaceService<IReceiptVerifier, FakeReceiptVerifier>(services);
+                ReplaceService<IDidResolver, FakeDidResolver>(services);
 
                 // Remove Redis (not needed with FakeCacheService)
                 var redisDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IConnectionMultiplexer));
@@ -201,7 +203,7 @@ public class RateEndpointTests : IClassFixture<WebApplicationFactory<Program>>
     }
 
     [Fact]
-    public async Task Rate_WithReceipt_ReturnsVerifiedWeight()
+    public async Task Rate_WithValidReceipt_ReturnsVerifiedWeight()
     {
         var request = new HttpRequestMessage(HttpMethod.Post, "/v1/rate")
         {
@@ -209,7 +211,7 @@ public class RateEndpointTests : IClassFixture<WebApplicationFactory<Program>>
             {
                 service_did = "did:web:receipted.example.com",
                 metrics = new { status_code = 200, latency_ms = 100, schema_valid = true },
-                receipt = "eyJhbGciOiJFZERTQSJ9.eyJ0ZXN0IjoidmFsdWUifQ.fake-signature"
+                receipt = "valid-receipt-jwt-token"  // FakeReceiptVerifier treats "valid-" prefix as verified
             })
         };
         request.Headers.Add("X-Agent-DID", "did:web:test-agent.example.com");
@@ -219,6 +221,48 @@ public class RateEndpointTests : IClassFixture<WebApplicationFactory<Program>>
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.Content.ReadAsStringAsync();
         body.Should().Contain("\"rating_weight\":\"verified\"");
+    }
+
+    [Fact]
+    public async Task Rate_WithInvalidReceipt_ReturnsUnverifiedWeight()
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, "/v1/rate")
+        {
+            Content = JsonContent.Create(new
+            {
+                service_did = "did:web:bad-receipt.example.com",
+                metrics = new { status_code = 200, latency_ms = 100 },
+                receipt = "invalid-receipt-jwt"  // FakeReceiptVerifier treats this as invalid signature
+            })
+        };
+        request.Headers.Add("X-Agent-DID", "did:web:test-agent.example.com");
+
+        var response = await _client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.Content.ReadAsStringAsync();
+        body.Should().Contain("\"rating_weight\":\"unverified\"");
+    }
+
+    [Fact]
+    public async Task Rate_WithReplayedReceipt_Returns400()
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, "/v1/rate")
+        {
+            Content = JsonContent.Create(new
+            {
+                service_did = "did:web:replay.example.com",
+                metrics = new { status_code = 200, latency_ms = 100 },
+                receipt = "replay-nonce-already-used"  // FakeReceiptVerifier treats "replay-" prefix as nonce replay
+            })
+        };
+        request.Headers.Add("X-Agent-DID", "did:web:test-agent.example.com");
+
+        var response = await _client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var body = await response.Content.ReadAsStringAsync();
+        body.Should().Contain("nonce_replay");
     }
 
     [Fact]
@@ -400,6 +444,39 @@ internal class FakeRateLimiter : IRateLimiter
         _counters[key] = count;
         return Task.FromResult(new RateLimitResult(count <= maxRequests, count, maxRequests));
     }
+}
+
+internal class FakeReceiptVerifier : IReceiptVerifier
+{
+    public Task<ReceiptVerificationResult> VerifyAsync(string jwt, string expectedServiceDid)
+    {
+        // Simulate: JWT starting with "valid-" is treated as verified
+        if (jwt.StartsWith("valid-"))
+            return Task.FromResult(ReceiptVerificationResult.Verified(new ReceiptPayload
+            {
+                ServiceDid = expectedServiceDid,
+                AgentDid = "did:web:test-agent.example.com",
+                Timestamp = DateTimeOffset.UtcNow.ToString("o"),
+                Nonce = Guid.NewGuid().ToString(),
+                Endpoint = "/test",
+                Method = "POST",
+                StatusCode = 200,
+            }));
+
+        if (jwt.StartsWith("replay-"))
+            return Task.FromResult(ReceiptVerificationResult.Rejected(
+                ReceiptVerificationStatus.NonceAlreadyUsed));
+
+        // Default: unverified (like a malformed JWT)
+        return Task.FromResult(ReceiptVerificationResult.Failed(
+            ReceiptVerificationStatus.InvalidSignature));
+    }
+}
+
+internal class FakeDidResolver : IDidResolver
+{
+    public Task<byte[]?> ResolvePublicKeyAsync(string did)
+        => Task.FromResult<byte[]?>(null);
 }
 
 #endregion
