@@ -3,6 +3,7 @@ using StackExchange.Redis;
 using TrustScore.Api.Data;
 using TrustScore.Api.Endpoints;
 using TrustScore.Api.Middleware;
+using TrustScore.Api.Receipts;
 using TrustScore.Api.Scoring;
 using TrustScore.Core.Interfaces;
 
@@ -24,6 +25,11 @@ builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
     ConnectionMultiplexer.Connect(ConfigurationOptions.Parse(redisConnectionString)));
 builder.Services.AddSingleton<ICacheService, RedisCacheService>();
 builder.Services.AddSingleton<IRateLimiter, RedisRateLimiter>();
+
+// Receipt verification
+builder.Services.AddHttpClient<DidWebResolver>();
+builder.Services.AddSingleton<IDidResolver, DidWebResolver>();
+builder.Services.AddSingleton<IReceiptVerifier, ReceiptVerifier>();
 
 // Scoring
 builder.Services.AddSingleton<IScoringEngine, BetaReputationSystem>();

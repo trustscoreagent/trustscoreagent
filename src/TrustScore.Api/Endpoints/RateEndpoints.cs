@@ -1,5 +1,6 @@
 using TrustScore.Core.Interfaces;
 using TrustScore.Core.Models;
+using ReceiptStatus = TrustScore.Core.Models.ReceiptVerificationStatus;
 
 namespace TrustScore.Api.Endpoints;
 
@@ -16,7 +17,8 @@ public static class RateEndpoints
             IRatingRepository ratingRepo,
             IScoringEngine scoringEngine,
             ICacheService cache,
-            IRateLimiter rateLimiter) =>
+            IRateLimiter rateLimiter,
+            IReceiptVerifier receiptVerifier) =>
         {
             // Validate required fields
             if (string.IsNullOrWhiteSpace(request.ServiceDid))
@@ -46,17 +48,22 @@ public static class RateEndpoints
                     new { error = "rate_limited", message = $"Maximum {MaxRatingsPerHour} ratings per agent per service per hour", remaining = rateLimitResult.Remaining },
                     statusCode: 429);
 
-            // Determine weight based on receipt
+            // Verify receipt if provided
             var hasReceipt = !string.IsNullOrWhiteSpace(request.Receipt);
             var receiptVerified = false;
             var weight = 0.3;
 
             if (hasReceipt)
             {
-                // Phase 1: basic receipt presence gives weight 0.7
-                // Phase 2: full JWT verification gives weight 1.0
-                weight = 0.7;
-                // TODO Phase 2: verify JWT signature via ReceiptVerifier
+                var verification = await receiptVerifier.VerifyAsync(request.Receipt!, request.ServiceDid);
+
+                if (verification.Status == ReceiptStatus.NonceAlreadyUsed)
+                    return Results.Json(
+                        new { error = "nonce_replay", message = "This receipt has already been used" },
+                        statusCode: 400);
+
+                weight = verification.Weight;
+                receiptVerified = verification.IsVerified;
             }
 
             var rating = new Rating
@@ -97,7 +104,7 @@ public static class RateEndpoints
             return Results.Ok(new
             {
                 accepted = true,
-                rating_weight = hasReceipt ? "verified" : "unverified",
+                rating_weight = receiptVerified ? "verified" : "unverified",
                 new_score = score.Score,
             });
         })
