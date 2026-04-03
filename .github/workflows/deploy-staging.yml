@@ -55,6 +55,8 @@ jobs:
             --memory 512Mi \
             --set-env-vars "ASPNETCORE_ENVIRONMENT=Staging" \
             --set-secrets "ConnectionStrings__PostgreSQL=db-connection-string:latest,ConnectionStrings__Redis=redis-connection-string:latest" \
+            --add-cloudsql-instances "${{ secrets.GCP_PROJECT_ID }}:europe-west1:trustscoreagent-db" \
+            --vpc-connector "trustscoreagent-connector" \
             --quiet
 
       - name: Get staging URL
