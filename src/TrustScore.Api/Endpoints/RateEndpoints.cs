@@ -15,7 +15,8 @@ public static class RateEndpoints
             IServiceRepository serviceRepo,
             IRatingRepository ratingRepo,
             IScoringEngine scoringEngine,
-            ICacheService cache) =>
+            ICacheService cache,
+            IRateLimiter rateLimiter) =>
         {
             // Validate required fields
             if (string.IsNullOrWhiteSpace(request.ServiceDid))
@@ -37,11 +38,12 @@ public static class RateEndpoints
             if (request.QualityScore.HasValue && (request.QualityScore < 1 || request.QualityScore > 5))
                 return Results.BadRequest(new { error = "invalid_quality_score", message = "quality_score must be between 1 and 5" });
 
-            // Rate limiting
-            var recentCount = await ratingRepo.CountRecentAsync(agentDid, request.ServiceDid, TimeSpan.FromHours(1));
-            if (recentCount >= MaxRatingsPerHour)
+            // Rate limiting via Redis
+            var rateLimitKey = $"{agentDid}:{request.ServiceDid}";
+            var rateLimitResult = await rateLimiter.CheckAsync(rateLimitKey, MaxRatingsPerHour, TimeSpan.FromHours(1));
+            if (!rateLimitResult.Allowed)
                 return Results.Json(
-                    new { error = "rate_limited", message = $"Maximum {MaxRatingsPerHour} ratings per agent per service per hour" },
+                    new { error = "rate_limited", message = $"Maximum {MaxRatingsPerHour} ratings per agent per service per hour", remaining = rateLimitResult.Remaining },
                     statusCode: 429);
 
             // Determine weight based on receipt

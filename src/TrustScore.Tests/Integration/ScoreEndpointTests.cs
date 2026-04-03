@@ -69,6 +69,7 @@ public class ScoreEndpointTests : IClassFixture<WebApplicationFactory<Program>>
                 ReplaceService<IServiceRepository, FakeServiceRepository>(services);
                 ReplaceService<IRatingRepository, FakeRatingRepository>(services);
                 ReplaceService<ICacheService, FakeCacheService>(services);
+                ReplaceService<IRateLimiter, FakeRateLimiter>(services);
 
                 // Remove Redis (not needed with FakeCacheService)
                 var redisDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IConnectionMultiplexer));
@@ -219,6 +220,43 @@ public class RateEndpointTests : IClassFixture<WebApplicationFactory<Program>>
         var body = await response.Content.ReadAsStringAsync();
         body.Should().Contain("\"rating_weight\":\"verified\"");
     }
+
+    [Fact]
+    public async Task Rate_ExceedsRateLimit_Returns429()
+    {
+        // Submit 11 ratings (max is 10 per hour per agent per service)
+        for (int i = 0; i < 10; i++)
+        {
+            var req = new HttpRequestMessage(HttpMethod.Post, "/v1/rate")
+            {
+                Content = JsonContent.Create(new
+                {
+                    service_did = "did:web:ratelimit-test.example.com",
+                    metrics = new { status_code = 200, latency_ms = 100 }
+                })
+            };
+            req.Headers.Add("X-Agent-DID", "did:web:ratelimit-agent.example.com");
+            var res = await _client.SendAsync(req);
+            res.StatusCode.Should().Be(HttpStatusCode.OK);
+        }
+
+        // The 11th should be rate limited
+        var lastReq = new HttpRequestMessage(HttpMethod.Post, "/v1/rate")
+        {
+            Content = JsonContent.Create(new
+            {
+                service_did = "did:web:ratelimit-test.example.com",
+                metrics = new { status_code = 200, latency_ms = 100 }
+            })
+        };
+        lastReq.Headers.Add("X-Agent-DID", "did:web:ratelimit-agent.example.com");
+
+        var lastRes = await _client.SendAsync(lastReq);
+
+        lastRes.StatusCode.Should().Be((HttpStatusCode)429);
+        var body = await lastRes.Content.ReadAsStringAsync();
+        body.Should().Contain("rate_limited");
+    }
 }
 
 public class HealthEndpointTests : IClassFixture<WebApplicationFactory<Program>>
@@ -349,6 +387,19 @@ internal class FakeCacheService : ICacheService
 
     public Task<bool> IsAvailableAsync()
         => Task.FromResult(true);
+}
+
+internal class FakeRateLimiter : IRateLimiter
+{
+    private readonly Dictionary<string, int> _counters = new();
+
+    public Task<RateLimitResult> CheckAsync(string key, int maxRequests, TimeSpan window)
+    {
+        _counters.TryGetValue(key, out var count);
+        count++;
+        _counters[key] = count;
+        return Task.FromResult(new RateLimitResult(count <= maxRequests, count, maxRequests));
+    }
 }
 
 #endregion

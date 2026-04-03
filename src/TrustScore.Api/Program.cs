@@ -2,6 +2,7 @@ using DbUp;
 using StackExchange.Redis;
 using TrustScore.Api.Data;
 using TrustScore.Api.Endpoints;
+using TrustScore.Api.Middleware;
 using TrustScore.Api.Scoring;
 using TrustScore.Core.Interfaces;
 
@@ -22,6 +23,7 @@ builder.Services.AddScoped<IRatingRepository, RatingRepository>();
 builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
     ConnectionMultiplexer.Connect(ConfigurationOptions.Parse(redisConnectionString)));
 builder.Services.AddSingleton<ICacheService, RedisCacheService>();
+builder.Services.AddSingleton<IRateLimiter, RedisRateLimiter>();
 
 // Scoring
 builder.Services.AddSingleton<IScoringEngine, BetaReputationSystem>();
