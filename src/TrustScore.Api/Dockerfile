@@ -5,6 +5,7 @@ WORKDIR /src
 COPY TrustScore.sln ./
 COPY src/TrustScore.Api/TrustScore.Api.csproj src/TrustScore.Api/
 COPY src/TrustScore.Core/TrustScore.Core.csproj src/TrustScore.Core/
+COPY src/TrustScore.Tests/TrustScore.Tests.csproj src/TrustScore.Tests/
 RUN dotnet restore
 
 # Copy everything and build
