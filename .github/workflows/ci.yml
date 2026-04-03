@@ -27,7 +27,7 @@ jobs:
         run: dotnet restore
 
       - name: Build
-        run: dotnet build --no-restore --configuration Release --warnaserrors
+        run: dotnet build --no-restore --configuration Release /p:TreatWarningsAsErrors=true
 
   test:
     name: Test

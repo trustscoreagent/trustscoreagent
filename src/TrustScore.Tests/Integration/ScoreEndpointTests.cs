@@ -249,10 +249,14 @@ internal class FakeServiceRepository : IServiceRepository
         ["did:web:seeded.example.com"] = new ServiceEntity
         {
             Did = "did:web:seeded.example.com",
-            Alpha = 10, Beta = 2,
-            AlphaAvailability = 10, BetaAvailability = 2,
-            AlphaLatency = 8, BetaLatency = 3,
-            AlphaConformity = 9, BetaConformity = 2,
+            Alpha = 10,
+            Beta = 2,
+            AlphaAvailability = 10,
+            BetaAvailability = 2,
+            AlphaLatency = 8,
+            BetaLatency = 3,
+            AlphaConformity = 9,
+            BetaConformity = 2,
             RatingsCount = 50,
             SupportsReceipts = true,
             LastRatedAt = DateTimeOffset.UtcNow.AddHours(-1),

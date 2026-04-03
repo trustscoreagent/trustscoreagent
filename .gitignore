@@ -57,3 +57,6 @@ mcp-server/dist/
 *.log
 logs/
 src/src.sln
+*.png
+*.jpg
+*.jpeg
