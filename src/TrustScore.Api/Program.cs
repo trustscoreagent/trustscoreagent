@@ -70,11 +70,8 @@ if (!skipMigrations && (args.Contains("--migrate") || app.Environment.IsDevelopm
 // Middleware
 app.UseCors();
 
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
+app.UseSwagger();
+app.UseSwaggerUI();
 
 // Map endpoints
 app.MapHealthEndpoints();
