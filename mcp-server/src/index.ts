@@ -87,6 +87,35 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         required: ["service_did", "status_code", "latency_ms"],
       },
     },
+    {
+      name: "list_services",
+      description:
+        "List AI microservices that have been rated, sorted by trust score. " +
+        "Use this to discover reliable services or find alternatives. " +
+        "Returns a paginated list with scores and dimensional breakdown.",
+      inputSchema: {
+        type: "object" as const,
+        properties: {
+          sort_by: {
+            type: "string",
+            description: "Sort field: 'score' (default), 'ratings_count', or 'last_rated'",
+          },
+          min_score: {
+            type: "number",
+            description: "Minimum trust score filter (0.0-1.0)",
+          },
+          min_ratings: {
+            type: "number",
+            description: "Minimum number of ratings filter",
+          },
+          limit: {
+            type: "number",
+            description: "Number of results (default 20, max 100)",
+          },
+        },
+        required: [],
+      },
+    },
   ],
 }));
 
@@ -239,6 +268,72 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           {
             type: "text" as const,
             text: `Failed to submit rating: ${error instanceof Error ? error.message : "Unknown error"}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+
+  if (name === "list_services") {
+    try {
+      const params = new URLSearchParams();
+      if (args?.sort_by) params.set("sort_by", args.sort_by as string);
+      if (args?.min_score) params.set("min_score", String(args.min_score));
+      if (args?.min_ratings) params.set("min_ratings", String(args.min_ratings));
+      if (args?.limit) params.set("limit", String(args.limit));
+
+      const response = await fetch(`${API_BASE_URL}/v1/services?${params.toString()}`);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        return {
+          content: [{ type: "text" as const, text: `Error listing services: ${errorText}` }],
+          isError: true,
+        };
+      }
+
+      const data = (await response.json()) as {
+        services: Array<{
+          service: string;
+          score: number;
+          ratings_count: number;
+          dimensions: { availability: number; latency: number; conformity: number };
+          service_supports_receipts: boolean;
+        }>;
+        pagination: { count: number; limit: number; offset: number };
+      };
+
+      if (data.services.length === 0) {
+        return {
+          content: [{ type: "text" as const, text: "No services found matching the criteria." }],
+        };
+      }
+
+      const lines = data.services.map((s, i) => {
+        const trustLevel = s.score >= 0.8 ? "HIGH" : s.score >= 0.5 ? "MODERATE" : "LOW";
+        const receipt = s.service_supports_receipts ? " [receipts]" : "";
+        return `${i + 1}. ${s.service} — ${s.score}/1.0 (${trustLevel}) — ${s.ratings_count} ratings${receipt}`;
+      });
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: [
+              `Found ${data.pagination.count} service(s):`,
+              "",
+              ...lines,
+            ].join("\n"),
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Failed to list services: ${error instanceof Error ? error.message : "Unknown error"}`,
           },
         ],
         isError: true,
