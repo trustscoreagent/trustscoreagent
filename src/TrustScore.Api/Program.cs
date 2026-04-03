@@ -77,6 +77,7 @@ app.UseSwaggerUI();
 app.MapHealthEndpoints();
 app.MapScoreEndpoints();
 app.MapRateEndpoints();
+app.MapServicesEndpoints();
 
 // Cache headers for static files
 app.MapGet("/llms.txt", () => Results.File("public/llms.txt", "text/plain"))
