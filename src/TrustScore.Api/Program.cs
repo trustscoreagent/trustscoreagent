@@ -88,6 +88,7 @@ app.MapScoreEndpoints();
 app.MapRateEndpoints();
 app.MapServicesEndpoints();
 app.MapAuditEndpoints();
+app.MapPremiumEndpoints();
 
 // Cache headers for static files
 app.MapGet("/llms.txt", () => Results.File("public/llms.txt", "text/plain"))
