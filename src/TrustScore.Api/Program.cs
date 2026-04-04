@@ -19,6 +19,7 @@ var redisConnectionString = builder.Configuration.GetConnectionString("Redis")
 builder.Services.AddSingleton(new DbConnectionFactory(dbConnectionString));
 builder.Services.AddScoped<IServiceRepository, ServiceRepository>();
 builder.Services.AddScoped<IRatingRepository, RatingRepository>();
+builder.Services.AddScoped<IAuditService, AuditService>();
 
 // Redis
 builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
@@ -86,6 +87,7 @@ app.MapHealthEndpoints();
 app.MapScoreEndpoints();
 app.MapRateEndpoints();
 app.MapServicesEndpoints();
+app.MapAuditEndpoints();
 
 // Cache headers for static files
 app.MapGet("/llms.txt", () => Results.File("public/llms.txt", "text/plain"))
