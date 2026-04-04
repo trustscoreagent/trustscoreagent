@@ -1,4 +1,5 @@
 using TrustScore.Core.Interfaces;
+using TrustScore.Core.Models;
 
 namespace TrustScore.Api.Endpoints;
 
@@ -12,21 +13,24 @@ public static class PremiumEndpoints
     {
         // --- Score History (future price: 0.001 USDC) ---
         app.MapGet("/v1/score/history", async (
-            string did,
+            string? did,
+            string? service,
             int? months,
             IServiceRepository serviceRepo,
             IRatingRepository ratingRepo,
             IScoringEngine scoringEngine) =>
         {
-            if (string.IsNullOrWhiteSpace(did))
-                return Results.BadRequest(new { error = "missing_did", message = "Query parameter 'did' is required" });
+            var raw = service ?? did;
+            if (string.IsNullOrWhiteSpace(raw))
+                return Results.BadRequest(new { error = "missing_service", message = "Query parameter 'service' (or 'did') is required" });
 
-            var service = await serviceRepo.GetByDidAsync(did);
-            if (service is null)
-                return Results.NotFound(new { error = "service_not_found", message = "No ratings found for this service DID" });
+            var serviceId = ServiceIdentifier.Normalize(raw);
+            var svc = await serviceRepo.GetByDidAsync(serviceId);
+            if (svc is null)
+                return Results.NotFound(new { error = "service_not_found", message = "No ratings found for this service" });
 
             var period = Math.Clamp(months ?? 12, 1, 24);
-            var ratings = await ratingRepo.GetHistoryAsync(did, period);
+            var ratings = await ratingRepo.GetHistoryAsync(serviceId, period);
 
             // Group by day and compute daily aggregates
             var dailyScores = ratings
@@ -43,11 +47,11 @@ public static class PremiumEndpoints
                 })
                 .ToList();
 
-            var score = scoringEngine.CalculateScore(service);
+            var score = scoringEngine.CalculateScore(svc);
 
             return Results.Ok(new
             {
-                service = did,
+                service = serviceId,
                 current_score = score.Score,
                 period_months = period,
                 total_ratings = ratings.Count,
@@ -68,26 +72,29 @@ public static class PremiumEndpoints
 
         // --- Score Detailed (future price: 0.001 USDC) ---
         app.MapGet("/v1/score/detailed", async (
-            string did,
+            string? did,
+            string? service,
             IServiceRepository serviceRepo,
             IRatingRepository ratingRepo,
             IScoringEngine scoringEngine) =>
         {
-            if (string.IsNullOrWhiteSpace(did))
-                return Results.BadRequest(new { error = "missing_did", message = "Query parameter 'did' is required" });
+            var raw = service ?? did;
+            if (string.IsNullOrWhiteSpace(raw))
+                return Results.BadRequest(new { error = "missing_service", message = "Query parameter 'service' (or 'did') is required" });
 
-            var service = await serviceRepo.GetByDidAsync(did);
-            if (service is null)
-                return Results.NotFound(new { error = "service_not_found", message = "No ratings found for this service DID" });
+            var serviceId = ServiceIdentifier.Normalize(raw);
+            var svc = await serviceRepo.GetByDidAsync(serviceId);
+            if (svc is null)
+                return Results.NotFound(new { error = "service_not_found", message = "No ratings found for this service" });
 
-            var ratings = await ratingRepo.GetHistoryAsync(did, 3); // Last 3 months for detailed
-            var score = scoringEngine.CalculateScore(service);
+            var ratings = await ratingRepo.GetHistoryAsync(serviceId, 3);
+            var score = scoringEngine.CalculateScore(svc);
 
             var latencies = ratings.Select(r => r.LatencyMs).OrderBy(l => l).ToList();
 
             return Results.Ok(new
             {
-                service = did,
+                service = serviceId,
                 score = score.Score,
                 confidence = score.Confidence,
                 ratings_count = score.RatingsCount,
@@ -148,19 +155,20 @@ public static class PremiumEndpoints
                 return Results.BadRequest(new { error = "too_many_dids", message = "Maximum 100 DIDs per request" });
 
             var results = new List<object>();
-            foreach (var did in request.Dids)
+            foreach (var rawDid in request.Dids)
             {
-                var service = await serviceRepo.GetByDidAsync(did);
-                if (service is null)
+                var normalizedId = ServiceIdentifier.Normalize(rawDid);
+                var svc = await serviceRepo.GetByDidAsync(normalizedId);
+                if (svc is null)
                 {
-                    results.Add(new { service = did, found = false });
+                    results.Add(new { service = normalizedId, found = false });
                     continue;
                 }
 
-                var score = scoringEngine.CalculateScore(service);
+                var score = scoringEngine.CalculateScore(svc);
                 results.Add(new
                 {
-                    service = did,
+                    service = normalizedId,
                     found = true,
                     score = score.Score,
                     confidence = score.Confidence,

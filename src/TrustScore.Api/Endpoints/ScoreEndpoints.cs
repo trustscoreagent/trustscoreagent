@@ -1,5 +1,6 @@
 using System.Text.Json;
 using TrustScore.Core.Interfaces;
+using TrustScore.Core.Models;
 
 namespace TrustScore.Api.Endpoints;
 
@@ -10,29 +11,33 @@ public static class ScoreEndpoints
     public static void MapScoreEndpoints(this WebApplication app)
     {
         app.MapGet("/v1/score", async (
-            string did,
+            string? did,
+            string? service,
             IServiceRepository serviceRepo,
             IScoringEngine scoringEngine,
             ICacheService cache) =>
         {
-            if (string.IsNullOrWhiteSpace(did))
-                return Results.BadRequest(new { error = "missing_did", message = "Query parameter 'did' is required" });
+            // Accept both ?service= (preferred) and ?did= (backwards compatible)
+            var raw = service ?? did;
+            if (string.IsNullOrWhiteSpace(raw))
+                return Results.BadRequest(new { error = "missing_service", message = "Query parameter 'service' (or 'did') is required" });
+
+            var serviceId = ServiceIdentifier.Normalize(raw);
 
             // Try cache first
-            var cached = await cache.GetAsync($"score:{did}");
+            var cached = await cache.GetAsync($"score:{serviceId}");
             if (cached is not null)
             {
                 var cachedScore = JsonSerializer.Deserialize<object>(cached);
                 return Results.Ok(cachedScore);
             }
 
-            var service = await serviceRepo.GetByDidAsync(did);
+            var serviceEntity = await serviceRepo.GetByDidAsync(serviceId);
 
             // Unknown service → return neutral score (0.5) with zero confidence
-            // This is smoother for agents than a 404 error
-            var score = service is not null
-                ? scoringEngine.CalculateScore(service)
-                : scoringEngine.CalculateScore(new TrustScore.Core.Models.ServiceEntity { Did = did });
+            var score = serviceEntity is not null
+                ? scoringEngine.CalculateScore(serviceEntity)
+                : scoringEngine.CalculateScore(new ServiceEntity { Did = serviceId });
 
             var response = new
             {
@@ -49,10 +54,10 @@ public static class ScoreEndpoints
                 recent_incidents = score.RecentIncidents,
                 last_rated = score.LastRatedAt,
                 service_supports_receipts = score.ServiceSupportsReceipts,
-                known = service is not null,
+                known = serviceEntity is not null,
             };
 
-            await cache.SetAsync($"score:{did}", JsonSerializer.Serialize(response), CacheTtl);
+            await cache.SetAsync($"score:{serviceId}", JsonSerializer.Serialize(response), CacheTtl);
 
             return Results.Ok(response);
         })
