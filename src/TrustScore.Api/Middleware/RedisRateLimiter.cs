@@ -33,9 +33,9 @@ public sealed class RedisRateLimiter : IRateLimiter
         }
         catch (Exception ex)
         {
-            // Redis down — allow the request (fail open)
-            _logger.LogWarning(ex, "Redis rate limiter unavailable, allowing request for key {Key}", key);
-            return new RateLimitResult(true, 0, maxRequests);
+            // Redis down — reject the request (fail closed for security)
+            _logger.LogWarning(ex, "Redis rate limiter unavailable, rejecting request for key {Key}", key);
+            return new RateLimitResult(false, maxRequests, maxRequests);
         }
     }
 }

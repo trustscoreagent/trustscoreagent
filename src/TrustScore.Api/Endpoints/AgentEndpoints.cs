@@ -42,10 +42,18 @@ public static class AgentEndpoints
 
         // Trigger EigenTrust recalculation (will be replaced by Cloud Run Job in production)
         app.MapPost("/v1/admin/eigentrust", async (
+            HttpContext httpContext,
+            IConfiguration config,
             IRatingRepository ratingRepo,
             IAgentRepository agentRepo,
             ILogger<EigenTrustEngine> logger) =>
         {
+            // API key authentication for admin endpoints
+            var expectedKey = config["AdminApiKey"];
+            var providedKey = httpContext.Request.Headers["X-Admin-Key"].FirstOrDefault();
+            if (string.IsNullOrEmpty(expectedKey) || providedKey != expectedKey)
+                return Results.Json(new { error = "unauthorized", message = "Valid X-Admin-Key header required" }, statusCode: 401);
+
             var engine = new EigenTrustEngine();
 
             var ratings = await ratingRepo.GetAllRatingsForTrustAsync();

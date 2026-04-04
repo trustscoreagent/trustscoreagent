@@ -9,6 +9,12 @@ using TrustScore.Core.Interfaces;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Security: limit request body size
+builder.WebHost.ConfigureKestrel(options =>
+{
+    options.Limits.MaxRequestBodySize = 1 * 1024 * 1024; // 1 MB max
+});
+
 // Configuration
 var dbConnectionString = builder.Configuration.GetConnectionString("PostgreSQL")
     ?? throw new InvalidOperationException("Connection string 'PostgreSQL' not configured");

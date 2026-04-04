@@ -36,14 +36,20 @@ public static class RateEndpoints
             if (request.Metrics is null)
                 return Results.BadRequest(new { error = "missing_metrics", message = "Field 'metrics' is required" });
 
-            if (request.Metrics.LatencyMs <= 0)
-                return Results.BadRequest(new { error = "invalid_latency", message = "metrics.latency_ms must be > 0" });
+            if (request.Metrics.LatencyMs <= 0 || request.Metrics.LatencyMs > 600_000)
+                return Results.BadRequest(new { error = "invalid_latency", message = "metrics.latency_ms must be between 1 and 600000" });
 
             if (request.Metrics.StatusCode < 100 || request.Metrics.StatusCode > 599)
                 return Results.BadRequest(new { error = "invalid_status_code", message = "metrics.status_code must be between 100 and 599" });
 
             if (request.QualityScore.HasValue && (request.QualityScore < 1 || request.QualityScore > 5))
                 return Results.BadRequest(new { error = "invalid_quality_score", message = "quality_score must be between 1 and 5" });
+
+            if (request.Comment is not null && request.Comment.Length > 500)
+                return Results.BadRequest(new { error = "comment_too_long", message = "comment must be 500 characters or less" });
+
+            if (agentDid.Length > 500)
+                return Results.BadRequest(new { error = "invalid_agent_did", message = "X-Agent-DID too long" });
 
             // Rate limiting via Redis
             var rateLimitKey = $"{agentDid}:{serviceId}";
