@@ -61,4 +61,35 @@ public sealed class RatingRepository : IRatingRepository
                 Since = DateTimeOffset.UtcNow - window,
             });
     }
+
+    public async Task<RatingLeafInfo?> GetLeafInfoAsync(Guid ratingId)
+    {
+        using var conn = _db.CreateConnection();
+        return await conn.QuerySingleOrDefaultAsync<RatingLeafInfo>(
+            """
+            SELECT id AS Id,
+                   service_did AS ServiceDid,
+                   created_at AS CreatedAt,
+                   merkle_leaf_hash AS MerkleLeafHash
+            FROM ratings
+            WHERE id = @Id
+            """,
+            new { Id = ratingId });
+    }
+
+    public async Task<IReadOnlyList<RatingLeafInfo>> GetAllLeafHashesAsync()
+    {
+        using var conn = _db.CreateConnection();
+        var results = await conn.QueryAsync<RatingLeafInfo>(
+            """
+            SELECT id AS Id,
+                   service_did AS ServiceDid,
+                   created_at AS CreatedAt,
+                   merkle_leaf_hash AS MerkleLeafHash
+            FROM ratings
+            WHERE merkle_leaf_hash IS NOT NULL
+            ORDER BY created_at ASC
+            """);
+        return results.ToList().AsReadOnly();
+    }
 }

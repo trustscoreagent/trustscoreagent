@@ -12,7 +12,25 @@ public interface IAuditService
     /// Get the latest anchored Merkle root.
     /// </summary>
     Task<MerkleAnchor?> GetLatestAnchorAsync();
+
+    /// <summary>
+    /// Generate an inclusion proof for a specific rating.
+    /// Rebuilds the Merkle tree from all leaf hashes and returns the proof.
+    /// </summary>
+    Task<InclusionProofResult?> GetInclusionProofAsync(Guid ratingId);
 }
+
+public sealed class InclusionProofResult
+{
+    public required string RatingId { get; init; }
+    public required string LeafHash { get; init; }
+    public required string MerkleRoot { get; init; }
+    public required List<ProofNodeDto> Proof { get; init; }
+    public int LeafIndex { get; init; }
+    public int TotalLeaves { get; init; }
+}
+
+public sealed record ProofNodeDto(string Hash, bool IsRight);
 
 public sealed class MerkleAnchor
 {

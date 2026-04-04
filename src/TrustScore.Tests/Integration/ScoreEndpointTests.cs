@@ -409,6 +409,21 @@ internal class FakeRatingRepository : IRatingRepository
             r.AgentDid == agentDid &&
             r.ServiceDid == serviceDid &&
             r.CreatedAt > DateTimeOffset.UtcNow - window));
+
+    public Task<RatingLeafInfo?> GetLeafInfoAsync(Guid ratingId)
+    {
+        var rating = _ratings.FirstOrDefault(r => r.Id == ratingId);
+        if (rating is null) return Task.FromResult<RatingLeafInfo?>(null);
+        return Task.FromResult<RatingLeafInfo?>(
+            new RatingLeafInfo(rating.Id, rating.ServiceDid, rating.CreatedAt, "fakehash"));
+    }
+
+    public Task<IReadOnlyList<RatingLeafInfo>> GetAllLeafHashesAsync()
+    {
+        var result = _ratings.Select(r =>
+            new RatingLeafInfo(r.Id, r.ServiceDid, r.CreatedAt, "fakehash")).ToList().AsReadOnly();
+        return Task.FromResult<IReadOnlyList<RatingLeafInfo>>(result);
+    }
 }
 
 internal class FakeCacheService : ICacheService
@@ -492,6 +507,9 @@ internal class FakeAuditService : IAuditService
 
     public Task<MerkleAnchor?> GetLatestAnchorAsync()
         => Task.FromResult<MerkleAnchor?>(null);
+
+    public Task<InclusionProofResult?> GetInclusionProofAsync(Guid ratingId)
+        => Task.FromResult<InclusionProofResult?>(null);
 }
 
 #endregion

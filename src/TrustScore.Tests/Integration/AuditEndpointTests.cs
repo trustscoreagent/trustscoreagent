@@ -32,4 +32,24 @@ public class AuditEndpointTests : IClassFixture<WebApplicationFactory<Program>>
 
         response.Content.Headers.ContentType!.MediaType.Should().Be("application/json");
     }
+
+    [Fact]
+    public async Task AuditProof_InvalidUuid_Returns400()
+    {
+        var response = await _client.GetAsync("/v1/audit/proof/not-a-uuid");
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var body = await response.Content.ReadAsStringAsync();
+        body.Should().Contain("invalid_rating_id");
+    }
+
+    [Fact]
+    public async Task AuditProof_NonExistentRating_Returns404()
+    {
+        var response = await _client.GetAsync($"/v1/audit/proof/{Guid.NewGuid()}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        var body = await response.Content.ReadAsStringAsync();
+        body.Should().Contain("not_found");
+    }
 }
