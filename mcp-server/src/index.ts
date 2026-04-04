@@ -137,16 +137,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         `${API_BASE_URL}/v1/score?did=${encodeURIComponent(serviceDid)}`
       );
 
-      if (response.status === 404) {
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: `No reputation data found for ${serviceDid}. This service has not been rated yet. Proceed with caution.`,
-            },
-          ],
-        };
-      }
+      // API always returns 200 (unknown services get neutral score 0.5)
 
       if (!response.ok) {
         const errorText = await response.text();
@@ -157,6 +148,26 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       const score = await response.json();
+
+      // Unknown service — neutral score, no data
+      if (score.known === false) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: [
+                `Service ${score.service}: UNKNOWN (no ratings yet)`,
+                `Score: 0.5/1.0 (neutral default)`,
+                `Confidence: 0 (no data)`,
+                ``,
+                `This service has never been rated. Proceed with caution.`,
+                `After calling it, consider submitting a rating to help other agents.`,
+              ].join("\n"),
+            },
+          ],
+        };
+      }
+
       const trustLevel =
         score.score >= 0.8
           ? "HIGH"
