@@ -40,7 +40,8 @@ builder.Services.AddSingleton<IDidResolver, DidWebResolver>();
 builder.Services.AddSingleton<IReceiptVerifier, ReceiptVerifier>();
 
 // Scoring
-builder.Services.AddSingleton<IScoringEngine, BetaReputationSystem>();
+builder.Services.AddSingleton<IScoringEngine>(sp =>
+    new BetaReputationSystem(sp.GetRequiredService<IConfiguration>()));
 
 // OpenAPI
 builder.Services.AddEndpointsApiExplorer();
