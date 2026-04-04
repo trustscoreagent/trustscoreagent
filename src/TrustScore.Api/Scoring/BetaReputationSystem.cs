@@ -115,9 +115,88 @@ public sealed class BetaReputationSystem : IScoringEngine
         return service;
     }
 
+    public RatingDelta ComputeDelta(Rating rating)
+    {
+        var weight = rating.Weight;
+        var metrics = rating.Metrics;
+        var delta = new RatingDeltaBuilder();
+
+        // Availability
+        if (metrics.StatusCode >= 200 && metrics.StatusCode < 300)
+        {
+            delta.AlphaAvailability += weight;
+            delta.Alpha += weight;
+        }
+        else if (metrics.StatusCode >= 500)
+        {
+            delta.BetaAvailability += weight;
+            delta.Beta += weight;
+        }
+
+        // Latency
+        if (metrics.LatencyMs > 0 && metrics.LatencyMs <= LatencyThresholdMs)
+        {
+            delta.AlphaLatency += weight;
+            delta.Alpha += weight;
+        }
+        else if (metrics.LatencyMs > LatencyThresholdMs)
+        {
+            delta.BetaLatency += weight;
+            delta.Beta += weight;
+        }
+
+        // Conformity
+        if (metrics.SchemaValid == true)
+        {
+            delta.AlphaConformity += weight;
+            delta.Alpha += weight;
+        }
+        else if (metrics.SchemaValid == false)
+        {
+            delta.BetaConformity += weight;
+            delta.Beta += weight;
+        }
+
+        // Quality score modulation
+        if (rating.QualityScore.HasValue)
+        {
+            var qualityFactor = (rating.QualityScore.Value - 3.0) / 2.0;
+            var qualityWeight = weight * 0.25;
+            if (qualityFactor > 0)
+                delta.Alpha += qualityWeight * qualityFactor;
+            else
+                delta.Beta += qualityWeight * Math.Abs(qualityFactor);
+        }
+
+        return new RatingDelta
+        {
+            AlphaDelta = delta.Alpha,
+            BetaDelta = delta.Beta,
+            AlphaAvailabilityDelta = delta.AlphaAvailability,
+            BetaAvailabilityDelta = delta.BetaAvailability,
+            AlphaLatencyDelta = delta.AlphaLatency,
+            BetaLatencyDelta = delta.BetaLatency,
+            AlphaConformityDelta = delta.AlphaConformity,
+            BetaConformityDelta = delta.BetaConformity,
+            SupportsReceipts = rating.ReceiptVerified,
+        };
+    }
+
     private static double BetaScore(double alpha, double beta)
         => alpha / (alpha + beta);
 
     private static double BetaVariance(double alpha, double beta)
         => (alpha * beta) / ((alpha + beta) * (alpha + beta) * (alpha + beta + 1));
+
+    private class RatingDeltaBuilder
+    {
+        public double Alpha;
+        public double Beta;
+        public double AlphaAvailability;
+        public double BetaAvailability;
+        public double AlphaLatency;
+        public double BetaLatency;
+        public double AlphaConformity;
+        public double BetaConformity;
+    }
 }
