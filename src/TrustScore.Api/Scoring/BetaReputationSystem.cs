@@ -199,10 +199,16 @@ public sealed class BetaReputationSystem : IScoringEngine
     }
 
     private static double BetaScore(double alpha, double beta)
-        => alpha / (alpha + beta);
+    {
+        var denom = alpha + beta;
+        return denom > 0 ? alpha / denom : 0.5;
+    }
 
     private static double BetaVariance(double alpha, double beta)
-        => (alpha * beta) / ((alpha + beta) * (alpha + beta) * (alpha + beta + 1));
+    {
+        var denom = (alpha + beta) * (alpha + beta) * (alpha + beta + 1);
+        return denom > 0 ? (alpha * beta) / denom : 0.0;
+    }
 
     private class RatingDeltaBuilder
     {
