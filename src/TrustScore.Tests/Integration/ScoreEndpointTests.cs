@@ -482,6 +482,14 @@ internal class FakeCacheService : ICacheService
         return Task.CompletedTask;
     }
 
+    public Task<bool> SetIfNotExistsAsync(string key, string value, TimeSpan expiry)
+    {
+        if (_store.ContainsKey(key))
+            return Task.FromResult(false);
+        _store[key] = value;
+        return Task.FromResult(true);
+    }
+
     public Task RemoveAsync(string key)
     {
         _store.Remove(key);
