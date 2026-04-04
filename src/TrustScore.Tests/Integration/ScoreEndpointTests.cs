@@ -75,6 +75,7 @@ public class ScoreEndpointTests : IClassFixture<WebApplicationFactory<Program>>
                 ReplaceService<IReceiptVerifier, FakeReceiptVerifier>(services);
                 ReplaceService<IDidResolver, FakeDidResolver>(services);
                 ReplaceService<IAuditService, FakeAuditService>(services);
+                ReplaceService<IAgentRepository, FakeAgentRepository>(services);
 
                 // Remove Redis (not needed with FakeCacheService)
                 var redisDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IConnectionMultiplexer));
@@ -427,6 +428,14 @@ internal class FakeRatingRepository : IRatingRepository
         return Task.FromResult<IReadOnlyList<RatingLeafInfo>>(result);
     }
 
+    public Task<IReadOnlyList<AgentRatingRecord>> GetAllRatingsForTrustAsync()
+    {
+        var result = _ratings.Select(r => new AgentRatingRecord(
+            r.AgentDid, r.ServiceDid, r.Metrics.StatusCode, r.Metrics.LatencyMs,
+            r.Metrics.SchemaValid, r.ReceiptVerified)).ToList().AsReadOnly();
+        return Task.FromResult<IReadOnlyList<AgentRatingRecord>>(result);
+    }
+
     public Task<IReadOnlyList<RatingSummary>> GetHistoryAsync(string serviceDid, int months)
     {
         var result = _ratings
@@ -507,6 +516,20 @@ internal class FakeDidResolver : IDidResolver
 {
     public Task<byte[]?> ResolvePublicKeyAsync(string did)
         => Task.FromResult<byte[]?>(null);
+}
+
+internal class FakeAgentRepository : IAgentRepository
+{
+    private readonly Dictionary<string, double> _scores = new();
+
+    public Task<double> GetTrustScoreAsync(string agentDid)
+        => Task.FromResult(_scores.GetValueOrDefault(agentDid, 0.5));
+
+    public Task UpsertTrustScoresAsync(Dictionary<string, double> scores)
+    {
+        foreach (var (k, v) in scores) _scores[k] = v;
+        return Task.CompletedTask;
+    }
 }
 
 internal class FakeAuditService : IAuditService
