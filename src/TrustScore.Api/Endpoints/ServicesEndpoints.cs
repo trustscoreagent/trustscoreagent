@@ -26,7 +26,12 @@ public static class ServicesEndpoints
                 MinRatings = min_ratings,
             };
 
-            // Validate sort_by
+            // Validate inputs
+            if (min_score.HasValue && (min_score < 0 || min_score > 1))
+                return Results.BadRequest(new { error = "invalid_min_score", message = "min_score must be between 0 and 1" });
+            if (min_ratings.HasValue && min_ratings < 0)
+                return Results.BadRequest(new { error = "invalid_min_ratings", message = "min_ratings must be >= 0" });
+
             var validSortFields = new[] { "score", "ratings_count", "last_rated" };
             if (!validSortFields.Contains(filter.SortBy))
                 return Results.BadRequest(new

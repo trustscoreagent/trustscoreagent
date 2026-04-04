@@ -12,10 +12,15 @@ namespace TrustScore.Core.Models;
 /// </summary>
 public static class ServiceIdentifier
 {
+    private const int MaxLength = 500;
+
     public static string Normalize(string input)
     {
         if (string.IsNullOrWhiteSpace(input))
             throw new ArgumentException("Service identifier cannot be empty", nameof(input));
+
+        if (input.Length > MaxLength)
+            throw new ArgumentException($"Service identifier too long (max {MaxLength} characters)", nameof(input));
 
         var trimmed = input.Trim();
 
