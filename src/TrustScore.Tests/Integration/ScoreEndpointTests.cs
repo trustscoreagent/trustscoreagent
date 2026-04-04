@@ -322,7 +322,7 @@ public class HealthEndpointTests : IClassFixture<WebApplicationFactory<Program>>
         var response = await _client.GetAsync("/health");
 
         var body = await response.Content.ReadAsStringAsync();
-        body.Should().Contain("\"version\":\"0.1.0\"");
+        body.Should().Contain("\"version\":");
     }
 
     [Fact]

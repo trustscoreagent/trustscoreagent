@@ -164,4 +164,29 @@ public class MerkleTreeTests
 
         MerkleTree.VerifyProof(leafHash, proof, root).Should().BeTrue();
     }
+
+    [Fact]
+    public void OldProof_VerifiesAgainstOldRoot_NotNewRoot()
+    {
+        var tree = new MerkleTree();
+        var did = "did:web:test.example.com";
+        var ts = DateTimeOffset.UtcNow;
+        var id1 = Guid.NewGuid();
+
+        tree.AddLeaf(id1, did, ts);
+        var rootBefore = tree.Root!.ToArray(); // Copy
+        var proofBefore = tree.GetInclusionProof(0);
+        var leafHash = MerkleTree.ComputeLeafHash(id1, did, ts);
+
+        // Add more leaves — tree changes
+        tree.AddLeaf(Guid.NewGuid(), did, ts);
+        tree.AddLeaf(Guid.NewGuid(), did, ts);
+        var rootAfter = tree.Root!;
+
+        // Old proof verifies against OLD root
+        MerkleTree.VerifyProof(leafHash, proofBefore, rootBefore).Should().BeTrue();
+
+        // Old proof does NOT verify against new root (tree structure changed)
+        MerkleTree.VerifyProof(leafHash, proofBefore, rootAfter).Should().BeFalse();
+    }
 }

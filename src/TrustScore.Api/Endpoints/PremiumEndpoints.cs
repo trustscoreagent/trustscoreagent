@@ -191,6 +191,9 @@ public static class PremiumEndpoints
         });
     }
 
+    /// <summary>
+    /// Nearest-rank percentile method. For p50 on [1,2,3,4,5], returns 3.
+    /// </summary>
     private static int Percentile(List<int> sorted, int percentile)
     {
         if (sorted.Count == 0) return 0;

@@ -132,4 +132,36 @@ public class EigenTrustTests
         result.Should().HaveCount(100);
         // Should complete without timeout or exception
     }
+
+    [Fact]
+    public void AllAgentsIdentical_ProducesNoNaN()
+    {
+        var ratings = new List<AgentRatingRecord>();
+        for (int a = 0; a < 5; a++)
+            ratings.Add(new($"agent-{a}", "service-1", 200, 100, true, false));
+
+        var result = _engine.ComputeTrustScores(ratings);
+
+        foreach (var (_, score) in result)
+        {
+            double.IsNaN(score).Should().BeFalse();
+            double.IsInfinity(score).Should().BeFalse();
+        }
+    }
+
+    [Fact]
+    public void NoVerifiedRatings_UsesUniformSeeds()
+    {
+        var ratings = new List<AgentRatingRecord>
+        {
+            new("agent-a", "service-1", 200, 100, true, false),
+            new("agent-b", "service-1", 200, 100, true, false),
+        };
+
+        var result = _engine.ComputeTrustScores(ratings);
+
+        // With uniform seeds, all agents should get similar trust
+        result.Should().HaveCount(2);
+        Math.Abs(result["agent-a"] - result["agent-b"]).Should().BeLessThan(0.5);
+    }
 }
