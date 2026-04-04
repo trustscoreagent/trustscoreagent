@@ -39,13 +39,13 @@ public class ScoreEndpointTests : IClassFixture<WebApplicationFactory<Program>>
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         var body = await response.Content.ReadFromJsonAsync<ErrorResponse>();
-        body!.Error.Should().Be("missing_did");
+        body!.Error.Should().Be("missing_service");
     }
 
     [Fact]
     public async Task GetScore_KnownService_ReturnsScore()
     {
-        var response = await _client.GetAsync("/v1/score?did=did:web:seeded.example.com");
+        var response = await _client.GetAsync("/v1/score?did=seeded.example.com");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.Content.ReadAsStringAsync();
@@ -339,9 +339,9 @@ internal class FakeServiceRepository : IServiceRepository
 {
     private readonly Dictionary<string, ServiceEntity> _services = new()
     {
-        ["did:web:seeded.example.com"] = new ServiceEntity
+        ["seeded.example.com"] = new ServiceEntity
         {
-            Did = "did:web:seeded.example.com",
+            Did = "seeded.example.com",
             Alpha = 10,
             Beta = 2,
             AlphaAvailability = 10,

@@ -1,6 +1,7 @@
 using TrustScore.Core.Interfaces;
 using TrustScore.Core.Models;
 using ReceiptStatus = TrustScore.Core.Models.ReceiptVerificationStatus;
+using SvcId = TrustScore.Core.Models.ServiceIdentifier;
 
 namespace TrustScore.Api.Endpoints;
 
@@ -23,7 +24,9 @@ public static class RateEndpoints
         {
             // Validate required fields
             if (string.IsNullOrWhiteSpace(request.ServiceDid))
-                return Results.BadRequest(new { error = "missing_service_did", message = "Field 'service_did' is required" });
+                return Results.BadRequest(new { error = "missing_service_did", message = "Field 'service_did' (or 'service') is required" });
+
+            var serviceId = SvcId.Normalize(request.ServiceDid);
 
             var agentDid = httpContext.Request.Headers["X-Agent-DID"].FirstOrDefault();
             if (string.IsNullOrWhiteSpace(agentDid))
@@ -42,7 +45,7 @@ public static class RateEndpoints
                 return Results.BadRequest(new { error = "invalid_quality_score", message = "quality_score must be between 1 and 5" });
 
             // Rate limiting via Redis
-            var rateLimitKey = $"{agentDid}:{request.ServiceDid}";
+            var rateLimitKey = $"{agentDid}:{serviceId}";
             var rateLimitResult = await rateLimiter.CheckAsync(rateLimitKey, MaxRatingsPerHour, TimeSpan.FromHours(1));
             if (!rateLimitResult.Allowed)
                 return Results.Json(
@@ -56,7 +59,7 @@ public static class RateEndpoints
 
             if (hasReceipt)
             {
-                var verification = await receiptVerifier.VerifyAsync(request.Receipt!, request.ServiceDid);
+                var verification = await receiptVerifier.VerifyAsync(request.Receipt!, SvcId.ToDid(serviceId));
 
                 if (verification.Status == ReceiptStatus.NonceAlreadyUsed)
                     return Results.Json(
@@ -69,7 +72,7 @@ public static class RateEndpoints
 
             var rating = new Rating
             {
-                ServiceDid = request.ServiceDid,
+                ServiceDid = serviceId,
                 AgentDid = agentDid,
                 Metrics = new RatingMetrics
                 {
@@ -87,8 +90,8 @@ public static class RateEndpoints
             };
 
             // Get or create service entity
-            var service = await serviceRepo.GetByDidAsync(request.ServiceDid)
-                ?? new ServiceEntity { Did = request.ServiceDid };
+            var service = await serviceRepo.GetByDidAsync(serviceId)
+                ?? new ServiceEntity { Did = serviceId };
 
             // Apply rating to scoring model
             service = scoringEngine.ApplyRating(service, rating);
@@ -101,7 +104,7 @@ public static class RateEndpoints
             await auditService.RecordLeafAsync(rating.Id, rating.ServiceDid, rating.CreatedAt);
 
             // Invalidate cache
-            await cache.RemoveAsync($"score:{request.ServiceDid}");
+            await cache.RemoveAsync($"score:{serviceId}");
 
             var score = scoringEngine.CalculateScore(service);
 
@@ -128,8 +131,14 @@ public static class RateEndpoints
 
 public sealed record RateRequest
 {
+    // Accept both "service" (preferred) and "service_did" (backwards compatible)
+    [System.Text.Json.Serialization.JsonPropertyName("service")]
+    public string? Service { get; init; }
+
     [System.Text.Json.Serialization.JsonPropertyName("service_did")]
-    public string? ServiceDid { get; init; }
+    public string? ServiceDidLegacy { get; init; }
+
+    public string? ServiceDid => Service ?? ServiceDidLegacy;
 
     [System.Text.Json.Serialization.JsonPropertyName("metrics")]
     public RateRequestMetrics? Metrics { get; init; }
