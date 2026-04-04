@@ -38,8 +38,9 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           service_did: {
             type: "string",
             description:
-              "The DID (Decentralized Identifier) of the service to check. " +
-              "Format: did:web:domain.com (e.g., did:web:api.example.com)",
+              "The service to check. Accepts any format: " +
+              "URL (https://api.example.com), domain (api.example.com), " +
+              "or DID (did:web:api.example.com). All resolve to the same service.",
           },
         },
         required: ["service_did"],
@@ -57,7 +58,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         properties: {
           service_did: {
             type: "string",
-            description: "The DID of the service you called (e.g., did:web:api.example.com)",
+            description: "The service you called. URL, domain, or DID (e.g., api.example.com)",
           },
           status_code: {
             type: "number",
@@ -134,7 +135,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
     try {
       const response = await fetch(
-        `${API_BASE_URL}/v1/score?did=${encodeURIComponent(serviceDid)}`
+        `${API_BASE_URL}/v1/score?service=${encodeURIComponent(serviceDid)}`
       );
 
       // API always returns 200 (unknown services get neutral score 0.5)

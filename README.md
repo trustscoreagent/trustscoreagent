@@ -7,29 +7,35 @@ Free, open reputation registry for AI microservices. Agents check trust scores b
 AI agents increasingly rely on paid microservices. TrustScoreAgent lets any agent:
 - **Check** the reputation of a service before calling it
 - **Rate** a service after calling it
+- **Discover** which services are reliable
 
-Two endpoints. Both free. No account needed.
+No account needed. No API key. Identify services by URL, domain, or DID.
 
 ## Quick start
 
 ```bash
-# Check a service's trust score
-curl "https://api.trustscoreagent.com/v1/score?did=did:web:api.example.com"
+# Check a service's trust score (any format works)
+curl "https://api.trustscoreagent.com/v1/score?service=api.example.com"
+curl "https://api.trustscoreagent.com/v1/score?service=https://api.example.com/v1/translate"
+
+# Unknown services return a neutral score (0.5) — no errors
+curl "https://api.trustscoreagent.com/v1/score?service=never-seen-before.com"
 
 # Rate a service after calling it
 curl -X POST "https://api.trustscoreagent.com/v1/rate" \
   -H "Content-Type: application/json" \
-  -H "X-Agent-DID: did:web:my-agent.example.com" \
+  -H "X-Agent-DID: my-agent.example.com" \
   -d '{
-    "service_did": "did:web:api.example.com",
+    "service": "api.example.com",
     "metrics": {
       "status_code": 200,
       "latency_ms": 143,
-      "response_size_bytes": 2048,
       "schema_valid": true
-    },
-    "quality_score": 4
+    }
   }'
+
+# List top-rated services
+curl "https://api.trustscoreagent.com/v1/services?sort_by=score&min_ratings=10"
 ```
 
 ## Local development
@@ -39,67 +45,66 @@ curl -X POST "https://api.trustscoreagent.com/v1/rate" \
 docker compose up -d
 
 # Run the API
-cd src/TrustScore.Api
-dotnet run
+dotnet run --project src/TrustScore.Api
 
 # Run tests
 dotnet test
-```
 
-The API starts at `http://localhost:5000`. Swagger UI available at `http://localhost:5000/swagger` in development mode.
+# Swagger UI
+open http://localhost:5000/swagger
+```
 
 ## Architecture
 
 - **C# / .NET 8** — ASP.NET Core Minimal API
 - **PostgreSQL** — Ratings and service scores
-- **Redis** — Score caching and rate limiting
-- **Beta Reputation System** — Bayesian scoring algorithm
-- **Cloudflare** — CDN, DDoS protection, edge caching
+- **Redis** — Score caching, rate limiting, nonce tracking
+- **Beta Reputation System** — Bayesian scoring (per-dimension: availability, latency, conformity)
+- **EigenTrust** — Anti-Sybil agent trust scoring
+- **Merkle Tree** — Cryptographic audit log with inclusion proofs
+- **Ed25519 Receipt Verification** — Cryptographic proof of service interaction
+- **MCP Server** — Integration with Claude, Cursor, and MCP-compatible agents
 
 ## API Reference
 
-### GET /v1/score?did={service_did}
+### Core (free, always)
 
-Returns the trust score for a service.
+| Endpoint | Description |
+|----------|-------------|
+| `GET /v1/score?service=` | Trust score for a service (0.5 neutral for unknown) |
+| `POST /v1/rate` | Submit a rating after calling a service |
+| `GET /v1/services` | List rated services (pagination, sorting, filtering) |
+| `GET /v1/agent/trust?did=` | Check your agent's trust score |
+| `GET /v1/audit/root` | Latest Merkle tree root |
+| `GET /v1/audit/proof/{id}` | Cryptographic inclusion proof for a rating |
 
-**Response:**
-```json
-{
-  "service": "did:web:api.example.com",
-  "score": 0.87,
-  "confidence": 0.94,
-  "ratings_count": 2341,
-  "dimensions": {
-    "availability": 0.99,
-    "latency": 0.82,
-    "conformity": 0.91
-  },
-  "recent_incidents": 0,
-  "last_rated": "2026-03-29T14:23:01Z",
-  "service_supports_receipts": true
-}
-```
+### Premium (free for now, x402 micropayments later)
 
-### POST /v1/rate
+| Endpoint | Description |
+|----------|-------------|
+| `GET /v1/score/history?service=` | Daily aggregated score history |
+| `GET /v1/score/detailed?service=` | Latency percentiles, quality distribution |
+| `POST /v1/scores/bulk` | Up to 100 scores in one request |
 
-Submit a rating for a service. Include `X-Agent-DID` header.
+### Service identification
 
-**Response:**
-```json
-{
-  "accepted": true,
-  "rating_weight": "verified",
-  "new_score": 0.87
-}
-```
+All endpoints accept services in any format — they are normalized internally:
+- `api.example.com` (domain)
+- `https://api.example.com/v1/translate` (URL)
+- `did:web:api.example.com` (DID)
 
-### GET /health
-
-Health check for infrastructure monitoring.
+All three resolve to the same service.
 
 ## MCP Server
 
-TrustScoreAgent is available as an MCP server. See [docs/mcp.md](docs/mcp.md) for setup.
+TrustScoreAgent is available as an MCP server for Claude, Cursor, and other agents.
+
+```bash
+# Add to Claude Code
+claude mcp add trustscoreagent npx -y @trustscoreagent/mcp-server
+```
+
+See [docs/mcp.md](docs/mcp.md) for full setup instructions.
 
 ## License
 
