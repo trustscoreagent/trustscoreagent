@@ -230,8 +230,19 @@ public sealed class EigenTrustEngine
 
             // Normalize
             var sum = tNew.Sum();
-            if (sum > 0)
+            if (sum > 0 && !double.IsNaN(sum) && !double.IsInfinity(sum))
                 for (int i = 0; i < n; i++) tNew[i] /= sum;
+            else
+            {
+                // Fallback to uniform if computation diverged
+                for (int i = 0; i < n; i++) tNew[i] = 1.0 / n;
+                break;
+            }
+
+            // Sanitize NaN values
+            for (int i = 0; i < n; i++)
+                if (double.IsNaN(tNew[i]) || double.IsInfinity(tNew[i]))
+                    tNew[i] = 1.0 / n;
 
             // Check convergence
             var diff = 0.0;

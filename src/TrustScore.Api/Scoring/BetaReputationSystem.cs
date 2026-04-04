@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Configuration;
 using TrustScore.Core.Interfaces;
 using TrustScore.Core.Models;
 
@@ -5,11 +6,26 @@ namespace TrustScore.Api.Scoring;
 
 public sealed class BetaReputationSystem : IScoringEngine
 {
-    private const double Lambda = 0.995;
+    private readonly double _lambda;
+    private readonly int _latencyThresholdMs;
+
     private const double AvailabilityWeight = 0.4;
     private const double LatencyWeight = 0.35;
     private const double ConformityWeight = 0.25;
-    private const int LatencyThresholdMs = 2000;
+
+    // Verify weights sum to 1.0 at compile time
+    static BetaReputationSystem()
+    {
+        var sum = AvailabilityWeight + LatencyWeight + ConformityWeight;
+        if (Math.Abs(sum - 1.0) > 0.0001)
+            throw new InvalidOperationException($"Dimension weights must sum to 1.0, got {sum}");
+    }
+
+    public BetaReputationSystem(IConfiguration? config = null)
+    {
+        _lambda = config?.GetValue<double>("Scoring:Lambda", 0.995) ?? 0.995;
+        _latencyThresholdMs = config?.GetValue<int>("Scoring:LatencyThresholdMs", 2000) ?? 2000;
+    }
 
     public ServiceScore CalculateScore(ServiceEntity service)
     {
@@ -49,14 +65,14 @@ public sealed class BetaReputationSystem : IScoringEngine
         var metrics = rating.Metrics;
 
         // Apply forgetting factor
-        service.Alpha = service.Alpha * Lambda;
-        service.Beta = service.Beta * Lambda;
-        service.AlphaAvailability *= Lambda;
-        service.BetaAvailability *= Lambda;
-        service.AlphaLatency *= Lambda;
-        service.BetaLatency *= Lambda;
-        service.AlphaConformity *= Lambda;
-        service.BetaConformity *= Lambda;
+        service.Alpha = service.Alpha * _lambda;
+        service.Beta = service.Beta * _lambda;
+        service.AlphaAvailability *= _lambda;
+        service.BetaAvailability *= _lambda;
+        service.AlphaLatency *= _lambda;
+        service.BetaLatency *= _lambda;
+        service.AlphaConformity *= _lambda;
+        service.BetaConformity *= _lambda;
 
         // Availability: 2xx = positive, 5xx = negative, others = neutral
         if (metrics.StatusCode >= 200 && metrics.StatusCode < 300)
@@ -71,12 +87,12 @@ public sealed class BetaReputationSystem : IScoringEngine
         }
 
         // Latency: below threshold = positive, above = negative
-        if (metrics.LatencyMs > 0 && metrics.LatencyMs <= LatencyThresholdMs)
+        if (metrics.LatencyMs > 0 && metrics.LatencyMs <= _latencyThresholdMs)
         {
             service.AlphaLatency += weight;
             service.Alpha += weight;
         }
-        else if (metrics.LatencyMs > LatencyThresholdMs)
+        else if (metrics.LatencyMs > _latencyThresholdMs)
         {
             service.BetaLatency += weight;
             service.Beta += weight;
@@ -134,12 +150,12 @@ public sealed class BetaReputationSystem : IScoringEngine
         }
 
         // Latency
-        if (metrics.LatencyMs > 0 && metrics.LatencyMs <= LatencyThresholdMs)
+        if (metrics.LatencyMs > 0 && metrics.LatencyMs <= _latencyThresholdMs)
         {
             delta.AlphaLatency += weight;
             delta.Alpha += weight;
         }
-        else if (metrics.LatencyMs > LatencyThresholdMs)
+        else if (metrics.LatencyMs > _latencyThresholdMs)
         {
             delta.BetaLatency += weight;
             delta.Beta += weight;

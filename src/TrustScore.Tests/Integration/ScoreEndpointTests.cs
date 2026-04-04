@@ -360,6 +360,12 @@ internal class FakeServiceRepository : IServiceRepository
     public Task<ServiceEntity?> GetByDidAsync(string did)
         => Task.FromResult(_services.GetValueOrDefault(did));
 
+    public Task<IReadOnlyList<ServiceEntity>> GetByDidsAsync(IReadOnlyList<string> dids)
+    {
+        var result = dids.Select(d => _services.GetValueOrDefault(d)).Where(s => s is not null).ToList()!;
+        return Task.FromResult<IReadOnlyList<ServiceEntity>>(result!);
+    }
+
     public Task UpsertAsync(ServiceEntity service)
     {
         _services[service.Did] = service;

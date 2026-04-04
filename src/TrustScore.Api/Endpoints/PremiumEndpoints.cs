@@ -154,34 +154,29 @@ public static class PremiumEndpoints
             if (request.Dids.Count > 100)
                 return Results.BadRequest(new { error = "too_many_dids", message = "Maximum 100 DIDs per request" });
 
-            var results = new List<object>();
-            foreach (var rawDid in request.Dids)
+            // Normalize all DIDs and batch-query in a single DB call
+            var normalizedDids = request.Dids.Select(ServiceIdentifier.Normalize).ToList();
+            var services = await serviceRepo.GetByDidsAsync(normalizedDids);
+            var serviceMap = services.ToDictionary(s => s.Did);
+
+            var foundCount = 0;
+            var results = normalizedDids.Select(did =>
             {
-                var normalizedId = ServiceIdentifier.Normalize(rawDid);
-                var svc = await serviceRepo.GetByDidAsync(normalizedId);
-                if (svc is null)
-                {
-                    results.Add(new { service = normalizedId, found = false });
-                    continue;
-                }
+                if (!serviceMap.TryGetValue(did, out var svc))
+                    return new BulkScoreItem(did, false, null, null, null);
 
                 var score = scoringEngine.CalculateScore(svc);
-                results.Add(new
-                {
-                    service = normalizedId,
-                    found = true,
-                    score = score.Score,
-                    confidence = score.Confidence,
-                    ratings_count = score.RatingsCount,
-                });
-            }
+                foundCount++;
+                return new BulkScoreItem(did, true, score.Score, score.Confidence, score.RatingsCount);
+            }).ToList();
 
             return Results.Ok(new
             {
-                results,
+                results = results.Select(r => r.Found
+                    ? new { service = r.Service, found = r.Found, score = r.Score, confidence = r.Confidence, ratings_count = r.RatingsCount }
+                    : new { service = r.Service, found = r.Found, score = (double?)null, confidence = (double?)null, ratings_count = (int?)null }),
                 requested = request.Dids.Count,
-                found = results.Count(r => ((dynamic)r).found == true),
-                // x402_price = "0.05 USDC"
+                found = foundCount,
             });
         })
         .WithName("BulkScores")
@@ -209,3 +204,5 @@ public sealed record BulkScoreRequest
     [System.Text.Json.Serialization.JsonPropertyName("dids")]
     public List<string>? Dids { get; init; }
 }
+
+internal sealed record BulkScoreItem(string Service, bool Found, double? Score, double? Confidence, int? RatingsCount);
