@@ -39,6 +39,20 @@ public sealed class RedisCacheService : ICacheService
         }
     }
 
+    public async Task<bool> SetIfNotExistsAsync(string key, string value, TimeSpan expiry)
+    {
+        try
+        {
+            var db = _redis.GetDatabase();
+            return await db.StringSetAsync(key, value, expiry, when: When.NotExists);
+        }
+        catch
+        {
+            // Redis unavailable — fail closed (assume key exists = reject)
+            return false;
+        }
+    }
+
     public async Task RemoveAsync(string key)
     {
         try

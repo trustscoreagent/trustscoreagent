@@ -67,12 +67,13 @@ public sealed class ReceiptVerifier : IReceiptVerifier
             return ReceiptVerificationResult.Failed(ReceiptVerificationStatus.MalformedJwt);
         }
 
-        // 5. Check nonce (anti-replay)
+        // 5. Atomically claim nonce (anti-replay). SETNX: only the first caller wins.
+        // If Redis is down, SetIfNotExistsAsync returns false (fail closed = reject).
         var nonceKey = $"nonce:{payload.Nonce}";
-        var existingNonce = await _cache.GetAsync(nonceKey);
-        if (existingNonce is not null)
+        var nonceClaimed = await _cache.SetIfNotExistsAsync(nonceKey, "used", NonceTtl);
+        if (!nonceClaimed)
         {
-            _logger.LogWarning("Nonce replay detected: {Nonce} for {ServiceDid}", payload.Nonce, expectedServiceDid);
+            _logger.LogWarning("Nonce replay or Redis unavailable: {Nonce} for {ServiceDid}", payload.Nonce, expectedServiceDid);
             return ReceiptVerificationResult.Rejected(ReceiptVerificationStatus.NonceAlreadyUsed);
         }
 
@@ -107,8 +108,7 @@ public sealed class ReceiptVerifier : IReceiptVerifier
             return ReceiptVerificationResult.Failed(ReceiptVerificationStatus.InvalidSignature);
         }
 
-        // 8. Mark nonce as used (after successful verification)
-        await _cache.SetAsync(nonceKey, "used", NonceTtl);
+        // Nonce already claimed atomically in step 5 — no need to set again.
 
         _logger.LogInformation("Receipt verified for {ServiceDid} from {AgentDid}",
             payload.ServiceDid, payload.AgentDid);
