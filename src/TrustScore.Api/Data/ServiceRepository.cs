@@ -143,14 +143,20 @@ public sealed class ServiceRepository : IServiceRepository
     {
         using var conn = _db.CreateConnection();
 
-        // Compute score as alpha/(alpha+beta) for sorting
+        // Whitelist validation in repository (defense in depth — endpoint also validates)
         var orderColumn = filter.SortBy switch
         {
             "ratings_count" => "ratings_count",
             "last_rated" => "last_rated_at",
-            _ => "(alpha / (alpha + beta))", // "score" default
+            "score" => "(alpha / (alpha + beta))",
+            _ => throw new ArgumentException($"Invalid sort field: {filter.SortBy}"),
         };
-        var orderDir = filter.Order == "asc" ? "ASC" : "DESC";
+        var orderDir = filter.Order switch
+        {
+            "asc" => "ASC",
+            "desc" => "DESC",
+            _ => "DESC",
+        };
 
         var sql = $"""
             SELECT did, alpha, beta,

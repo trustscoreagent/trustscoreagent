@@ -77,7 +77,7 @@ public sealed class EigenTrustEngine
                     return new ServiceConsensus
                     {
                         MedianStatusIsSuccess = records.Count(r => r.StatusCode >= 200 && r.StatusCode < 300) > records.Count / 2.0,
-                        MedianLatencyMs = records.OrderBy(r => r.LatencyMs).ElementAt(records.Count / 2).LatencyMs,
+                        MedianLatencyMs = ComputeMedianLatency(records),
                         MedianSchemaValid = records.Where(r => r.SchemaValid.HasValue).Count(r => r.SchemaValid == true) >
                                            records.Where(r => r.SchemaValid.HasValue).Count() / 2.0,
                     };
@@ -261,6 +261,18 @@ public sealed class EigenTrustEngine
             for (int i = 0; i < n; i++) t[i] /= max;
 
         return t;
+    }
+
+    /// <summary>
+    /// Proper median: average of two middle values for even-length lists.
+    /// </summary>
+    private static int ComputeMedianLatency(List<AgentRatingRecord> records)
+    {
+        var sorted = records.OrderBy(r => r.LatencyMs).Select(r => r.LatencyMs).ToList();
+        if (sorted.Count == 0) return 0;
+        if (sorted.Count % 2 == 1)
+            return sorted[sorted.Count / 2];
+        return (sorted[sorted.Count / 2 - 1] + sorted[sorted.Count / 2]) / 2;
     }
 
     private class ServiceConsensus

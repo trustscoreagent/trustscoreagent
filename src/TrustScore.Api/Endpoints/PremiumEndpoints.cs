@@ -34,7 +34,7 @@ public static class PremiumEndpoints
 
             // Group by day and compute daily aggregates
             var dailyScores = ratings
-                .GroupBy(r => r.CreatedAt.Date)
+                .GroupBy(r => r.CreatedAt.UtcDateTime.Date)
                 .OrderBy(g => g.Key)
                 .Select(g => new
                 {
@@ -154,8 +154,8 @@ public static class PremiumEndpoints
             if (request.Dids.Count > 100)
                 return Results.BadRequest(new { error = "too_many_dids", message = "Maximum 100 DIDs per request" });
 
-            // Normalize all DIDs and batch-query in a single DB call
-            var normalizedDids = request.Dids.Select(ServiceIdentifier.Normalize).ToList();
+            // Normalize and deduplicate
+            var normalizedDids = request.Dids.Select(ServiceIdentifier.Normalize).Distinct().ToList();
             var services = await serviceRepo.GetByDidsAsync(normalizedDids);
             var serviceMap = services.ToDictionary(s => s.Did);
 
