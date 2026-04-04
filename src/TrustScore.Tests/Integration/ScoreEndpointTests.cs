@@ -72,6 +72,7 @@ public class ScoreEndpointTests : IClassFixture<WebApplicationFactory<Program>>
                 ReplaceService<IRateLimiter, FakeRateLimiter>(services);
                 ReplaceService<IReceiptVerifier, FakeReceiptVerifier>(services);
                 ReplaceService<IDidResolver, FakeDidResolver>(services);
+                ReplaceService<IAuditService, FakeAuditService>(services);
 
                 // Remove Redis (not needed with FakeCacheService)
                 var redisDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IConnectionMultiplexer));
@@ -477,6 +478,20 @@ internal class FakeDidResolver : IDidResolver
 {
     public Task<byte[]?> ResolvePublicKeyAsync(string did)
         => Task.FromResult<byte[]?>(null);
+}
+
+internal class FakeAuditService : IAuditService
+{
+    private readonly List<(Guid RatingId, string ServiceDid, DateTimeOffset Timestamp)> _leaves = new();
+
+    public Task RecordLeafAsync(Guid ratingId, string serviceDid, DateTimeOffset timestamp)
+    {
+        _leaves.Add((ratingId, serviceDid, timestamp));
+        return Task.CompletedTask;
+    }
+
+    public Task<MerkleAnchor?> GetLatestAnchorAsync()
+        => Task.FromResult<MerkleAnchor?>(null);
 }
 
 #endregion

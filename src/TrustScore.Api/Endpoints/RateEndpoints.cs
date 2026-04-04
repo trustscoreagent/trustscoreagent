@@ -18,7 +18,8 @@ public static class RateEndpoints
             IScoringEngine scoringEngine,
             ICacheService cache,
             IRateLimiter rateLimiter,
-            IReceiptVerifier receiptVerifier) =>
+            IReceiptVerifier receiptVerifier,
+            IAuditService auditService) =>
         {
             // Validate required fields
             if (string.IsNullOrWhiteSpace(request.ServiceDid))
@@ -95,6 +96,9 @@ public static class RateEndpoints
             // Persist — service first (ratings has FK to services)
             await serviceRepo.UpsertAsync(service);
             await ratingRepo.InsertAsync(rating);
+
+            // Record Merkle leaf hash for audit trail
+            await auditService.RecordLeafAsync(rating.Id, rating.ServiceDid, rating.CreatedAt);
 
             // Invalidate cache
             await cache.RemoveAsync($"score:{request.ServiceDid}");
