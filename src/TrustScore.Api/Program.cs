@@ -86,9 +86,13 @@ if (!skipMigrations)
 
 // Middleware
 app.UseCors();
+app.UseMiddleware<GlobalRateLimitMiddleware>();
 
-app.UseSwagger();
-app.UseSwaggerUI();
+if (!app.Environment.IsProduction())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
 
 // Map endpoints
 app.MapHealthEndpoints();

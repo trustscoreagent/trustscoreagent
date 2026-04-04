@@ -32,7 +32,7 @@ public static class HealthEndpoints
             {
                 status = healthy ? "healthy" : "unhealthy",
                 checks,
-                version = "0.1.0",
+                version = typeof(Program).Assembly.GetName().Version?.ToString() ?? "0.1.0",
             };
 
             return healthy
