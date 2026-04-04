@@ -6,9 +6,45 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
+import { randomUUID } from "crypto";
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
+import { join } from "path";
+import { homedir } from "os";
 
 const API_BASE_URL =
   process.env.TRUSTSCORE_API_URL || "https://trustscoreagent-api-staging-xhunhkdtfa-ew.a.run.app";
+
+// Each MCP installation gets a unique persistent agent ID.
+// Stored in ~/.trustscoreagent/agent-id so it survives restarts.
+// Can be overridden via TRUSTSCORE_AGENT_DID env var.
+function getAgentDid(): string {
+  if (process.env.TRUSTSCORE_AGENT_DID) {
+    return process.env.TRUSTSCORE_AGENT_DID;
+  }
+
+  const configDir = join(homedir(), ".trustscoreagent");
+  const idFile = join(configDir, "agent-id");
+
+  if (existsSync(idFile)) {
+    return readFileSync(idFile, "utf-8").trim();
+  }
+
+  // Generate a unique DID on first run
+  const agentId = `mcp-${randomUUID().slice(0, 8)}`;
+  const did = `did:web:mcp.trustscoreagent.com:${agentId}`;
+
+  try {
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(idFile, did, "utf-8");
+    console.error(`TrustScoreAgent: generated agent ID ${did} (stored in ${idFile})`);
+  } catch {
+    console.error(`TrustScoreAgent: using ephemeral agent ID ${did} (could not write to ${idFile})`);
+  }
+
+  return did;
+}
+
+const AGENT_DID = getAgentDid();
 
 const server = new Server(
   {
@@ -248,7 +284,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "X-Agent-DID": "did:web:mcp-client.local",
+          "X-Agent-DID": AGENT_DID,
         },
         body: JSON.stringify(body),
       });

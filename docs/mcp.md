@@ -70,6 +70,29 @@ Rate a microservice after calling it.
 - `quality_score` (optional): 1-5 subjective quality
 - `receipt` (optional): JWT from X-Trust-Receipt header
 
+## Agent Identity
+
+Each MCP installation automatically generates a unique agent ID on first run, stored in `~/.trustscoreagent/agent-id`. This ensures:
+- Rate limiting is per-user, not shared
+- EigenTrust tracks each user independently
+- Ratings are attributable to individual agents
+
+You can override the agent ID via environment variable:
+
+```json
+{
+  "mcpServers": {
+    "trustscoreagent": {
+      "command": "npx",
+      "args": ["-y", "@trustscoreagent/mcp-server"],
+      "env": {
+        "TRUSTSCORE_AGENT_DID": "did:web:my-custom-agent.example.com"
+      }
+    }
+  }
+}
+```
+
 ## Configuration
 
 Set `TRUSTSCORE_API_URL` environment variable to point to a different API instance:
