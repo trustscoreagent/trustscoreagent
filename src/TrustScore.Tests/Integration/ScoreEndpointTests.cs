@@ -21,13 +21,15 @@ public class ScoreEndpointTests : IClassFixture<WebApplicationFactory<Program>>
     }
 
     [Fact]
-    public async Task GetScore_UnknownService_Returns404()
+    public async Task GetScore_UnknownService_ReturnsNeutralScore()
     {
         var response = await _client.GetAsync("/v1/score?did=did:web:unknown.example.com");
 
-        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
-        var body = await response.Content.ReadFromJsonAsync<ErrorResponse>();
-        body!.Error.Should().Be("service_not_found");
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.Content.ReadAsStringAsync();
+        body.Should().Contain("\"score\":0.5");
+        body.Should().Contain("\"ratings_count\":0");
+        body.Should().Contain("\"known\":false");
     }
 
     [Fact]
