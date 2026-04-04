@@ -424,6 +424,18 @@ internal class FakeRatingRepository : IRatingRepository
             new RatingLeafInfo(r.Id, r.ServiceDid, r.CreatedAt, "fakehash")).ToList().AsReadOnly();
         return Task.FromResult<IReadOnlyList<RatingLeafInfo>>(result);
     }
+
+    public Task<IReadOnlyList<RatingSummary>> GetHistoryAsync(string serviceDid, int months)
+    {
+        var result = _ratings
+            .Where(r => r.ServiceDid == serviceDid)
+            .Select(r => new RatingSummary(
+                r.CreatedAt, r.Metrics.StatusCode, r.Metrics.LatencyMs,
+                r.Metrics.SchemaValid, r.QualityScore,
+                r.HasReceipt, r.ReceiptVerified, r.Weight))
+            .ToList().AsReadOnly();
+        return Task.FromResult<IReadOnlyList<RatingSummary>>(result);
+    }
 }
 
 internal class FakeCacheService : ICacheService

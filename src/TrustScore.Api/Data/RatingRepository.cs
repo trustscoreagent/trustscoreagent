@@ -92,4 +92,30 @@ public sealed class RatingRepository : IRatingRepository
             """);
         return results.ToList().AsReadOnly();
     }
+
+    public async Task<IReadOnlyList<RatingSummary>> GetHistoryAsync(string serviceDid, int months)
+    {
+        using var conn = _db.CreateConnection();
+        var results = await conn.QueryAsync<RatingSummary>(
+            """
+            SELECT created_at AS CreatedAt,
+                   status_code AS StatusCode,
+                   latency_ms AS LatencyMs,
+                   schema_valid AS SchemaValid,
+                   quality_score AS QualityScore,
+                   has_receipt AS HasReceipt,
+                   receipt_verified AS ReceiptVerified,
+                   weight AS Weight
+            FROM ratings
+            WHERE service_did = @ServiceDid
+              AND created_at > @Since
+            ORDER BY created_at DESC
+            """,
+            new
+            {
+                ServiceDid = serviceDid,
+                Since = DateTimeOffset.UtcNow.AddMonths(-months),
+            });
+        return results.ToList().AsReadOnly();
+    }
 }
