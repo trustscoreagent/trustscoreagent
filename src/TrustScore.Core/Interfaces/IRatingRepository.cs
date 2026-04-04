@@ -9,7 +9,19 @@ public interface IRatingRepository
     Task<RatingLeafInfo?> GetLeafInfoAsync(Guid ratingId);
     Task<IReadOnlyList<RatingLeafInfo>> GetAllLeafHashesAsync();
     Task<IReadOnlyList<RatingSummary>> GetHistoryAsync(string serviceDid, int months);
+    Task<IReadOnlyList<AgentRatingRecord>> GetAllRatingsForTrustAsync();
 }
+
+/// <summary>
+/// Minimal rating record used for EigenTrust computation.
+/// </summary>
+public sealed record AgentRatingRecord(
+    string AgentDid,
+    string ServiceDid,
+    int StatusCode,
+    int LatencyMs,
+    bool? SchemaValid,
+    bool ReceiptVerified);
 
 public sealed record RatingLeafInfo(Guid Id, string ServiceDid, DateTimeOffset CreatedAt, string? MerkleLeafHash);
 

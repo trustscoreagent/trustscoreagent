@@ -20,6 +20,7 @@ builder.Services.AddSingleton(new DbConnectionFactory(dbConnectionString));
 builder.Services.AddScoped<IServiceRepository, ServiceRepository>();
 builder.Services.AddScoped<IRatingRepository, RatingRepository>();
 builder.Services.AddScoped<IAuditService, AuditService>();
+builder.Services.AddScoped<IAgentRepository, AgentRepository>();
 
 // Redis
 builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
@@ -89,6 +90,7 @@ app.MapRateEndpoints();
 app.MapServicesEndpoints();
 app.MapAuditEndpoints();
 app.MapPremiumEndpoints();
+app.MapAgentEndpoints();
 
 // Cache headers for static files
 app.MapGet("/llms.txt", () => Results.File("public/llms.txt", "text/plain"))

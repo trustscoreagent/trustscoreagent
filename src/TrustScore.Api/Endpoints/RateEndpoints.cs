@@ -20,7 +20,8 @@ public static class RateEndpoints
             ICacheService cache,
             IRateLimiter rateLimiter,
             IReceiptVerifier receiptVerifier,
-            IAuditService auditService) =>
+            IAuditService auditService,
+            IAgentRepository agentRepo) =>
         {
             // Validate required fields
             if (string.IsNullOrWhiteSpace(request.ServiceDid))
@@ -69,6 +70,10 @@ public static class RateEndpoints
                 weight = verification.Weight;
                 receiptVerified = verification.IsVerified;
             }
+
+            // Apply agent trust score (EigenTrust) to rating weight
+            var agentTrust = await agentRepo.GetTrustScoreAsync(agentDid);
+            weight *= agentTrust;
 
             var rating = new Rating
             {

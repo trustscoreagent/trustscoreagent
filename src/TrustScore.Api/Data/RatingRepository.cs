@@ -93,6 +93,23 @@ public sealed class RatingRepository : IRatingRepository
         return results.ToList().AsReadOnly();
     }
 
+    public async Task<IReadOnlyList<AgentRatingRecord>> GetAllRatingsForTrustAsync()
+    {
+        using var conn = _db.CreateConnection();
+        var results = await conn.QueryAsync<AgentRatingRecord>(
+            """
+            SELECT agent_did AS AgentDid,
+                   service_did AS ServiceDid,
+                   status_code AS StatusCode,
+                   latency_ms AS LatencyMs,
+                   schema_valid AS SchemaValid,
+                   receipt_verified AS ReceiptVerified
+            FROM ratings
+            ORDER BY created_at ASC
+            """);
+        return results.ToList().AsReadOnly();
+    }
+
     public async Task<IReadOnlyList<RatingSummary>> GetHistoryAsync(string serviceDid, int months)
     {
         using var conn = _db.CreateConnection();
