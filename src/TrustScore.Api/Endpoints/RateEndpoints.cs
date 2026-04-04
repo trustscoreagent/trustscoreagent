@@ -100,15 +100,11 @@ public static class RateEndpoints
                 Weight = weight,
             };
 
-            // Get or create service entity
-            var service = await serviceRepo.GetByDidAsync(serviceId)
-                ?? new ServiceEntity { Did = serviceId };
+            // Compute rating delta and apply atomically in SQL (no read-then-write race)
+            var delta = scoringEngine.ComputeDelta(rating);
+            await serviceRepo.ApplyRatingAtomicAsync(serviceId, delta);
 
-            // Apply rating to scoring model
-            service = scoringEngine.ApplyRating(service, rating);
-
-            // Persist — service first (ratings has FK to services)
-            await serviceRepo.UpsertAsync(service);
+            // Insert rating record
             await ratingRepo.InsertAsync(rating);
 
             // Record Merkle leaf hash for audit trail
@@ -117,7 +113,11 @@ public static class RateEndpoints
             // Invalidate cache
             await cache.RemoveAsync($"score:{serviceId}");
 
-            var score = scoringEngine.CalculateScore(service);
+            // Read back fresh score for response
+            var service = await serviceRepo.GetByDidAsync(serviceId);
+            var score = service is not null
+                ? scoringEngine.CalculateScore(service)
+                : scoringEngine.CalculateScore(new ServiceEntity { Did = serviceId });
 
             return Results.Ok(new
             {

@@ -7,6 +7,7 @@ public interface IServiceRepository
     Task<ServiceEntity?> GetByDidAsync(string did);
     Task<IReadOnlyList<ServiceEntity>> ListAsync(ServiceListFilter filter);
     Task UpsertAsync(ServiceEntity service);
+    Task ApplyRatingAtomicAsync(string did, RatingDelta delta);
     Task<bool> ExistsAsync(string did);
 }
 

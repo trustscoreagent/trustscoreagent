@@ -89,6 +89,7 @@ public sealed class RatingRepository : IRatingRepository
             FROM ratings
             WHERE merkle_leaf_hash IS NOT NULL
             ORDER BY created_at ASC
+            LIMIT 100000
             """);
         return results.ToList().AsReadOnly();
     }
@@ -105,7 +106,9 @@ public sealed class RatingRepository : IRatingRepository
                    schema_valid AS SchemaValid,
                    receipt_verified AS ReceiptVerified
             FROM ratings
+            WHERE created_at > NOW() - INTERVAL '90 days'
             ORDER BY created_at ASC
+            LIMIT 100000
             """);
         return results.ToList().AsReadOnly();
     }

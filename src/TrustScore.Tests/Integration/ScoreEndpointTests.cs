@@ -393,6 +393,20 @@ internal class FakeServiceRepository : IServiceRepository
         return Task.FromResult<IReadOnlyList<ServiceEntity>>(results);
     }
 
+    public Task ApplyRatingAtomicAsync(string did, RatingDelta delta)
+    {
+        if (!_services.TryGetValue(did, out var svc))
+        {
+            svc = new ServiceEntity { Did = did };
+            _services[did] = svc;
+        }
+        svc.Alpha = Math.Max(1.0, svc.Alpha * 0.995 + delta.AlphaDelta);
+        svc.Beta = Math.Max(1.0, svc.Beta * 0.995 + delta.BetaDelta);
+        svc.RatingsCount++;
+        svc.LastRatedAt = DateTimeOffset.UtcNow;
+        return Task.CompletedTask;
+    }
+
     public Task<bool> ExistsAsync(string did)
         => Task.FromResult(_services.ContainsKey(did));
 }
