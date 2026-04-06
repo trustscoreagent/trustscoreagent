@@ -44,6 +44,17 @@ Avant la v1, valider la chaine complete avec un VRAI receipt (pas des fakes) :
 - [ ] Premier post (Hacker News, Reddit, Dev.to)
 - [ ] Configurer l'email hello@trustscoreagent.com (Cloudflare Email Routing)
 
+## Infrastructure post-deploy
+
+- [ ] Configurer AdminApiKey dans GCP Secret Manager
+- [ ] Mettre a jour l'URL par defaut du MCP server (staging → production)
+- [ ] Mettre a jour llms.txt et agent.json avec les URLs de production
+- [ ] Lancer infra/setup-scheduler.sh (Cloud Run Job + Cloud Scheduler)
+      → EigenTrust + Merkle anchoring toutes les heures automatiquement
+      → Ne pas oublier : necessite l'image Docker deployee en prod d'abord
+- [ ] Verifier que le job tourne : gcloud run jobs execute trustscoreagent-hourly --region europe-west1
+- [ ] Configurer un wallet Base L2 pour le blockchain anchoring (Phase 2)
+
 ## Securite
 
 - [ ] Audit des secrets : aucun mot de passe/token dans l'historique git
