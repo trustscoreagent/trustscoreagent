@@ -2,6 +2,7 @@ using DbUp;
 using StackExchange.Redis;
 using TrustScore.Api.Data;
 using TrustScore.Api.Endpoints;
+using TrustScore.Api.Jobs;
 using TrustScore.Api.Middleware;
 using TrustScore.Api.Receipts;
 using TrustScore.Api.Scoring;
@@ -65,6 +66,14 @@ builder.Services.AddCors(options =>
 });
 
 var app = builder.Build();
+
+// Job mode: run EigenTrust + Merkle anchoring then exit
+if (args.Contains("--job"))
+{
+    var exitCode = await HourlyJob.RunAsync(app.Services);
+    Environment.Exit(exitCode);
+    return; // Unreachable but satisfies compiler
+}
 
 // Run database migrations (skip when running in test host)
 var skipMigrations = builder.Configuration.GetValue<bool>("SkipMigrations");
