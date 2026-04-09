@@ -62,6 +62,31 @@ public sealed class ServiceRepository : IServiceRepository
         return results.ToList().AsReadOnly();
     }
 
+    public async Task<IReadOnlyList<ServiceEntity>> GetByProviderAsync(string provider)
+    {
+        using var conn = _db.CreateConnection();
+        var results = await conn.QueryAsync<ServiceEntity>(
+            """
+            SELECT did, alpha, beta,
+                   alpha_availability AS AlphaAvailability,
+                   beta_availability AS BetaAvailability,
+                   alpha_latency AS AlphaLatency,
+                   beta_latency AS BetaLatency,
+                   alpha_conformity AS AlphaConformity,
+                   beta_conformity AS BetaConformity,
+                   ratings_count AS RatingsCount,
+                   supports_receipts AS SupportsReceipts,
+                   last_rated_at AS LastRatedAt,
+                   created_at AS CreatedAt,
+                   updated_at AS UpdatedAt
+            FROM services
+            WHERE did LIKE @Pattern
+            ORDER BY ratings_count DESC
+            """,
+            new { Pattern = $"{provider}/%" });
+        return results.ToList().AsReadOnly();
+    }
+
     public async Task UpsertAsync(ServiceEntity service)
     {
         using var conn = _db.CreateConnection();

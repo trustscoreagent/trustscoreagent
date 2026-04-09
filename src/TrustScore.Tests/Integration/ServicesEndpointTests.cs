@@ -49,8 +49,8 @@ public class ServicesEndpointTests : IClassFixture<WebApplicationFactory<Program
     [Fact]
     public async Task ListServices_FilterByMinScore()
     {
-        // Seeded service has alpha=10, beta=2 → score ≈ 0.83
-        var response = await _client.GetAsync("/v1/services?min_score=0.9");
+        // Filter out all services (highest score is translate at ~0.94)
+        var response = await _client.GetAsync("/v1/services?min_score=0.99");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.Content.ReadAsStringAsync();

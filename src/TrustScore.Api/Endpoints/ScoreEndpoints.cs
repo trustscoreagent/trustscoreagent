@@ -32,12 +32,41 @@ public static class ScoreEndpoints
                 return Results.Ok(cachedScore);
             }
 
-            var serviceEntity = await serviceRepo.GetByDidAsync(serviceId);
+            var isProvider = ServiceIdentifier.IsProviderLevel(serviceId);
 
-            // Unknown service → return neutral score (0.5) with zero confidence
-            var score = serviceEntity is not null
-                ? scoringEngine.CalculateScore(serviceEntity)
-                : scoringEngine.CalculateScore(new ServiceEntity { Did = serviceId });
+            ServiceScore score;
+            bool known;
+
+            if (isProvider)
+            {
+                // Provider-level query: aggregate all endpoints under this domain
+                var endpoints = await serviceRepo.GetByProviderAsync(serviceId);
+
+                // Also check if there's a direct entry for the domain itself
+                var directEntity = await serviceRepo.GetByDidAsync(serviceId);
+                if (directEntity is not null)
+                    endpoints = endpoints.Append(directEntity).ToList().AsReadOnly();
+
+                if (endpoints.Count > 0)
+                {
+                    score = scoringEngine.CalculateProviderScore(serviceId, endpoints);
+                    known = true;
+                }
+                else
+                {
+                    score = scoringEngine.CalculateScore(new ServiceEntity { Did = serviceId });
+                    known = false;
+                }
+            }
+            else
+            {
+                // Endpoint-level query: specific path
+                var serviceEntity = await serviceRepo.GetByDidAsync(serviceId);
+                known = serviceEntity is not null;
+                score = serviceEntity is not null
+                    ? scoringEngine.CalculateScore(serviceEntity)
+                    : scoringEngine.CalculateScore(new ServiceEntity { Did = serviceId });
+            }
 
             var response = new
             {
@@ -54,7 +83,8 @@ public static class ScoreEndpoints
                 recent_incidents = score.RecentIncidents,
                 last_rated = score.LastRatedAt,
                 service_supports_receipts = score.ServiceSupportsReceipts,
-                known = serviceEntity is not null,
+                known,
+                level = isProvider ? "provider" : "endpoint",
             };
 
             await cache.SetAsync($"score:{serviceId}", JsonSerializer.Serialize(response), CacheTtl);
@@ -67,7 +97,10 @@ public static class ScoreEndpoints
         .WithOpenApi(op =>
         {
             op.Summary = "Get trust score for a microservice";
-            op.Description = "Returns the reputation score, confidence level, and dimensional breakdown for a given service DID. Unknown services return a neutral score (0.5) with zero confidence and known=false.";
+            op.Description = "Returns the trust score for a service. " +
+                "Pass a full URL (api.example.com/v1/translate) for endpoint-level score, " +
+                "or just a domain (api.example.com) for aggregated provider score. " +
+                "Unknown services return neutral score (0.5) with known=false.";
             return op;
         });
     }
