@@ -43,15 +43,42 @@ public class ScoreEndpointTests : IClassFixture<WebApplicationFactory<Program>>
     }
 
     [Fact]
-    public async Task GetScore_KnownService_ReturnsScore()
+    public async Task GetScore_ProviderLevel_ReturnsAggregatedScore()
     {
-        var response = await _client.GetAsync("/v1/score?did=seeded.example.com");
+        var response = await _client.GetAsync("/v1/score?service=seeded.example.com");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.Content.ReadAsStringAsync();
         body.Should().Contain("\"score\"");
         body.Should().Contain("\"dimensions\"");
         body.Should().Contain("seeded.example.com");
+        body.Should().Contain("\"level\":\"provider\"");
+        body.Should().Contain("\"known\":true");
+    }
+
+    [Fact]
+    public async Task GetScore_EndpointLevel_ReturnsSpecificScore()
+    {
+        var response = await _client.GetAsync("/v1/score?service=https://seeded.example.com/v1/translate");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.Content.ReadAsStringAsync();
+        body.Should().Contain("seeded.example.com/v1/translate");
+        body.Should().Contain("\"level\":\"endpoint\"");
+        body.Should().Contain("\"known\":true");
+    }
+
+    [Fact]
+    public async Task GetScore_DifferentEndpoints_HaveDifferentScores()
+    {
+        var resp1 = await _client.GetAsync("/v1/score?service=seeded.example.com/v1/translate");
+        var resp2 = await _client.GetAsync("/v1/score?service=seeded.example.com/v1/summarize");
+
+        var body1 = await resp1.Content.ReadAsStringAsync();
+        var body2 = await resp2.Content.ReadAsStringAsync();
+
+        // translate is much better rated than summarize
+        body1.Should().NotBe(body2);
     }
 
     internal static HttpClient CreateTestClient(WebApplicationFactory<Program> factory)
@@ -340,6 +367,7 @@ internal class FakeServiceRepository : IServiceRepository
 {
     private readonly Dictionary<string, ServiceEntity> _services = new()
     {
+        // Provider-level entry (legacy/direct domain rating)
         ["seeded.example.com"] = new ServiceEntity
         {
             Did = "seeded.example.com",
@@ -354,7 +382,38 @@ internal class FakeServiceRepository : IServiceRepository
             RatingsCount = 50,
             SupportsReceipts = true,
             LastRatedAt = DateTimeOffset.UtcNow.AddHours(-1),
-        }
+        },
+        // Endpoint-level entries under same provider
+        ["seeded.example.com/v1/translate"] = new ServiceEntity
+        {
+            Did = "seeded.example.com/v1/translate",
+            Alpha = 15,
+            Beta = 1,
+            AlphaAvailability = 15,
+            BetaAvailability = 1,
+            AlphaLatency = 12,
+            BetaLatency = 2,
+            AlphaConformity = 14,
+            BetaConformity = 1,
+            RatingsCount = 30,
+            SupportsReceipts = true,
+            LastRatedAt = DateTimeOffset.UtcNow.AddMinutes(-30),
+        },
+        ["seeded.example.com/v1/summarize"] = new ServiceEntity
+        {
+            Did = "seeded.example.com/v1/summarize",
+            Alpha = 5,
+            Beta = 8,
+            AlphaAvailability = 6,
+            BetaAvailability = 7,
+            AlphaLatency = 4,
+            BetaLatency = 9,
+            AlphaConformity = 5,
+            BetaConformity = 8,
+            RatingsCount = 20,
+            SupportsReceipts = false,
+            LastRatedAt = DateTimeOffset.UtcNow.AddHours(-2),
+        },
     };
 
     public Task<ServiceEntity?> GetByDidAsync(string did)
@@ -364,6 +423,14 @@ internal class FakeServiceRepository : IServiceRepository
     {
         var result = dids.Select(d => _services.GetValueOrDefault(d)).Where(s => s is not null).ToList()!;
         return Task.FromResult<IReadOnlyList<ServiceEntity>>(result!);
+    }
+
+    public Task<IReadOnlyList<ServiceEntity>> GetByProviderAsync(string provider)
+    {
+        var result = _services.Values
+            .Where(s => s.Did.StartsWith($"{provider}/"))
+            .ToList().AsReadOnly();
+        return Task.FromResult<IReadOnlyList<ServiceEntity>>(result);
     }
 
     public Task UpsertAsync(ServiceEntity service)

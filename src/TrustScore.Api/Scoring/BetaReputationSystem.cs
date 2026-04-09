@@ -59,6 +59,59 @@ public sealed class BetaReputationSystem : IScoringEngine
         };
     }
 
+    public ServiceScore CalculateProviderScore(string provider, IReadOnlyList<ServiceEntity> endpoints)
+    {
+        if (endpoints.Count == 0)
+        {
+            return new ServiceScore
+            {
+                ServiceDid = provider,
+                Score = 0.5,
+                Confidence = 0.0,
+                RatingsCount = 0,
+                Dimensions = new DimensionScores { Availability = 0.5, Latency = 0.5, Conformity = 0.5 },
+                ServiceSupportsReceipts = false,
+            };
+        }
+
+        // Weighted average by ratings_count (more ratings = more influence)
+        var totalRatings = endpoints.Sum(e => e.RatingsCount);
+        if (totalRatings == 0) totalRatings = 1;
+
+        double avgScore = 0, avgAvail = 0, avgLatency = 0, avgConf = 0, avgConfidence = 0;
+        var supportsReceipts = false;
+        DateTimeOffset? lastRated = null;
+
+        foreach (var ep in endpoints)
+        {
+            var w = (double)ep.RatingsCount / totalRatings;
+            var score = CalculateScore(ep);
+            avgScore += score.Score * w;
+            avgAvail += score.Dimensions.Availability * w;
+            avgLatency += score.Dimensions.Latency * w;
+            avgConf += score.Dimensions.Conformity * w;
+            avgConfidence += score.Confidence * w;
+            if (score.ServiceSupportsReceipts) supportsReceipts = true;
+            if (lastRated is null || score.LastRatedAt > lastRated) lastRated = score.LastRatedAt;
+        }
+
+        return new ServiceScore
+        {
+            ServiceDid = provider,
+            Score = Math.Round(avgScore, 4),
+            Confidence = Math.Round(avgConfidence, 4),
+            RatingsCount = totalRatings,
+            Dimensions = new DimensionScores
+            {
+                Availability = Math.Round(avgAvail, 4),
+                Latency = Math.Round(avgLatency, 4),
+                Conformity = Math.Round(avgConf, 4),
+            },
+            ServiceSupportsReceipts = supportsReceipts,
+            LastRatedAt = lastRated,
+        };
+    }
+
     public ServiceEntity ApplyRating(ServiceEntity service, Rating rating)
     {
         var weight = rating.Weight;
