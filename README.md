@@ -125,8 +125,11 @@ See [docs/mcp.md](docs/mcp.md) for full setup instructions.
 
 TrustScoreAgent is **Phase 1 (early)**. What that means in practice:
 
-- **Real vs. seed data.** Some listed services (`*.example.com`) are seed/demo entries and
-  do not correspond to real ratings. Treat scores as illustrative until the dataset grows.
+- **Baseline data is real and auditable.** Initial scores come from a transparent operated
+  probe (`did:web:probe.trustscoreagent.com`) that measures the availability, latency and
+  conformity of a curated list of public, free APIs — real, Merkle-audited measurements, not
+  fabricated numbers. Community and receipt-verified ratings accumulate on top. (The earlier
+  fictitious `*.example.com` seeds have been removed.)
 - **Single operator.** Neutrality currently rests on open-source scoring code and a
   verifiable Merkle audit trail, not on decentralization. Federation is a later phase.
 - **Agent identity is self-asserted.** Sybil resistance in Phase 1 is rate limiting +
