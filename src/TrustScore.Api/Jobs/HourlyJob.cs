@@ -21,6 +21,8 @@ public static class HourlyJob
         {
             logger.LogInformation("=== Hourly job started ===");
 
+            // Probe first so the fresh measurements feed EigenTrust and get anchored this run.
+            await RunSeedProbe(services, logger);
             await RunEigenTrust(services, logger);
             await RunMerkleAnchor(services, logger);
 
@@ -32,6 +34,13 @@ public static class HourlyJob
             logger.LogError(ex, "Hourly job failed");
             return 1;
         }
+    }
+
+    private static async Task RunSeedProbe(IServiceProvider services, ILogger logger)
+    {
+        using var scope = services.CreateScope();
+        var prober = scope.ServiceProvider.GetRequiredService<SeedProber>();
+        await prober.RunAsync();
     }
 
     private static async Task RunEigenTrust(IServiceProvider services, ILogger logger)

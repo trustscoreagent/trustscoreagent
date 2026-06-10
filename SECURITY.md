@@ -26,7 +26,6 @@ In scope:
 
 Out of scope:
 
-- The fictitious seed data shipped for demos (`*.example.com`)
 - Denial-of-service via raw request volume (rate limits are best-effort in Phase 1)
 - Findings that require a compromised operator or privileged cloud access
 
@@ -44,6 +43,12 @@ TrustScoreAgent is in **Phase 1 (early)**. Be aware of the current trust model:
   trust). Mandatory per-request agent signatures (`X-Agent-Signature`) are planned for
   Phase 2. Ratings backed by a verified service **receipt** are the trustworthy signal
   today.
+- **Baseline scores come from an operated probe.** A single transparent probe agent
+  (`did:web:probe.trustscoreagent.com`) measures public APIs and records real
+  availability/latency/conformity ratings (no receipts, normal unverified weight). These are
+  genuine, Merkle-audited measurements — not fabricated — and community/receipt ratings layer
+  on top. The probe is clearly identified, never pretends to be multiple agents, and only hits
+  public endpoints designed for unauthenticated access.
 - **Blockchain anchoring of the Merkle root is Phase 2.** Until then the audit log is
   append-only and internally verifiable, but not yet externally anchored.
 

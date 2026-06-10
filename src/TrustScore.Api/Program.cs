@@ -61,6 +61,16 @@ builder.Services.AddSingleton<IReceiptVerifier, ReceiptVerifier>();
 builder.Services.AddSingleton<IScoringEngine>(sp =>
     new BetaReputationSystem(sp.GetRequiredService<IConfiguration>()));
 
+// Seed prober — establishes a real, auditable baseline by probing public APIs in the hourly job.
+builder.Services.Configure<SeedProbeOptions>(builder.Configuration.GetSection(SeedProbeOptions.SectionName));
+builder.Services.AddHttpClient(SeedProber.HttpClientName, client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(15);
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("TrustScoreAgent-Probe/0.1 (+https://trustscoreagent.com)");
+    client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
+});
+builder.Services.AddScoped<SeedProber>();
+
 // OpenAPI
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
