@@ -1,28 +1,58 @@
 {
+  "protocolVersion": "0.3.0",
   "name": "TrustScoreAgent",
-  "description": "Free reputation registry for AI microservices. Check reliability before calling any service.",
+  "description": "Free, open reputation registry for AI microservices. Check a service's reliability before calling it, and rate it after. No account, no API key.",
   "url": "https://api.trustscoreagent.com",
+  "preferredTransport": "HTTP+JSON",
+  "version": "0.1.0",
+  "documentationUrl": "https://github.com/trustscoreagent/trustscoreagent/blob/main/docs/api.md",
+  "provider": {
+    "organization": "TrustScoreAgent",
+    "url": "https://trustscoreagent.com"
+  },
   "capabilities": {
     "streaming": false,
-    "pushNotifications": false
+    "pushNotifications": false,
+    "stateTransitionHistory": false
   },
+  "defaultInputModes": ["application/json"],
+  "defaultOutputModes": ["application/json"],
   "skills": [
     {
       "id": "check-reputation",
       "name": "Check service reputation",
-      "description": "Returns trust score (0-1), confidence, and metrics for any microservice DID. Use this BEFORE calling any untrusted service to verify its reliability.",
+      "description": "Returns trust score (0-1), confidence, rating count and a per-dimension breakdown (availability, latency, conformity) for a microservice. Use this BEFORE calling any untrusted service. Maps to GET /v1/score?service=.",
+      "tags": ["reputation", "trust", "discovery", "read"],
       "inputModes": ["application/json"],
-      "outputModes": ["application/json"]
+      "outputModes": ["application/json"],
+      "examples": [
+        "What is the trust score of api.example.com?",
+        "Is did:web:translate.example.com reliable before I call it?"
+      ]
     },
     {
       "id": "submit-rating",
-      "name": "Submit service rating",
-      "description": "Rate a microservice after calling it. Accepts technical metrics and optional receipt.",
+      "name": "Submit a service rating",
+      "description": "Rate a microservice after calling it, from interaction metrics (status code, latency, schema validity) and an optional signed receipt. Maps to POST /v1/rate.",
+      "tags": ["reputation", "rating", "write"],
       "inputModes": ["application/json"],
-      "outputModes": ["application/json"]
+      "outputModes": ["application/json"],
+      "examples": [
+        "Record that api.example.com returned 200 in 143ms with a valid schema."
+      ]
+    },
+    {
+      "id": "list-services",
+      "name": "List rated services",
+      "description": "Discover rated microservices sorted by trust score, with score and rating-count filters. Maps to GET /v1/services.",
+      "tags": ["reputation", "discovery", "read"],
+      "inputModes": ["application/json"],
+      "outputModes": ["application/json"],
+      "examples": [
+        "List the top services with at least 10 ratings and a score above 0.8."
+      ]
     }
   ],
-  "authentication": {
-    "schemes": ["none"]
-  }
+  "securitySchemes": {},
+  "security": []
 }

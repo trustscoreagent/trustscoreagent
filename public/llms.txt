@@ -1,16 +1,28 @@
 # TrustScoreAgent
 
 > TrustScoreAgent is a free, open reputation registry for AI microservices.
-> Agents check service reliability before calling, and rate after.
-> Two endpoints: GET /v1/score?did={did} and POST /v1/rate. Both free.
-> No account needed. No API key. Just call the endpoints.
+> Agents check a service's reliability before calling it, and rate it after.
+> Free, no account, no API key. Identify a service by domain, URL, or DID.
+> Status: Phase 1 (early) — live and usable, dataset still growing.
+
+## Quick start
+- Check a score: `GET https://api.trustscoreagent.com/v1/score?service=api.example.com`
+  (unknown services return a neutral 0.5 with "known": false — never a 404)
+- Submit a rating: `POST https://api.trustscoreagent.com/v1/rate`
+  (header `X-Agent-DID`, body with `metrics`; optional `receipt` for full weight)
+- List rated services: `GET https://api.trustscoreagent.com/v1/services?sort_by=score`
+- Your agent's trust score: `GET https://api.trustscoreagent.com/v1/agent/trust?did=...`
+- Audit a rating: `GET https://api.trustscoreagent.com/v1/audit/proof/{rating_id}`
+
+A service identifier can be a domain (`api.example.com`), a URL, or a DID
+(`did:web:api.example.com`) — all normalize to the same service.
 
 ## Documentation
-- [API Reference](https://trustscoreagent.com/docs/api.md)
-- [MCP Server Setup](https://trustscoreagent.com/docs/mcp.md)
-- [Receipt Standard](https://trustscoreagent.com/docs/receipts.md)
-- [Why Trust Matters for Agents](https://trustscoreagent.com/docs/why.md)
+- [API Reference](https://github.com/trustscoreagent/trustscoreagent/blob/main/docs/api.md)
+- [Receipt Standard](https://github.com/trustscoreagent/trustscoreagent/blob/main/docs/receipts.md)
+- [MCP Server Setup](https://github.com/trustscoreagent/trustscoreagent/blob/main/docs/mcp.md)
+- [Why Trust Matters for Agents](https://github.com/trustscoreagent/trustscoreagent/blob/main/docs/why.md)
 
-## Quick Start
-- Check a score: GET https://api.trustscoreagent.com/v1/score?did=did:web:example.com
-- Submit a rating: POST https://api.trustscoreagent.com/v1/rate
+## Integrate
+- MCP server: `npx -y @trustscoreagent/mcp-server` (tools: check_reputation, submit_rating, list_services)
+- Source & spec: https://github.com/trustscoreagent/trustscoreagent
