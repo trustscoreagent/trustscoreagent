@@ -28,15 +28,32 @@ builder.Services.AddScoped<IServiceRepository, ServiceRepository>();
 builder.Services.AddScoped<IRatingRepository, RatingRepository>();
 builder.Services.AddScoped<IAuditService, AuditService>();
 builder.Services.AddScoped<IAgentRepository, AgentRepository>();
+builder.Services.AddScoped<IRatingWriter, TransactionalRatingWriter>();
 
-// Redis
+// Redis — do not abort startup if Redis is unreachable; the app is designed to run in a
+// degraded mode (PostgreSQL fallback) when Redis is down.
 builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
-    ConnectionMultiplexer.Connect(ConfigurationOptions.Parse(redisConnectionString)));
+{
+    var options = ConfigurationOptions.Parse(redisConnectionString);
+    options.AbortOnConnectFail = false;
+    return ConnectionMultiplexer.Connect(options);
+});
 builder.Services.AddSingleton<ICacheService, RedisCacheService>();
 builder.Services.AddSingleton<IRateLimiter, RedisRateLimiter>();
 
-// Receipt verification
-builder.Services.AddHttpClient<DidWebResolver>();
+// Receipt verification. The did:web HTTP client routes through an SSRF-guarding connect
+// callback that validates every resolved IP and refuses redirects.
+builder.Services.AddHttpClient(DidWebResolver.HttpClientName, client =>
+    {
+        client.Timeout = TimeSpan.FromSeconds(5);
+        client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
+    })
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+    {
+        AllowAutoRedirect = false,
+        ConnectTimeout = TimeSpan.FromSeconds(5),
+        ConnectCallback = SsrfGuard.ConnectAsync,
+    });
 builder.Services.AddSingleton<IDidResolver, DidWebResolver>();
 builder.Services.AddSingleton<IReceiptVerifier, ReceiptVerifier>();
 
@@ -112,8 +129,10 @@ app.MapAuditEndpoints();
 app.MapPremiumEndpoints();
 app.MapAgentEndpoints();
 
-// Cache headers for static files
+// Static discovery files served from public/
 app.MapGet("/llms.txt", () => Results.File("public/llms.txt", "text/plain"))
+    .ExcludeFromDescription();
+app.MapGet("/.well-known/agent.json", () => Results.File("public/.well-known/agent.json", "application/json"))
     .ExcludeFromDescription();
 
 app.Run();

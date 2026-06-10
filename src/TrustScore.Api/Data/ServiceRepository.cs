@@ -1,3 +1,4 @@
+using System.Data;
 using Dapper;
 using TrustScore.Core.Interfaces;
 using TrustScore.Core.Models;
@@ -119,50 +120,56 @@ public sealed class ServiceRepository : IServiceRepository
             service);
     }
 
+    private const string ApplyRatingSql =
+        """
+        INSERT INTO services (did, alpha, beta,
+            alpha_availability, beta_availability,
+            alpha_latency, beta_latency,
+            alpha_conformity, beta_conformity,
+            ratings_count, supports_receipts, last_rated_at, created_at, updated_at)
+        VALUES (@Did,
+            GREATEST(1.0, 1.0 + @AlphaDelta), GREATEST(1.0, 1.0 + @BetaDelta),
+            GREATEST(1.0, 1.0 + @AlphaAvailabilityDelta), GREATEST(1.0, 1.0 + @BetaAvailabilityDelta),
+            GREATEST(1.0, 1.0 + @AlphaLatencyDelta), GREATEST(1.0, 1.0 + @BetaLatencyDelta),
+            GREATEST(1.0, 1.0 + @AlphaConformityDelta), GREATEST(1.0, 1.0 + @BetaConformityDelta),
+            1, @SupportsReceipts, NOW(), NOW(), NOW())
+        ON CONFLICT (did) DO UPDATE SET
+            alpha = GREATEST(1.0, services.alpha * 0.995 + @AlphaDelta),
+            beta = GREATEST(1.0, services.beta * 0.995 + @BetaDelta),
+            alpha_availability = GREATEST(1.0, services.alpha_availability * 0.995 + @AlphaAvailabilityDelta),
+            beta_availability = GREATEST(1.0, services.beta_availability * 0.995 + @BetaAvailabilityDelta),
+            alpha_latency = GREATEST(1.0, services.alpha_latency * 0.995 + @AlphaLatencyDelta),
+            beta_latency = GREATEST(1.0, services.beta_latency * 0.995 + @BetaLatencyDelta),
+            alpha_conformity = GREATEST(1.0, services.alpha_conformity * 0.995 + @AlphaConformityDelta),
+            beta_conformity = GREATEST(1.0, services.beta_conformity * 0.995 + @BetaConformityDelta),
+            ratings_count = services.ratings_count + 1,
+            supports_receipts = services.supports_receipts OR @SupportsReceipts,
+            last_rated_at = NOW(),
+            updated_at = NOW()
+        """;
+
+    private static object BuildApplyRatingParams(string did, RatingDelta delta) => new
+    {
+        Did = did,
+        delta.AlphaDelta,
+        delta.BetaDelta,
+        delta.AlphaAvailabilityDelta,
+        delta.BetaAvailabilityDelta,
+        delta.AlphaLatencyDelta,
+        delta.BetaLatencyDelta,
+        delta.AlphaConformityDelta,
+        delta.BetaConformityDelta,
+        delta.SupportsReceipts,
+    };
+
     public async Task ApplyRatingAtomicAsync(string did, RatingDelta delta)
     {
         using var conn = _db.CreateConnection();
-        await conn.ExecuteAsync(
-            """
-            INSERT INTO services (did, alpha, beta,
-                alpha_availability, beta_availability,
-                alpha_latency, beta_latency,
-                alpha_conformity, beta_conformity,
-                ratings_count, supports_receipts, last_rated_at, created_at, updated_at)
-            VALUES (@Did,
-                GREATEST(1.0, 1.0 + @AlphaDelta), GREATEST(1.0, 1.0 + @BetaDelta),
-                GREATEST(1.0, 1.0 + @AlphaAvailabilityDelta), GREATEST(1.0, 1.0 + @BetaAvailabilityDelta),
-                GREATEST(1.0, 1.0 + @AlphaLatencyDelta), GREATEST(1.0, 1.0 + @BetaLatencyDelta),
-                GREATEST(1.0, 1.0 + @AlphaConformityDelta), GREATEST(1.0, 1.0 + @BetaConformityDelta),
-                1, @SupportsReceipts, NOW(), NOW(), NOW())
-            ON CONFLICT (did) DO UPDATE SET
-                alpha = GREATEST(1.0, services.alpha * 0.995 + @AlphaDelta),
-                beta = GREATEST(1.0, services.beta * 0.995 + @BetaDelta),
-                alpha_availability = GREATEST(1.0, services.alpha_availability * 0.995 + @AlphaAvailabilityDelta),
-                beta_availability = GREATEST(1.0, services.beta_availability * 0.995 + @BetaAvailabilityDelta),
-                alpha_latency = GREATEST(1.0, services.alpha_latency * 0.995 + @AlphaLatencyDelta),
-                beta_latency = GREATEST(1.0, services.beta_latency * 0.995 + @BetaLatencyDelta),
-                alpha_conformity = GREATEST(1.0, services.alpha_conformity * 0.995 + @AlphaConformityDelta),
-                beta_conformity = GREATEST(1.0, services.beta_conformity * 0.995 + @BetaConformityDelta),
-                ratings_count = services.ratings_count + 1,
-                supports_receipts = services.supports_receipts OR @SupportsReceipts,
-                last_rated_at = NOW(),
-                updated_at = NOW()
-            """,
-            new
-            {
-                Did = did,
-                delta.AlphaDelta,
-                delta.BetaDelta,
-                delta.AlphaAvailabilityDelta,
-                delta.BetaAvailabilityDelta,
-                delta.AlphaLatencyDelta,
-                delta.BetaLatencyDelta,
-                delta.AlphaConformityDelta,
-                delta.BetaConformityDelta,
-                delta.SupportsReceipts,
-            });
+        await conn.ExecuteAsync(ApplyRatingSql, BuildApplyRatingParams(did, delta));
     }
+
+    public Task ApplyRatingAtomicAsync(IDbConnection conn, IDbTransaction tx, string did, RatingDelta delta)
+        => conn.ExecuteAsync(ApplyRatingSql, BuildApplyRatingParams(did, delta), tx);
 
     public async Task<IReadOnlyList<ServiceEntity>> ListAsync(ServiceListFilter filter)
     {

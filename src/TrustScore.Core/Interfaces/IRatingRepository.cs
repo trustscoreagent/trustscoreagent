@@ -1,3 +1,4 @@
+using System.Data;
 using TrustScore.Core.Models;
 
 namespace TrustScore.Core.Interfaces;
@@ -5,9 +6,18 @@ namespace TrustScore.Core.Interfaces;
 public interface IRatingRepository
 {
     Task InsertAsync(Rating rating);
+
+    /// <summary>Insert a rating (with its Merkle leaf hash) inside an existing transaction.</summary>
+    Task InsertAsync(IDbConnection conn, IDbTransaction tx, Rating rating);
     Task<int> CountRecentAsync(string agentDid, string serviceDid, TimeSpan window);
     Task<RatingLeafInfo?> GetLeafInfoAsync(Guid ratingId);
     Task<IReadOnlyList<RatingLeafInfo>> GetAllLeafHashesAsync();
+
+    /// <summary>
+    /// The first <paramref name="leafCount"/> leaves in deterministic (created_at, id) order —
+    /// i.e. the exact snapshot a Merkle anchor of that leaf count was computed over.
+    /// </summary>
+    Task<IReadOnlyList<RatingLeafInfo>> GetAnchoredLeafHashesAsync(int leafCount);
     Task<IReadOnlyList<RatingSummary>> GetHistoryAsync(string serviceDid, int months);
     Task<IReadOnlyList<AgentRatingRecord>> GetAllRatingsForTrustAsync();
 }

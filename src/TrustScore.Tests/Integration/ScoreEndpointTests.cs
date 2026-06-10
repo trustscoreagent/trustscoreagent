@@ -1,3 +1,4 @@
+using System.Data;
 using System.Net;
 using System.Net.Http.Json;
 using FluentAssertions;
@@ -103,6 +104,7 @@ public class ScoreEndpointTests : IClassFixture<WebApplicationFactory<Program>>
                 ReplaceService<IDidResolver, FakeDidResolver>(services);
                 ReplaceService<IAuditService, FakeAuditService>(services);
                 ReplaceService<IAgentRepository, FakeAgentRepository>(services);
+                ReplaceService<IRatingWriter, FakeRatingWriter>(services);
 
                 // Remove Redis (not needed with FakeCacheService)
                 var redisDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IConnectionMultiplexer));
@@ -480,6 +482,9 @@ internal class FakeServiceRepository : IServiceRepository
         return Task.CompletedTask;
     }
 
+    public Task ApplyRatingAtomicAsync(IDbConnection conn, IDbTransaction tx, string did, RatingDelta delta)
+        => ApplyRatingAtomicAsync(did, delta);
+
     public Task<bool> ExistsAsync(string did)
         => Task.FromResult(_services.ContainsKey(did));
 }
@@ -493,6 +498,9 @@ internal class FakeRatingRepository : IRatingRepository
         _ratings.Add(rating);
         return Task.CompletedTask;
     }
+
+    public Task InsertAsync(IDbConnection conn, IDbTransaction tx, Rating rating)
+        => InsertAsync(rating);
 
     public Task<int> CountRecentAsync(string agentDid, string serviceDid, TimeSpan window)
         => Task.FromResult(_ratings.Count(r =>
@@ -515,6 +523,16 @@ internal class FakeRatingRepository : IRatingRepository
         return Task.FromResult<IReadOnlyList<RatingLeafInfo>>(result);
     }
 
+    public Task<IReadOnlyList<RatingLeafInfo>> GetAnchoredLeafHashesAsync(int leafCount)
+    {
+        var result = _ratings
+            .OrderBy(r => r.CreatedAt).ThenBy(r => r.Id)
+            .Take(leafCount)
+            .Select(r => new RatingLeafInfo(r.Id, r.ServiceDid, r.CreatedAt, "fakehash"))
+            .ToList().AsReadOnly();
+        return Task.FromResult<IReadOnlyList<RatingLeafInfo>>(result);
+    }
+
     public Task<IReadOnlyList<AgentRatingRecord>> GetAllRatingsForTrustAsync()
     {
         var result = _ratings.Select(r => new AgentRatingRecord(
@@ -533,6 +551,24 @@ internal class FakeRatingRepository : IRatingRepository
                 r.HasReceipt, r.ReceiptVerified, r.Weight))
             .ToList().AsReadOnly();
         return Task.FromResult<IReadOnlyList<RatingSummary>>(result);
+    }
+}
+
+internal class FakeRatingWriter : IRatingWriter
+{
+    private readonly IServiceRepository _services;
+    private readonly IRatingRepository _ratings;
+
+    public FakeRatingWriter(IServiceRepository services, IRatingRepository ratings)
+    {
+        _services = services;
+        _ratings = ratings;
+    }
+
+    public async Task SubmitAsync(string serviceId, RatingDelta delta, Rating rating)
+    {
+        await _services.ApplyRatingAtomicAsync(serviceId, delta);
+        await _ratings.InsertAsync(rating);
     }
 }
 
