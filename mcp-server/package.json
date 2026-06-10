@@ -8,10 +8,36 @@
   "bin": {
     "trustscoreagent-mcp": "dist/index.js"
   },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
-    "dev": "tsx src/index.ts"
+    "dev": "tsx src/index.ts",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "trust",
+    "reputation",
+    "ai-agents",
+    "microservices"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/trustscoreagent/trustscoreagent.git",
+    "directory": "mcp-server"
+  },
+  "homepage": "https://trustscoreagent.com",
+  "bugs": {
+    "url": "https://github.com/trustscoreagent/trustscoreagent/issues"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0"

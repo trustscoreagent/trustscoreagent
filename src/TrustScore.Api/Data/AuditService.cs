@@ -47,34 +47,42 @@ public sealed class AuditService : IAuditService
 
     public async Task<InclusionProofResult?> GetInclusionProofAsync(Guid ratingId)
     {
-        // Get the target rating's leaf info
+        // A proof is only meaningful against a *published* (anchored) root. Rebuilding from the
+        // live table would yield a root that drifts with every new rating and never matches
+        // /v1/audit/root, defeating the audit guarantee. So we rebuild the exact snapshot the
+        // latest anchor committed to and prove against that anchor's root.
+        var anchor = await GetLatestAnchorAsync();
+        if (anchor is null || anchor.LeafCount == 0)
+            return null;
+
         var targetLeaf = await _ratingRepo.GetLeafInfoAsync(ratingId);
         if (targetLeaf is null || targetLeaf.MerkleLeafHash is null)
             return null;
 
-        // Get all leaf hashes in order to rebuild the tree
-        var allLeaves = await _ratingRepo.GetAllLeafHashesAsync();
-        if (allLeaves.Count == 0)
+        // First leaf_count leaves in deterministic (created_at, id) order = the anchored set.
+        var leaves = await _ratingRepo.GetAnchoredLeafHashesAsync(anchor.LeafCount);
+        if (leaves.Count == 0)
             return null;
 
-        // Rebuild the Merkle tree
         var tree = new MerkleTree();
         var targetIndex = -1;
-
-        for (int i = 0; i < allLeaves.Count; i++)
+        for (int i = 0; i < leaves.Count; i++)
         {
-            var leaf = allLeaves[i];
-            var hash = MerkleTree.ComputeLeafHash(leaf.Id, leaf.ServiceDid, leaf.CreatedAt);
-            tree.AddLeafHash(hash);
-
+            var leaf = leaves[i];
+            tree.AddLeafHash(MerkleTree.ComputeLeafHash(leaf.Id, leaf.ServiceDid, leaf.CreatedAt));
             if (leaf.Id == ratingId)
                 targetIndex = i;
         }
 
+        // Rating exists but was created after the latest anchor → not yet provable.
         if (targetIndex == -1)
             return null;
 
-        // Generate the proof
+        // The rebuilt root must match the published anchor; otherwise the snapshot has drifted and
+        // handing out a proof that won't verify would be worse than a 404.
+        if (!string.Equals(tree.RootHex, anchor.MerkleRoot, StringComparison.OrdinalIgnoreCase))
+            return null;
+
         var proof = tree.GetInclusionProof(targetIndex);
         var leafHash = MerkleTree.ComputeLeafHash(targetLeaf.Id, targetLeaf.ServiceDid, targetLeaf.CreatedAt);
 
@@ -82,10 +90,10 @@ public sealed class AuditService : IAuditService
         {
             RatingId = ratingId.ToString(),
             LeafHash = Convert.ToHexString(leafHash).ToLowerInvariant(),
-            MerkleRoot = tree.RootHex!,
+            MerkleRoot = anchor.MerkleRoot,
             Proof = proof.Select(p => new ProofNodeDto(p.HashHex, p.IsRight)).ToList(),
             LeafIndex = targetIndex,
-            TotalLeaves = allLeaves.Count,
+            TotalLeaves = leaves.Count,
         };
     }
 }

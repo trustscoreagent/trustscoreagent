@@ -1,3 +1,5 @@
+using System.Net;
+using System.Net.Sockets;
 using System.Text.Json;
 using TrustScore.Core.Interfaces;
 
@@ -5,14 +7,20 @@ namespace TrustScore.Api.Receipts;
 
 public sealed class DidWebResolver : IDidResolver
 {
-    private readonly HttpClient _httpClient;
+    public const string HttpClientName = "did-web";
+
+    // Cap on the did.json body we will read. A DID document is a few hundred bytes;
+    // anything larger is either malicious or misconfigured.
+    private const int MaxResponseBytes = 64 * 1024;
+
+    private readonly IHttpClientFactory _httpClientFactory;
     private readonly ICacheService _cache;
     private readonly ILogger<DidWebResolver> _logger;
     private static readonly TimeSpan CacheTtl = TimeSpan.FromHours(1);
 
-    public DidWebResolver(HttpClient httpClient, ICacheService cache, ILogger<DidWebResolver> logger)
+    public DidWebResolver(IHttpClientFactory httpClientFactory, ICacheService cache, ILogger<DidWebResolver> logger)
     {
-        _httpClient = httpClient;
+        _httpClientFactory = httpClientFactory;
         _cache = cache;
         _logger = logger;
     }
@@ -36,24 +44,48 @@ public sealed class DidWebResolver : IDidResolver
             // did:web:api.example.com → https://api.example.com/.well-known/did.json
             var domain = did["did:web:".Length..];
 
-            // SSRF protection: reject private/internal domains
-            if (IsPrivateOrReservedDomain(domain))
+            // Reject obviously private/reserved hosts early (literal IPs, localhost) for a clean
+            // log; the real SSRF protection is the ConnectCallback on the named HttpClient, which
+            // validates every DNS-resolved IP and is not bypassable via DNS rebinding.
+            if (IsPrivateOrReservedHost(domain))
             {
-                _logger.LogWarning("DID resolution blocked for private domain: {Domain}", domain);
+                _logger.LogWarning("DID resolution blocked for private host: {Domain}", domain);
                 return null;
             }
 
-            var url = $"https://{domain}/.well-known/did.json";
+            if (!Uri.TryCreate($"https://{domain}/.well-known/did.json", UriKind.Absolute, out var url)
+                || url.Scheme != Uri.UriSchemeHttps)
+            {
+                _logger.LogWarning("DID resolution blocked, invalid did:web host: {Domain}", domain);
+                return null;
+            }
+
+            var httpClient = _httpClientFactory.CreateClient(HttpClientName);
 
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-            var response = await _httpClient.GetAsync(url, cts.Token);
+            // Redirects are disabled on the handler, so a 3xx is treated as a non-success response
+            // rather than followed to an unvalidated target.
+            using var response = await httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cts.Token);
             if (!response.IsSuccessStatusCode)
             {
                 _logger.LogWarning("DID resolution failed for {Did}: HTTP {StatusCode}", did, response.StatusCode);
                 return null;
             }
 
-            var json = await response.Content.ReadAsStringAsync();
+            if (response.Content.Headers.ContentLength is long declared && declared > MaxResponseBytes)
+            {
+                _logger.LogWarning("DID document too large for {Did}: {Bytes} bytes", did, declared);
+                return null;
+            }
+
+            await using var stream = await response.Content.ReadAsStreamAsync(cts.Token);
+            var json = await ReadBoundedAsync(stream, MaxResponseBytes, cts.Token);
+            if (json is null)
+            {
+                _logger.LogWarning("DID document exceeded {Max} bytes for {Did}", MaxResponseBytes, did);
+                return null;
+            }
+
             var doc = JsonSerializer.Deserialize<JsonElement>(json);
 
             // Extract the first Ed25519 verification method
@@ -108,29 +140,103 @@ public sealed class DidWebResolver : IDidResolver
     }
 
     /// <summary>
-    /// Block SSRF: reject localhost, private IPs, and reserved domains.
+    /// Reads up to <paramref name="maxBytes"/> from the stream. Returns null if the stream
+    /// produces more than the limit (so an oversized body cannot exhaust memory).
     /// </summary>
-    private static bool IsPrivateOrReservedDomain(string domain)
+    private static async Task<string?> ReadBoundedAsync(Stream stream, int maxBytes, CancellationToken ct)
     {
-        var host = domain.Split(':')[0].ToLowerInvariant(); // Strip port
+        using var buffer = new MemoryStream();
+        var chunk = new byte[8192];
+        int read;
+        while ((read = await stream.ReadAsync(chunk, ct)) > 0)
+        {
+            if (buffer.Length + read > maxBytes)
+                return null;
+            buffer.Write(chunk, 0, read);
+        }
+        return System.Text.Encoding.UTF8.GetString(buffer.ToArray());
+    }
 
-        if (host is "localhost" or "127.0.0.1" or "::1" or "0.0.0.0")
+    /// <summary>
+    /// Cheap pre-check for literal private IPs / localhost in the host. Defense-in-depth only;
+    /// hosts given as domain names are validated at connect time by <see cref="SsrfGuard"/>.
+    /// </summary>
+    private static bool IsPrivateOrReservedHost(string domain)
+    {
+        var host = domain.Split('/')[0].Split(':')[0].ToLowerInvariant(); // strip path + port
+
+        if (host is "localhost" or "")
             return true;
 
-        if (System.Net.IPAddress.TryParse(host, out var ip))
-        {
-            var bytes = ip.GetAddressBytes();
-            // 10.x.x.x
-            if (bytes[0] == 10) return true;
-            // 172.16.x.x - 172.31.x.x
-            if (bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31) return true;
-            // 192.168.x.x
-            if (bytes[0] == 192 && bytes[1] == 168) return true;
-            // 169.254.x.x (link-local, AWS metadata)
-            if (bytes[0] == 169 && bytes[1] == 254) return true;
-        }
+        if (IPAddress.TryParse(host, out var ip))
+            return SsrfGuard.IsBlocked(ip);
 
         return false;
+    }
+}
+
+/// <summary>
+/// SSRF guard for outbound did:web resolution. Validates the actual IP addresses a host
+/// resolves to and only connects to public ones, closing DNS-rebinding/TOCTOU gaps that a
+/// host-string check cannot.
+/// </summary>
+internal static class SsrfGuard
+{
+    public static async ValueTask<Stream> ConnectAsync(SocketsHttpConnectionContext context, CancellationToken ct)
+    {
+        var endpoint = context.DnsEndPoint;
+        var addresses = await Dns.GetHostAddressesAsync(endpoint.Host, ct);
+        var allowed = addresses.Where(a => !IsBlocked(a)).ToArray();
+        if (allowed.Length == 0)
+            throw new IOException($"SSRF guard: host '{endpoint.Host}' resolves only to blocked addresses");
+
+        var socket = new Socket(SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
+        try
+        {
+            // Connect only to the vetted IPs — never re-resolve, so the address checked is the
+            // address connected to.
+            await socket.ConnectAsync(allowed, endpoint.Port, ct);
+            return new NetworkStream(socket, ownsSocket: true);
+        }
+        catch
+        {
+            socket.Dispose();
+            throw;
+        }
+    }
+
+    public static bool IsBlocked(IPAddress ip)
+    {
+        if (ip.IsIPv4MappedToIPv6)
+            ip = ip.MapToIPv4();
+
+        if (IPAddress.IsLoopback(ip))
+            return true;
+
+        if (ip.AddressFamily == AddressFamily.InterNetwork)
+        {
+            var b = ip.GetAddressBytes();
+            if (b[0] == 0) return true;                                   // 0.0.0.0/8
+            if (b[0] == 10) return true;                                  // 10.0.0.0/8
+            if (b[0] == 100 && b[1] >= 64 && b[1] <= 127) return true;    // 100.64.0.0/10 CGNAT
+            if (b[0] == 127) return true;                                 // loopback
+            if (b[0] == 169 && b[1] == 254) return true;                 // link-local + cloud metadata
+            if (b[0] == 172 && b[1] >= 16 && b[1] <= 31) return true;     // 172.16.0.0/12
+            if (b[0] == 192 && b[1] == 168) return true;                 // 192.168.0.0/16
+            if (b[0] >= 224) return true;                                 // multicast + reserved
+            return false;
+        }
+
+        if (ip.AddressFamily == AddressFamily.InterNetworkV6)
+        {
+            if (ip.Equals(IPAddress.IPv6Any) || ip.Equals(IPAddress.IPv6Loopback)) return true;
+            if (ip.IsIPv6LinkLocal || ip.IsIPv6SiteLocal || ip.IsIPv6Multicast) return true;
+            var b = ip.GetAddressBytes();
+            if ((b[0] & 0xfe) == 0xfc) return true;                       // fc00::/7 unique local
+            return false;
+        }
+
+        return true; // unknown address family → block
     }
 }
 

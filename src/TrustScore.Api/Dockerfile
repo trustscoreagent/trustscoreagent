@@ -21,11 +21,17 @@ WORKDIR /app
 # Copy migrations
 COPY migrations/ ./migrations/
 
+# Copy static assets served by the app (/llms.txt and /.well-known/agent.json)
+COPY public/ ./public/
+
 # Copy published app
 COPY --from=build /app/publish .
 
 # Cloud Run uses PORT env variable
 ENV ASPNETCORE_URLS=http://+:8080
 EXPOSE 8080
+
+# Drop root: the .NET base images ship a non-root "app" user.
+USER app
 
 ENTRYPOINT ["dotnet", "TrustScore.Api.dll"]
