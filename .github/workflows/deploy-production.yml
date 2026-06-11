@@ -13,44 +13,101 @@ env:
   GCP_REGION: europe-west1
   SERVICE_NAME: trustscoreagent-api
   IMAGE_NAME: europe-west1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/trustscoreagent/api
+  DOTNET_VERSION: '8.0.x'
+
+permissions:
+  contents: read
 
 jobs:
+  # Gate: a production deploy can target an arbitrary ref, so re-run the full test suite against
+  # that exact ref before building/deploying. The deploy job will not start unless this passes.
+  test:
+    name: Test ref before deploy
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: trustscore_test
+          POSTGRES_USER: trustscore
+          POSTGRES_PASSWORD: trustscore
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Run tests
+        run: dotnet test --no-restore --configuration Release --verbosity normal
+        env:
+          ConnectionStrings__PostgreSQL: "Server=localhost;Port=5432;Database=trustscore_test;User Id=trustscore;Password=trustscore;"
+          ConnectionStrings__Redis: "localhost:6379"
+
   deploy:
     name: Deploy to Production
     runs-on: ubuntu-latest
-    environment: production  # Requires manual approval in GitHub
+    needs: test
+    environment: production  # Requires manual approval (Required reviewers) once the repo is public
 
     permissions:
       contents: read
       id-token: write
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           ref: ${{ inputs.ref }}
 
+      # Tag the image with the SHA of the deployed ref (not github.sha, which is the HEAD of the
+      # branch the workflow was dispatched from) so the image tag matches the code it contains.
+      - name: Resolve deployed commit SHA
+        run: echo "DEPLOY_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
       - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
       - name: Setup Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
+        uses: google-github-actions/setup-gcloud@e427ad8a34f8676edf47cf7d7925499adf3eb74f # v2
 
       - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker europe-west1-docker.pkg.dev --quiet
 
       - name: Build and push Docker image
         run: |
-          IMAGE="${IMAGE_NAME}:${{ github.sha }}"
+          IMAGE="${IMAGE_NAME}:${DEPLOY_SHA}"
           docker build -f src/TrustScore.Api/Dockerfile -t "$IMAGE" .
           docker push "$IMAGE"
 
       - name: Deploy canary (0% traffic)
         run: |
           gcloud run deploy $SERVICE_NAME \
-            --image "${IMAGE_NAME}:${{ github.sha }}" \
+            --image "${IMAGE_NAME}:${DEPLOY_SHA}" \
             --region $GCP_REGION \
             --platform managed \
             --allow-unauthenticated \
@@ -81,8 +138,8 @@ jobs:
             sleep 30
             HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$URL/health")
             echo "Check $i/10: HTTP $HTTP_CODE"
-            if [ "$HTTP_CODE" != "200" ] && [ "$HTTP_CODE" != "503" ]; then
-              echo "Canary check failed, rolling back..."
+            if [ "$HTTP_CODE" != "200" ]; then
+              echo "Canary check failed (HTTP $HTTP_CODE), rolling back..."
               gcloud run services update-traffic $SERVICE_NAME \
                 --region $GCP_REGION \
                 --to-latest

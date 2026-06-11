@@ -15,12 +15,11 @@ public static class RateEndpoints
             HttpContext httpContext,
             RateRequest request,
             IServiceRepository serviceRepo,
-            IRatingRepository ratingRepo,
             IScoringEngine scoringEngine,
             ICacheService cache,
             IRateLimiter rateLimiter,
             IReceiptVerifier receiptVerifier,
-            IAuditService auditService,
+            IRatingWriter ratingWriter,
             IAgentRepository agentRepo) =>
         {
             // Validate required fields
@@ -59,7 +58,12 @@ public static class RateEndpoints
                     new { error = "rate_limited", message = $"Maximum {MaxRatingsPerHour} ratings per agent per service per hour", remaining = rateLimitResult.Remaining },
                     statusCode: 429);
 
-            // Verify receipt if provided
+            // Verify receipt if provided. Per spec §5, an unverified rating still counts, but at a
+            // reduced base weight (0.3); a verified receipt grants full weight (1.0). The base
+            // weight is then scaled by the agent's EigenTrust score (spec §6.2). MVP Sybil
+            // resistance comes from rate limiting + the hourly EigenTrust recompute (a self-
+            // asserted X-Agent-DID converges toward low trust); mandatory per-request agent
+            // signatures (X-Agent-Signature) are a Phase 2 item.
             var hasReceipt = !string.IsNullOrWhiteSpace(request.Receipt);
             var receiptVerified = false;
             var weight = 0.3;
@@ -77,7 +81,7 @@ public static class RateEndpoints
                 receiptVerified = verification.IsVerified;
             }
 
-            // Apply agent trust score (EigenTrust) to rating weight
+            // Apply agent trust score (EigenTrust) to rating weight.
             var agentTrust = await agentRepo.GetTrustScoreAsync(agentDid);
             weight *= agentTrust;
 
@@ -100,15 +104,12 @@ public static class RateEndpoints
                 Weight = weight,
             };
 
-            // Compute rating delta and apply atomically in SQL (no read-then-write race)
+            // Compute the rating delta and persist the score update together with the rating
+            // record (which carries its own Merkle leaf hash) in a single transaction. A partial
+            // write would otherwise leave the aggregate score permanently out of sync with the
+            // ratings table, or drop the rating from the audit tree.
             var delta = scoringEngine.ComputeDelta(rating);
-            await serviceRepo.ApplyRatingAtomicAsync(serviceId, delta);
-
-            // Insert rating record
-            await ratingRepo.InsertAsync(rating);
-
-            // Record Merkle leaf hash for audit trail
-            await auditService.RecordLeafAsync(rating.Id, rating.ServiceDid, rating.CreatedAt);
+            await ratingWriter.SubmitAsync(serviceId, delta, rating);
 
             // Invalidate cache
             await cache.RemoveAsync($"score:{serviceId}");

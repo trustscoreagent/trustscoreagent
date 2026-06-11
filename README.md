@@ -2,6 +2,14 @@
 
 Free, open reputation registry for AI microservices. Agents check trust scores before calling any service.
 
+> **Status: Phase 1 (early).** The API, scoring (Beta + EigenTrust), receipt verification,
+> Merkle audit trail and MCP server are implemented and tested — but the public dataset is
+> still small, some services (`*.example.com`) are demo seed data, and parts of the design
+> (on-chain anchoring, x402 payments, mandatory agent signatures) are Phase 2. We publish
+> early and openly on purpose: the trust layer for the agentic economy should exist, be
+> auditable, and be adoptable *before* it becomes critical. See the trust model in
+> [SECURITY.md](SECURITY.md).
+
 ## What is this?
 
 AI agents increasingly rely on paid microservices. TrustScoreAgent lets any agent:
@@ -105,6 +113,30 @@ claude mcp add trustscoreagent npx -y @trustscoreagent/mcp-server
 ```
 
 See [docs/mcp.md](docs/mcp.md) for full setup instructions.
+
+## Documentation
+
+- [API Reference](docs/api.md)
+- [Receipt Standard](docs/receipts.md)
+- [MCP Server Setup](docs/mcp.md)
+- [Why Trust Matters for Agents](docs/why.md)
+
+## Project status & trust model
+
+TrustScoreAgent is **Phase 1 (early)**. What that means in practice:
+
+- **Baseline data is real and auditable.** Initial scores come from a transparent operated
+  probe (`did:web:trustscoreagent.com:probe`) that measures the availability, latency and
+  conformity of a curated list of public, free APIs — real, Merkle-audited measurements, not
+  fabricated numbers. Community and receipt-verified ratings accumulate on top. (The earlier
+  fictitious `*.example.com` seeds have been removed.)
+- **Single operator.** Neutrality currently rests on open-source scoring code and a
+  verifiable Merkle audit trail, not on decentralization. Federation is a later phase.
+- **Agent identity is self-asserted.** Sybil resistance in Phase 1 is rate limiting +
+  hourly EigenTrust; verified service **receipts** are the trustworthy signal. Mandatory
+  agent signatures and on-chain Merkle anchoring are Phase 2.
+
+See [SECURITY.md](SECURITY.md) for the full trust model and how to report vulnerabilities.
 
 ## License
 
