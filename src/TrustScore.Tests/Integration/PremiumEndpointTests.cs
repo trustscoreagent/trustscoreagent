@@ -30,11 +30,13 @@ public class PremiumEndpointTests : IClassFixture<WebApplicationFactory<Program>
     }
 
     [Fact]
-    public async Task History_UnknownService_Returns404()
+    public async Task History_UnknownService_Returns200WithKnownFalse()
     {
         var response = await _client.GetAsync("/v1/score/history?did=did:web:unknown.example.com");
 
-        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.Content.ReadAsStringAsync();
+        body.Should().Contain("\"known\":false");
     }
 
     [Fact]
@@ -60,11 +62,13 @@ public class PremiumEndpointTests : IClassFixture<WebApplicationFactory<Program>
     }
 
     [Fact]
-    public async Task Detailed_UnknownService_Returns404()
+    public async Task Detailed_UnknownService_Returns200WithKnownFalse()
     {
         var response = await _client.GetAsync("/v1/score/detailed?did=did:web:unknown.example.com");
 
-        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.Content.ReadAsStringAsync();
+        body.Should().Contain("\"known\":false");
     }
 
     // --- Bulk ---
