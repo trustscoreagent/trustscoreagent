@@ -19,8 +19,19 @@ public interface IRatingRepository
     /// </summary>
     Task<IReadOnlyList<RatingLeafInfo>> GetAnchoredLeafHashesAsync(int leafCount);
     Task<IReadOnlyList<RatingSummary>> GetHistoryAsync(string serviceDid, int months);
+
+    /// <summary>Daily aggregates computed in SQL (bounded transfer, no per-rating load).</summary>
+    Task<IReadOnlyList<DailyHistoryPoint>> GetDailyHistoryAsync(string serviceDid, int months);
     Task<IReadOnlyList<AgentRatingRecord>> GetAllRatingsForTrustAsync();
 }
+
+public sealed record DailyHistoryPoint(
+    DateTime Date,
+    int RatingsCount,
+    int AvgLatencyMs,
+    double SuccessRate,
+    double AvgQuality,
+    int VerifiedCount);
 
 /// <summary>
 /// Minimal rating record used for EigenTrust computation.

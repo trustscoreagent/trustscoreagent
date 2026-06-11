@@ -25,44 +25,49 @@ public static class PremiumEndpoints
                 return Results.BadRequest(new { error = "missing_service", message = "Query parameter 'service' (or 'did') is required" });
 
             var serviceId = ServiceIdentifier.Normalize(raw);
-            var svc = await serviceRepo.GetByDidAsync(serviceId);
-            if (svc is null)
-                return Results.NotFound(new { error = "service_not_found", message = "No ratings found for this service" });
-
             var period = Math.Clamp(months ?? 12, 1, 24);
-            var ratings = await ratingRepo.GetHistoryAsync(serviceId, period);
+            var svc = await serviceRepo.GetByDidAsync(serviceId);
 
-            // Group by day and compute daily aggregates
-            var dailyScores = ratings
-                .GroupBy(r => r.CreatedAt.UtcDateTime.Date)
-                .OrderBy(g => g.Key)
-                .Select(g => new
+            // Unknown service: 200 with known=false (consistent with /v1/score), not a 404.
+            if (svc is null)
+                return Results.Ok(new
                 {
-                    date = g.Key.ToString("yyyy-MM-dd"),
-                    ratings_count = g.Count(),
-                    avg_latency_ms = (int)g.Average(r => r.LatencyMs),
-                    success_rate = Math.Round(g.Count(r => r.StatusCode >= 200 && r.StatusCode < 300) / (double)g.Count(), 4),
-                    avg_quality = g.Where(r => r.QualityScore.HasValue).Select(r => r.QualityScore!.Value).DefaultIfEmpty(0).Average(),
-                    verified_count = g.Count(r => r.ReceiptVerified),
-                })
-                .ToList();
+                    service = serviceId,
+                    known = false,
+                    current_score = 0.5,
+                    period_months = period,
+                    total_ratings = 0,
+                    history = Array.Empty<object>(),
+                });
+
+            // Aggregated in SQL: bounded transfer, no per-rating load over up to 24 months.
+            var daily = await ratingRepo.GetDailyHistoryAsync(serviceId, period);
+            var history = daily.Select(d => new
+            {
+                date = d.Date.ToString("yyyy-MM-dd"),
+                ratings_count = d.RatingsCount,
+                avg_latency_ms = d.AvgLatencyMs,
+                success_rate = Math.Round(d.SuccessRate, 4),
+                avg_quality = Math.Round(d.AvgQuality, 4),
+                verified_count = d.VerifiedCount,
+            }).ToList();
 
             var score = scoringEngine.CalculateScore(svc);
 
             return Results.Ok(new
             {
                 service = serviceId,
+                known = true,
                 current_score = score.Score,
                 period_months = period,
-                total_ratings = ratings.Count,
-                history = dailyScores,
+                total_ratings = history.Sum(h => h.ratings_count),
+                history,
                 // x402_price = "0.001 USDC"  // Future: uncomment when x402 is active
             });
         })
         .WithName("GetScoreHistory")
         .WithTags("Premium")
         .Produces(200)
-        .Produces(404)
         .WithSummary("Get score history for a service (future: 0.001 USDC)")
         .WithDescription("Returns daily aggregated rating history for a service over the specified period. Currently free, will require x402 micropayment in the future.");
 
@@ -80,8 +85,17 @@ public static class PremiumEndpoints
 
             var serviceId = ServiceIdentifier.Normalize(raw);
             var svc = await serviceRepo.GetByDidAsync(serviceId);
+
+            // Unknown service: 200 with known=false (consistent with /v1/score), not a 404.
             if (svc is null)
-                return Results.NotFound(new { error = "service_not_found", message = "No ratings found for this service" });
+                return Results.Ok(new
+                {
+                    service = serviceId,
+                    known = false,
+                    score = 0.5,
+                    confidence = 0.0,
+                    ratings_count = 0,
+                });
 
             var ratings = await ratingRepo.GetHistoryAsync(serviceId, 3);
             var score = scoringEngine.CalculateScore(svc);
@@ -130,7 +144,6 @@ public static class PremiumEndpoints
         .WithName("GetScoreDetailed")
         .WithTags("Premium")
         .Produces(200)
-        .Produces(404)
         .WithSummary("Get detailed score breakdown (future: 0.001 USDC)")
         .WithDescription("Returns detailed analytics: latency percentiles, quality distribution, receipt stats. Currently free, will require x402 micropayment in the future.");
 

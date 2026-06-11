@@ -1,4 +1,5 @@
 using Dapper;
+using Microsoft.Extensions.Caching.Memory;
 using TrustScore.Core.Audit;
 using TrustScore.Core.Interfaces;
 
@@ -8,12 +9,16 @@ public sealed class AuditService : IAuditService
 {
     private readonly DbConnectionFactory _db;
     private readonly IRatingRepository _ratingRepo;
+    private readonly IMemoryCache _memoryCache;
 
-    public AuditService(DbConnectionFactory db, IRatingRepository ratingRepo)
+    public AuditService(DbConnectionFactory db, IRatingRepository ratingRepo, IMemoryCache memoryCache)
     {
         _db = db;
         _ratingRepo = ratingRepo;
+        _memoryCache = memoryCache;
     }
+
+    private sealed record MerkleSnapshot(MerkleTree Tree, IReadOnlyDictionary<Guid, int> Index);
 
     public async Task RecordLeafAsync(Guid ratingId, string serviceDid, DateTimeOffset timestamp)
     {
@@ -59,31 +64,23 @@ public sealed class AuditService : IAuditService
         if (targetLeaf is null || targetLeaf.MerkleLeafHash is null)
             return null;
 
-        // First leaf_count leaves in deterministic (created_at, id) order = the anchored set.
-        var leaves = await _ratingRepo.GetAnchoredLeafHashesAsync(anchor.LeafCount);
-        if (leaves.Count == 0)
+        // Build (or reuse) the anchored snapshot. The anchored set is immutable, so the rebuilt
+        // tree is cached by anchor root — repeated proofs against the same anchor skip the
+        // O(n) reload + rehash of up to 100k leaves (DoS mitigation).
+        var snapshot = await GetOrBuildSnapshotAsync(anchor);
+        if (snapshot is null)
             return null;
 
-        var tree = new MerkleTree();
-        var targetIndex = -1;
-        for (int i = 0; i < leaves.Count; i++)
-        {
-            var leaf = leaves[i];
-            tree.AddLeafHash(MerkleTree.ComputeLeafHash(leaf.Id, leaf.ServiceDid, leaf.CreatedAt));
-            if (leaf.Id == ratingId)
-                targetIndex = i;
-        }
-
         // Rating exists but was created after the latest anchor → not yet provable.
-        if (targetIndex == -1)
+        if (!snapshot.Index.TryGetValue(ratingId, out var targetIndex))
             return null;
 
         // The rebuilt root must match the published anchor; otherwise the snapshot has drifted and
         // handing out a proof that won't verify would be worse than a 404.
-        if (!string.Equals(tree.RootHex, anchor.MerkleRoot, StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(snapshot.Tree.RootHex, anchor.MerkleRoot, StringComparison.OrdinalIgnoreCase))
             return null;
 
-        var proof = tree.GetInclusionProof(targetIndex);
+        var proof = snapshot.Tree.GetInclusionProof(targetIndex);
         var leafHash = MerkleTree.ComputeLeafHash(targetLeaf.Id, targetLeaf.ServiceDid, targetLeaf.CreatedAt);
 
         return new InclusionProofResult
@@ -93,7 +90,33 @@ public sealed class AuditService : IAuditService
             MerkleRoot = anchor.MerkleRoot,
             Proof = proof.Select(p => new ProofNodeDto(p.HashHex, p.IsRight)).ToList(),
             LeafIndex = targetIndex,
-            TotalLeaves = leaves.Count,
+            TotalLeaves = snapshot.Index.Count,
         };
+    }
+
+    private async Task<MerkleSnapshot?> GetOrBuildSnapshotAsync(MerkleAnchor anchor)
+    {
+        var cacheKey = $"merkle-snapshot:{anchor.MerkleRoot}:{anchor.LeafCount}";
+        return await _memoryCache.GetOrCreateAsync(cacheKey, async entry =>
+        {
+            entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(2);
+
+            var leaves = await _ratingRepo.GetAnchoredLeafHashesAsync(anchor.LeafCount);
+            if (leaves.Count == 0)
+            {
+                entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(10); // don't pin a null
+                return null;
+            }
+
+            var tree = new MerkleTree();
+            var index = new Dictionary<Guid, int>(leaves.Count);
+            for (int i = 0; i < leaves.Count; i++)
+            {
+                var leaf = leaves[i];
+                tree.AddLeafHash(MerkleTree.ComputeLeafHash(leaf.Id, leaf.ServiceDid, leaf.CreatedAt));
+                index[leaf.Id] = i;
+            }
+            return new MerkleSnapshot(tree, index);
+        });
     }
 }

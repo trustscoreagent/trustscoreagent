@@ -111,8 +111,12 @@ public static class RateEndpoints
             var delta = scoringEngine.ComputeDelta(rating);
             await ratingWriter.SubmitAsync(serviceId, delta, rating);
 
-            // Invalidate cache
+            // Invalidate cache — both the endpoint-level key and the provider-level aggregate,
+            // since an endpoint rating also changes the provider's rolled-up score.
             await cache.RemoveAsync($"score:{serviceId}");
+            var provider = SvcId.ExtractProvider(serviceId);
+            if (provider != serviceId)
+                await cache.RemoveAsync($"score:{provider}");
 
             // Read back fresh score for response
             var service = await serviceRepo.GetByDidAsync(serviceId);

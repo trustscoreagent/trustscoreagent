@@ -131,6 +131,31 @@ public sealed class RatingRepository : IRatingRepository
         return results.ToList().AsReadOnly();
     }
 
+    public async Task<IReadOnlyList<DailyHistoryPoint>> GetDailyHistoryAsync(string serviceDid, int months)
+    {
+        using var conn = _db.CreateConnection();
+        var results = await conn.QueryAsync<DailyHistoryPoint>(
+            """
+            SELECT date_trunc('day', created_at)::date AS Date,
+                   COUNT(*) AS RatingsCount,
+                   COALESCE(AVG(latency_ms), 0)::int AS AvgLatencyMs,
+                   COALESCE(AVG(CASE WHEN status_code BETWEEN 200 AND 299 THEN 1.0 ELSE 0.0 END), 0) AS SuccessRate,
+                   COALESCE(AVG(quality_score), 0) AS AvgQuality,
+                   COUNT(*) FILTER (WHERE receipt_verified) AS VerifiedCount
+            FROM ratings
+            WHERE service_did = @ServiceDid
+              AND created_at > @Since
+            GROUP BY date_trunc('day', created_at)
+            ORDER BY 1
+            """,
+            new
+            {
+                ServiceDid = serviceDid,
+                Since = DateTimeOffset.UtcNow.AddMonths(-months),
+            });
+        return results.ToList().AsReadOnly();
+    }
+
     public async Task<IReadOnlyList<AgentRatingRecord>> GetAllRatingsForTrustAsync()
     {
         using var conn = _db.CreateConnection();

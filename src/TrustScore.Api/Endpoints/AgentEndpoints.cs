@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using TrustScore.Api.Scoring;
 using TrustScore.Core.Interfaces;
 using TrustScore.Core.Models;
@@ -51,10 +53,13 @@ public static class AgentEndpoints
             IAgentRepository agentRepo,
             ILogger<EigenTrustEngine> logger) =>
         {
-            // API key authentication for admin endpoints
+            // API key authentication for admin endpoints. Fail closed if no key is configured,
+            // and compare in constant time to avoid leaking the key byte-by-byte via timing.
             var expectedKey = config["AdminApiKey"];
             var providedKey = httpContext.Request.Headers["X-Admin-Key"].FirstOrDefault();
-            if (string.IsNullOrEmpty(expectedKey) || providedKey != expectedKey)
+            if (string.IsNullOrEmpty(expectedKey) || string.IsNullOrEmpty(providedKey)
+                || !CryptographicOperations.FixedTimeEquals(
+                    Encoding.UTF8.GetBytes(providedKey), Encoding.UTF8.GetBytes(expectedKey)))
                 return Results.Json(new { error = "unauthorized", message = "Valid X-Admin-Key header required" }, statusCode: 401);
 
             var engine = new EigenTrustEngine();
@@ -67,16 +72,18 @@ public static class AgentEndpoints
 
             await agentRepo.UpsertTrustScoresAsync(scores);
 
+            // Return only summary counts — the full per-agent scores are persisted and queryable
+            // via /v1/agent/trust; dumping the entire set here is an unbounded response.
             return Results.Ok(new
             {
                 agents_updated = scores.Count,
                 ratings_analyzed = ratings.Count,
-                scores = scores.Select(s => new { agent = s.Key, trust_score = s.Value }),
             });
         })
         .WithName("RunEigenTrust")
         .WithTags("Admin")
         .Produces(200)
+        .Produces(401)
         .WithSummary("Trigger EigenTrust recalculation (admin)")
         .WithDescription("Recalculates trust scores for all agents based on rating consistency. In production, this runs automatically every hour via Cloud Scheduler.");
     }
