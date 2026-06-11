@@ -137,7 +137,7 @@ public sealed class SeedProber
     /// (descending into the first element of an array root). Without one, a non-empty body counts
     /// (covers plain-text endpoints); a JSON array root must be non-empty.
     /// </summary>
-    private static bool ValidateBody(string body, string? expectField)
+    internal static bool ValidateBody(string body, string? expectField)
     {
         if (string.IsNullOrWhiteSpace(body))
             return false;
@@ -190,7 +190,7 @@ public sealed class SeedProbeOptions
     public const string SectionName = "SeedProbe";
 
     public bool Enabled { get; set; }
-    public string AgentDid { get; set; } = "did:web:probe.trustscoreagent.com";
+    public string AgentDid { get; set; } = "did:web:trustscoreagent.com:probe";
     public int TimeoutSeconds { get; set; } = 10;
     public List<SeedProbeTarget> Targets { get; set; } = new();
 }

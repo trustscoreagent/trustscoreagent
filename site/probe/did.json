@@ -1,0 +1,12 @@
+{
+  "@context": ["https://www.w3.org/ns/did/v1"],
+  "id": "did:web:trustscoreagent.com:probe",
+  "alsoKnownAs": ["https://trustscoreagent.com/"],
+  "service": [
+    {
+      "id": "did:web:trustscoreagent.com:probe#source",
+      "type": "LinkedDomains",
+      "serviceEndpoint": "https://github.com/trustscoreagent/trustscoreagent"
+    }
+  ]
+}

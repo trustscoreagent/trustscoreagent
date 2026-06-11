@@ -17,3 +17,10 @@ npx wrangler pages deploy site --project-name trustscoreagent
 
 Then point the apex `trustscoreagent.com` at the Pages project (the API stays on
 `api.trustscoreagent.com`).
+
+## Probe identity
+
+`site/probe/did.json` is served at `https://trustscoreagent.com/probe/did.json`, which is
+where the seed probe's DID `did:web:trustscoreagent.com:probe` resolves. It deploys with this
+site — no extra subdomain or DNS record needed. The document carries no signing key (the probe
+only rates, it never signs receipts); it just identifies the probe and links to the source.

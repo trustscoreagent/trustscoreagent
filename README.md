@@ -126,7 +126,7 @@ See [docs/mcp.md](docs/mcp.md) for full setup instructions.
 TrustScoreAgent is **Phase 1 (early)**. What that means in practice:
 
 - **Baseline data is real and auditable.** Initial scores come from a transparent operated
-  probe (`did:web:probe.trustscoreagent.com`) that measures the availability, latency and
+  probe (`did:web:trustscoreagent.com:probe`) that measures the availability, latency and
   conformity of a curated list of public, free APIs — real, Merkle-audited measurements, not
   fabricated numbers. Community and receipt-verified ratings accumulate on top. (The earlier
   fictitious `*.example.com` seeds have been removed.)
