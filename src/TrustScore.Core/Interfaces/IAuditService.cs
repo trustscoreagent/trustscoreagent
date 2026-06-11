@@ -3,12 +3,6 @@ namespace TrustScore.Core.Interfaces;
 public interface IAuditService
 {
     /// <summary>
-    /// Record a rating's leaf hash for future Merkle tree inclusion.
-    /// Called at rating insertion time.
-    /// </summary>
-    Task RecordLeafAsync(Guid ratingId, string serviceDid, DateTimeOffset timestamp);
-
-    /// <summary>
     /// Get the latest anchored Merkle root.
     /// </summary>
     Task<MerkleAnchor?> GetLatestAnchorAsync();
