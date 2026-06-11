@@ -139,10 +139,13 @@ app.MapAuditEndpoints();
 app.MapPremiumEndpoints();
 app.MapAgentEndpoints();
 
-// Static discovery files served from public/
-app.MapGet("/llms.txt", () => Results.File("public/llms.txt", "text/plain"))
+// Static discovery files served from public/. Resolved to an absolute path: Results.File
+// requires a rooted path (a relative one throws → 500), and the folder sits at a different
+// place when run locally vs. in the container.
+var publicFolder = FindPublicFolder();
+app.MapGet("/llms.txt", () => ServePublicFile(publicFolder, "llms.txt", "text/plain"))
     .ExcludeFromDescription();
-app.MapGet("/.well-known/agent.json", () => Results.File("public/.well-known/agent.json", "application/json"))
+app.MapGet("/.well-known/agent.json", () => ServePublicFile(publicFolder, Path.Combine(".well-known", "agent.json"), "application/json"))
     .ExcludeFromDescription();
 
 app.Run();
@@ -172,5 +175,32 @@ public partial class Program
 
         throw new DirectoryNotFoundException(
             $"Could not find 'migrations' folder. Searched from: {cwd}");
+    }
+
+    // Locate the public/ folder (CWD for `dotnet run`, content root in the container). Returns
+    // null if not found, in which case the discovery routes return 404 rather than crashing.
+    static string? FindPublicFolder()
+    {
+        var cwd = Directory.GetCurrentDirectory();
+        var candidate = Path.Combine(cwd, "public");
+        if (Directory.Exists(candidate)) return candidate;
+
+        var dir = new DirectoryInfo(cwd);
+        while (dir != null)
+        {
+            candidate = Path.Combine(dir.FullName, "public");
+            if (Directory.Exists(candidate)) return candidate;
+            dir = dir.Parent;
+        }
+
+        candidate = Path.Combine(AppContext.BaseDirectory, "public");
+        return Directory.Exists(candidate) ? candidate : null;
+    }
+
+    static IResult ServePublicFile(string? publicFolder, string relativePath, string contentType)
+    {
+        if (publicFolder is null) return Results.NotFound();
+        var full = Path.Combine(publicFolder, relativePath);
+        return File.Exists(full) ? Results.File(full, contentType) : Results.NotFound();
     }
 }
