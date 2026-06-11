@@ -44,7 +44,8 @@ TrustScoreAgent is in **Phase 1 (early)**. Be aware of the current trust model:
   Phase 2. Ratings backed by a verified service **receipt** are the trustworthy signal
   today.
 - **Baseline scores come from an operated probe.** A single transparent probe agent
-  (`did:web:probe.trustscoreagent.com`) measures public APIs and records real
+  (`did:web:trustscoreagent.com:probe`, resolvable at `/probe/did.json`) measures public
+  APIs and records real
   availability/latency/conformity ratings (no receipts, normal unverified weight). These are
   genuine, Merkle-audited measurements — not fabricated — and community/receipt ratings layer
   on top. The probe is clearly identified, never pretends to be multiple agents, and only hits
