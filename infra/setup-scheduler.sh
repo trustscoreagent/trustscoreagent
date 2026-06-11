@@ -16,16 +16,19 @@ PROJECT_ID="trustscoreagent"
 REGION="europe-west1"
 JOB_NAME="trustscoreagent-hourly"
 IMAGE="europe-west1-docker.pkg.dev/${PROJECT_ID}/trustscoreagent/api:latest"
-SA_EMAIL="github-actions@${PROJECT_ID}.iam.gserviceaccount.com"
+# Dedicated, least-privilege identity for the scheduler — only allowed to run THIS job,
+# instead of reusing the broad github-actions CI/CD service account.
+SCHEDULER_SA_NAME="scheduler-invoker"
+SCHEDULER_SA_EMAIL="${SCHEDULER_SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
 
 echo "=== TrustScoreAgent Scheduler Setup ==="
 
 # 1. Enable Cloud Scheduler API
-echo "[1/3] Enabling Cloud Scheduler API..."
+echo "[1/4] Enabling Cloud Scheduler API..."
 gcloud services enable cloudscheduler.googleapis.com --quiet
 
 # 2. Create Cloud Run Job
-echo "[2/3] Creating Cloud Run Job..."
+echo "[2/4] Creating Cloud Run Job..."
 gcloud run jobs create "$JOB_NAME" \
   --image "$IMAGE" \
   --region "$REGION" \
@@ -49,14 +52,26 @@ gcloud run jobs update "$JOB_NAME" \
   --memory 512Mi \
   --quiet
 
-# 3. Create Cloud Scheduler trigger (every hour at minute 0)
-echo "[3/3] Creating Cloud Scheduler trigger..."
+# 3. Create the dedicated scheduler identity and let it run ONLY this job.
+echo "[3/4] Creating scheduler service account..."
+gcloud iam service-accounts create "$SCHEDULER_SA_NAME" \
+  --display-name="Cloud Scheduler — hourly job invoker" \
+  --quiet 2>/dev/null || echo "  (already exists)"
+
+gcloud run jobs add-iam-policy-binding "$JOB_NAME" \
+  --region "$REGION" \
+  --member="serviceAccount:${SCHEDULER_SA_EMAIL}" \
+  --role="roles/run.invoker" \
+  --quiet > /dev/null
+
+# 4. Create Cloud Scheduler trigger (every hour at minute 0)
+echo "[4/4] Creating Cloud Scheduler trigger..."
 gcloud scheduler jobs create http "$JOB_NAME-trigger" \
   --location "$REGION" \
   --schedule "0 * * * *" \
   --uri "https://${REGION}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${PROJECT_ID}/jobs/${JOB_NAME}:run" \
   --http-method POST \
-  --oauth-service-account-email "$SA_EMAIL" \
+  --oauth-service-account-email "$SCHEDULER_SA_EMAIL" \
   --quiet 2>/dev/null || \
 echo "  (scheduler already exists)"
 
