@@ -67,7 +67,9 @@ builder.Services.AddSingleton<IScoringEngine>(sp =>
 builder.Services.Configure<SeedProbeOptions>(builder.Configuration.GetSection(SeedProbeOptions.SectionName));
 builder.Services.AddHttpClient(SeedProber.HttpClientName, client =>
 {
-    client.Timeout = TimeSpan.FromSeconds(15);
+    // A small headroom over the per-request CancellationTokenSource (SeedProbeOptions.TimeoutSeconds,
+    // default 10s) so the explicit token is what actually bounds each probe.
+    client.Timeout = TimeSpan.FromSeconds(30);
     client.DefaultRequestHeaders.UserAgent.ParseAdd("TrustScoreAgent-Probe/0.1 (+https://trustscoreagent.com)");
     client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
 });
