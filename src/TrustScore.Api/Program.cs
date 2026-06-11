@@ -1,4 +1,5 @@
 using DbUp;
+using Microsoft.AspNetCore.HttpOverrides;
 using StackExchange.Redis;
 using TrustScore.Api.Data;
 using TrustScore.Api.Endpoints;
@@ -23,6 +24,7 @@ var redisConnectionString = builder.Configuration.GetConnectionString("Redis")
     ?? "localhost:6379";
 
 // Database
+builder.Services.AddMemoryCache();
 builder.Services.AddSingleton(new DbConnectionFactory(dbConnectionString));
 builder.Services.AddScoped<IServiceRepository, ServiceRepository>();
 builder.Services.AddScoped<IRatingRepository, RatingRepository>();
@@ -85,6 +87,21 @@ builder.Services.AddSwaggerGen(c =>
     });
 });
 
+// Forwarded headers — behind Cloud Run (and optionally Cloudflare), the real client IP and
+// scheme arrive in X-Forwarded-For / X-Forwarded-Proto. Without this, RemoteIpAddress is the
+// front-end's IP and every client shares one rate-limit bucket. ForwardLimit = number of trusted
+// proxies appending to the chain: 1 for Cloud Run direct; raise to 2 when the Cloudflare proxy is
+// enabled (set ForwardedHeaders:ForwardLimit). KnownProxies/Networks are cleared because the
+// front-end IPs are dynamic and internal.
+var forwardLimit = builder.Configuration.GetValue<int?>("ForwardedHeaders:ForwardLimit") ?? 1;
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.ForwardLimit = forwardLimit;
+    options.KnownNetworks.Clear();
+    options.KnownProxies.Clear();
+});
+
 // CORS — allow all origins (agents call from anywhere)
 builder.Services.AddCors(options =>
 {
@@ -94,12 +111,12 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
-// Job mode: run EigenTrust + Merkle anchoring then exit
+// Job mode: run the probe + EigenTrust + Merkle anchoring then exit. Returning the code (rather
+// than Environment.Exit) lets the host dispose cleanly and flush logs before the process ends.
 if (args.Contains("--job"))
 {
     var exitCode = await HourlyJob.RunAsync(app.Services);
-    Environment.Exit(exitCode);
-    return; // Unreachable but satisfies compiler
+    return exitCode;
 }
 
 // Run database migrations (skip when running in test host)
@@ -120,7 +137,36 @@ if (!skipMigrations)
         throw new InvalidOperationException($"Database migration failed: {result.Error}");
 }
 
-// Middleware
+// Middleware. ForwardedHeaders must run first so downstream code sees the real client IP.
+app.UseForwardedHeaders();
+
+// Translate unhandled exceptions into a clean JSON error. ArgumentException (e.g. an
+// over-long or empty service identifier from ServiceIdentifier.Normalize) maps to 400; anything
+// else is a generic 500 with no internal detail leaked.
+app.UseExceptionHandler(errorApp => errorApp.Run(async context =>
+{
+    var feature = context.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>();
+    var isBadRequest = feature?.Error is ArgumentException;
+    context.Response.StatusCode = isBadRequest ? 400 : 500;
+    context.Response.ContentType = "application/json";
+    await context.Response.WriteAsync(isBadRequest
+        ? """{"error":"invalid_request","message":"The request could not be processed."}"""
+        : """{"error":"internal_error","message":"An unexpected error occurred."}""");
+}));
+
+if (app.Environment.IsProduction())
+    app.UseHsts();
+
+// Minimal security headers for a JSON API.
+app.Use(async (context, next) =>
+{
+    var headers = context.Response.Headers;
+    headers["X-Content-Type-Options"] = "nosniff";
+    headers["X-Frame-Options"] = "DENY";
+    headers["Referrer-Policy"] = "no-referrer";
+    await next();
+});
+
 app.UseCors();
 app.UseMiddleware<GlobalRateLimitMiddleware>();
 
@@ -149,6 +195,7 @@ app.MapGet("/.well-known/agent.json", () => ServePublicFile(publicFolder, Path.C
     .ExcludeFromDescription();
 
 app.Run();
+return 0;
 
 // Make Program accessible for integration tests
 public partial class Program
