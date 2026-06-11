@@ -71,6 +71,7 @@ gcloud sql instances create "$DB_INSTANCE" \
   --storage-auto-increase \
   --backup-start-time=03:00 \
   --enable-point-in-time-recovery \
+  --no-assign-ip \
   --quiet 2>/dev/null || echo "  (already exists)"
 
 echo "  Creating database..."
@@ -139,16 +140,25 @@ gcloud iam service-accounts create "$SA_NAME" \
   --display-name="GitHub Actions CI/CD" \
   --quiet 2>/dev/null || echo "  (already exists)"
 
-# Grant roles
+# Grant project-level roles needed for CI/CD. secretAccessor is intentionally NOT here —
+# it is granted per-secret below (least privilege) so the CI/CD SA cannot read every secret
+# in the project (e.g. the future admin-api-key or wallet keys).
 for ROLE in \
   roles/run.admin \
   roles/artifactregistry.writer \
-  roles/secretmanager.secretAccessor \
   roles/iam.serviceAccountUser \
   roles/cloudsql.client; do
   gcloud projects add-iam-policy-binding "$PROJECT_ID" \
     --member="serviceAccount:${SA_EMAIL}" \
     --role="$ROLE" \
+    --quiet > /dev/null
+done
+
+# Grant secretAccessor only on the specific secrets this SA deploys with.
+for SECRET in db-connection-string redis-connection-string; do
+  gcloud secrets add-iam-policy-binding "$SECRET" \
+    --member="serviceAccount:${SA_EMAIL}" \
+    --role="roles/secretmanager.secretAccessor" \
     --quiet > /dev/null
 done
 
@@ -164,11 +174,15 @@ gcloud iam workload-identity-pools create "$POOL_NAME" \
   --display-name="GitHub Actions Pool" \
   --quiet 2>/dev/null || echo "  (pool already exists)"
 
+# An attribute-condition is REQUIRED by recent gcloud versions, and restricts which GitHub
+# identities can use this provider to this repository only (defense in depth alongside the
+# per-repo principalSet binding below).
 gcloud iam workload-identity-pools providers create-oidc "$PROVIDER_NAME" \
   --location="global" \
   --workload-identity-pool="$POOL_NAME" \
   --display-name="GitHub Provider" \
   --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository" \
+  --attribute-condition="assertion.repository == 'trustscoreagent/trustscoreagent'" \
   --issuer-uri="https://token.actions.githubusercontent.com" \
   --quiet 2>/dev/null || echo "  (provider already exists)"
 
@@ -189,11 +203,10 @@ echo "=============================================="
 echo "  SETUP COMPLETE"
 echo "=============================================="
 echo ""
-echo "Database connection string (stored in Secret Manager):"
-echo "  $DB_CONNECTION_STRING"
-echo ""
-echo "Redis connection string (stored in Secret Manager):"
-echo "  $REDIS_CONNECTION_STRING"
+echo "DB and Redis connection strings are stored in Secret Manager:"
+echo "  db-connection-string, redis-connection-string"
+echo "Retrieve with:"
+echo "  gcloud secrets versions access latest --secret=db-connection-string"
 echo ""
 echo "=== GitHub Secrets to configure ==="
 echo "Go to: https://github.com/trustscoreagent/trustscoreagent/settings/secrets/actions"
@@ -209,7 +222,6 @@ echo ""
 echo "  GCP_WORKLOAD_IDENTITY_PROVIDER"
 echo "  → $WIF_PROVIDER"
 echo ""
-echo "=== IMPORTANT: Save the database password ==="
-echo "  DB Password: $DB_PASSWORD"
-echo "  (It's stored in Secret Manager, but save it somewhere safe too)"
+echo "The database password is held only inside the db-connection-string secret."
+echo "It is intentionally not printed here; rotate it via 'gcloud sql users set-password'."
 echo ""
