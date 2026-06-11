@@ -33,12 +33,8 @@ public static class AuditEndpoints
         .Produces(200)
         .Produces(400)
         .Produces(404)
-        .WithOpenApi(op =>
-        {
-            op.Summary = "Get inclusion proof for a rating";
-            op.Description = "Returns a Merkle inclusion proof that cryptographically proves a specific rating exists in the audit log and has not been tampered with.";
-            return op;
-        });
+        .WithSummary("Get inclusion proof for a rating")
+        .WithDescription("Returns a Merkle inclusion proof that cryptographically proves a specific rating exists in the audit log and has not been tampered with.");
         app.MapGet("/v1/audit/root", async (IAuditService auditService) =>
         {
             var anchor = await auditService.GetLatestAnchorAsync();
@@ -67,12 +63,8 @@ public static class AuditEndpoints
         .WithName("GetAuditRoot")
         .WithTags("Audit")
         .Produces(200)
-        .WithOpenApi(op =>
-        {
-            op.Summary = "Get the latest Merkle tree root";
-            op.Description = "Returns the latest anchored Merkle root hash, proving the integrity of all ratings. " +
-                "When blockchain anchoring is active, includes the transaction hash and block number for on-chain verification.";
-            return op;
-        });
+        .WithSummary("Get the latest Merkle tree root")
+        .WithDescription("Returns the latest anchored Merkle root hash, proving the integrity of all ratings. " +
+            "When blockchain anchoring is active, includes the transaction hash and block number for on-chain verification.");
     }
 }

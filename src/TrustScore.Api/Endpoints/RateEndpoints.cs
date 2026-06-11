@@ -132,12 +132,8 @@ public static class RateEndpoints
         .Produces(200)
         .Produces(400)
         .Produces(429)
-        .WithOpenApi(op =>
-        {
-            op.Summary = "Submit a rating for a microservice";
-            op.Description = "Rate a microservice after calling it. Provide technical metrics from your interaction. Include the receipt from the X-Trust-Receipt header if the service provided one for higher rating weight.";
-            return op;
-        });
+        .WithSummary("Submit a rating for a microservice")
+        .WithDescription("Rate a microservice after calling it. Provide technical metrics from your interaction. Include the receipt from the X-Trust-Receipt header if the service provided one for higher rating weight.");
     }
 }
 

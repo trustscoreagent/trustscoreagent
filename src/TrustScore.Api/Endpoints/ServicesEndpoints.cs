@@ -76,12 +76,8 @@ public static class ServicesEndpoints
         .WithTags("Services")
         .Produces(200)
         .Produces(400)
-        .WithOpenApi(op =>
-        {
-            op.Summary = "List rated services";
-            op.Description = "Returns a paginated list of services with their trust scores. " +
-                "Use this to discover which services have been rated and find reliable ones.";
-            return op;
-        });
+        .WithSummary("List rated services")
+        .WithDescription("Returns a paginated list of services with their trust scores. " +
+            "Use this to discover which services have been rated and find reliable ones.");
     }
 }
