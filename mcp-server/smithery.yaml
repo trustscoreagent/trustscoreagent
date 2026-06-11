@@ -1,0 +1,24 @@
+# Smithery configuration — https://smithery.ai/docs
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    properties:
+      trustscoreApiUrl:
+        type: string
+        title: TrustScoreAgent API URL
+        description: Base URL of the TrustScoreAgent API. Leave empty to use the public production API.
+      trustscoreAgentDid:
+        type: string
+        title: Agent DID
+        description: Optional stable identifier for this agent. If omitted, a unique id is generated on first run.
+    required: []
+  commandFunction: |
+    (config) => ({
+      command: "node",
+      args: ["dist/index.js"],
+      env: {
+        ...(config.trustscoreApiUrl ? { TRUSTSCORE_API_URL: config.trustscoreApiUrl } : {}),
+        ...(config.trustscoreAgentDid ? { TRUSTSCORE_AGENT_DID: config.trustscoreAgentDid } : {})
+      }
+    })

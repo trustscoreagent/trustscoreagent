@@ -18,7 +18,14 @@ public static class AgentEndpoints
             if (string.IsNullOrWhiteSpace(raw))
                 return Results.BadRequest(new { error = "missing_agent", message = "Query parameter 'service' or 'did' with agent identifier is required" });
 
-            var agentId = ServiceIdentifier.Normalize(raw);
+            // Agent DIDs are stored verbatim from the X-Agent-DID header (see RateEndpoints) and
+            // upserted as-is by EigenTrust. They must NOT go through ServiceIdentifier.Normalize,
+            // which is service-specific and mangles agent DIDs (e.g. "did:agent:xyz" → "did"),
+            // making every lookup miss and always return the 0.5 default.
+            var agentId = raw.Trim();
+            if (agentId.Length > 500)
+                return Results.BadRequest(new { error = "invalid_agent", message = "agent identifier too long (max 500 characters)" });
+
             var trustScore = await agentRepo.GetTrustScoreAsync(agentId);
 
             return Results.Ok(new

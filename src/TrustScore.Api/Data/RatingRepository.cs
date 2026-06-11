@@ -1,4 +1,6 @@
+using System.Data;
 using Dapper;
+using TrustScore.Core.Audit;
 using TrustScore.Core.Interfaces;
 using TrustScore.Core.Models;
 
@@ -13,35 +15,49 @@ public sealed class RatingRepository : IRatingRepository
         _db = db;
     }
 
+    // The Merkle leaf hash is written in the same INSERT as the rating, so a rating can never
+    // exist without its audit leaf (previously a separate UPDATE that could fail independently).
+    private const string InsertSql =
+        """
+        INSERT INTO ratings (id, service_did, agent_did,
+            status_code, latency_ms, response_size_bytes, schema_valid,
+            quality_score, comment, has_receipt, receipt_verified, weight, created_at, merkle_leaf_hash)
+        VALUES (@Id, @ServiceDid, @AgentDid,
+            @StatusCode, @LatencyMs, @ResponseSizeBytes, @SchemaValid,
+            @QualityScore, @Comment, @HasReceipt, @ReceiptVerified, @Weight, @CreatedAt, @MerkleLeafHash)
+        """;
+
+    private static object BuildInsertParams(Rating rating)
+    {
+        var leafHash = Convert.ToHexString(
+            MerkleTree.ComputeLeafHash(rating.Id, rating.ServiceDid, rating.CreatedAt)).ToLowerInvariant();
+        return new
+        {
+            rating.Id,
+            rating.ServiceDid,
+            rating.AgentDid,
+            rating.Metrics.StatusCode,
+            rating.Metrics.LatencyMs,
+            rating.Metrics.ResponseSizeBytes,
+            rating.Metrics.SchemaValid,
+            rating.QualityScore,
+            rating.Comment,
+            rating.HasReceipt,
+            rating.ReceiptVerified,
+            rating.Weight,
+            rating.CreatedAt,
+            MerkleLeafHash = leafHash,
+        };
+    }
+
     public async Task InsertAsync(Rating rating)
     {
         using var conn = _db.CreateConnection();
-        await conn.ExecuteAsync(
-            """
-            INSERT INTO ratings (id, service_did, agent_did,
-                status_code, latency_ms, response_size_bytes, schema_valid,
-                quality_score, comment, has_receipt, receipt_verified, weight, created_at)
-            VALUES (@Id, @ServiceDid, @AgentDid,
-                @StatusCode, @LatencyMs, @ResponseSizeBytes, @SchemaValid,
-                @QualityScore, @Comment, @HasReceipt, @ReceiptVerified, @Weight, @CreatedAt)
-            """,
-            new
-            {
-                rating.Id,
-                rating.ServiceDid,
-                rating.AgentDid,
-                rating.Metrics.StatusCode,
-                rating.Metrics.LatencyMs,
-                rating.Metrics.ResponseSizeBytes,
-                rating.Metrics.SchemaValid,
-                rating.QualityScore,
-                rating.Comment,
-                rating.HasReceipt,
-                rating.ReceiptVerified,
-                rating.Weight,
-                rating.CreatedAt,
-            });
+        await conn.ExecuteAsync(InsertSql, BuildInsertParams(rating));
     }
+
+    public Task InsertAsync(IDbConnection conn, IDbTransaction tx, Rating rating)
+        => conn.ExecuteAsync(InsertSql, BuildInsertParams(rating), tx);
 
     public async Task<int> CountRecentAsync(string agentDid, string serviceDid, TimeSpan window)
     {
@@ -88,9 +104,30 @@ public sealed class RatingRepository : IRatingRepository
                    merkle_leaf_hash AS MerkleLeafHash
             FROM ratings
             WHERE merkle_leaf_hash IS NOT NULL
-            ORDER BY created_at ASC
+            ORDER BY created_at, id
             LIMIT 100000
             """);
+        return results.ToList().AsReadOnly();
+    }
+
+    public async Task<IReadOnlyList<RatingLeafInfo>> GetAnchoredLeafHashesAsync(int leafCount)
+    {
+        using var conn = _db.CreateConnection();
+        // The anchored snapshot is the first `leafCount` leaves in the same deterministic order
+        // used by the hourly anchoring job. Because leaves are append-only, this reproduces the
+        // exact set the anchor's root was computed over.
+        var results = await conn.QueryAsync<RatingLeafInfo>(
+            """
+            SELECT id AS Id,
+                   service_did AS ServiceDid,
+                   created_at AS CreatedAt,
+                   merkle_leaf_hash AS MerkleLeafHash
+            FROM ratings
+            WHERE merkle_leaf_hash IS NOT NULL
+            ORDER BY created_at, id
+            LIMIT @LeafCount
+            """,
+            new { LeafCount = leafCount });
         return results.ToList().AsReadOnly();
     }
 
