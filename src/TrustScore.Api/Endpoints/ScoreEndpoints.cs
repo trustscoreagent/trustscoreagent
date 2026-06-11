@@ -94,14 +94,10 @@ public static class ScoreEndpoints
         .WithName("GetScore")
         .WithTags("Score")
         .Produces(200)
-        .WithOpenApi(op =>
-        {
-            op.Summary = "Get trust score for a microservice";
-            op.Description = "Returns the trust score for a service. " +
-                "Pass a full URL (api.example.com/v1/translate) for endpoint-level score, " +
-                "or just a domain (api.example.com) for aggregated provider score. " +
-                "Unknown services return neutral score (0.5) with known=false.";
-            return op;
-        });
+        .WithSummary("Get trust score for a microservice")
+        .WithDescription("Returns the trust score for a service. " +
+            "Pass a full URL (api.example.com/v1/translate) for endpoint-level score, " +
+            "or just a domain (api.example.com) for aggregated provider score. " +
+            "Unknown services return neutral score (0.5) with known=false.");
     }
 }

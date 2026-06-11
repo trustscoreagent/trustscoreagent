@@ -63,12 +63,8 @@ public static class PremiumEndpoints
         .WithTags("Premium")
         .Produces(200)
         .Produces(404)
-        .WithOpenApi(op =>
-        {
-            op.Summary = "Get score history for a service (future: 0.001 USDC)";
-            op.Description = "Returns daily aggregated rating history for a service over the specified period. Currently free, will require x402 micropayment in the future.";
-            return op;
-        });
+        .WithSummary("Get score history for a service (future: 0.001 USDC)")
+        .WithDescription("Returns daily aggregated rating history for a service over the specified period. Currently free, will require x402 micropayment in the future.");
 
         // --- Score Detailed (future price: 0.001 USDC) ---
         app.MapGet("/v1/score/detailed", async (
@@ -135,12 +131,8 @@ public static class PremiumEndpoints
         .WithTags("Premium")
         .Produces(200)
         .Produces(404)
-        .WithOpenApi(op =>
-        {
-            op.Summary = "Get detailed score breakdown (future: 0.001 USDC)";
-            op.Description = "Returns detailed analytics: latency percentiles, quality distribution, receipt stats. Currently free, will require x402 micropayment in the future.";
-            return op;
-        });
+        .WithSummary("Get detailed score breakdown (future: 0.001 USDC)")
+        .WithDescription("Returns detailed analytics: latency percentiles, quality distribution, receipt stats. Currently free, will require x402 micropayment in the future.");
 
         // --- Bulk Scores (future price: 0.05 USDC) ---
         app.MapPost("/v1/scores/bulk", async (
@@ -183,12 +175,8 @@ public static class PremiumEndpoints
         .WithTags("Premium")
         .Produces(200)
         .Produces(400)
-        .WithOpenApi(op =>
-        {
-            op.Summary = "Get scores for multiple services at once (future: 0.05 USDC)";
-            op.Description = "Returns trust scores for up to 100 services in a single request. Currently free, will require x402 micropayment in the future.";
-            return op;
-        });
+        .WithSummary("Get scores for multiple services at once (future: 0.05 USDC)")
+        .WithDescription("Returns trust scores for up to 100 services in a single request. Currently free, will require x402 micropayment in the future.");
     }
 
     /// <summary>
