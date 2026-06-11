@@ -552,6 +552,24 @@ internal class FakeRatingRepository : IRatingRepository
             .ToList().AsReadOnly();
         return Task.FromResult<IReadOnlyList<RatingSummary>>(result);
     }
+
+    public Task<IReadOnlyList<DailyHistoryPoint>> GetDailyHistoryAsync(string serviceDid, int months)
+    {
+        var since = DateTimeOffset.UtcNow.AddMonths(-months);
+        var result = _ratings
+            .Where(r => r.ServiceDid == serviceDid && r.CreatedAt > since)
+            .GroupBy(r => r.CreatedAt.UtcDateTime.Date)
+            .OrderBy(g => g.Key)
+            .Select(g => new DailyHistoryPoint(
+                g.Key,
+                g.Count(),
+                (int)g.Average(r => r.Metrics.LatencyMs),
+                g.Count(r => r.Metrics.StatusCode is >= 200 and < 300) / (double)g.Count(),
+                g.Where(r => r.QualityScore.HasValue).Select(r => (double)r.QualityScore!.Value).DefaultIfEmpty(0).Average(),
+                g.Count(r => r.ReceiptVerified)))
+            .ToList().AsReadOnly();
+        return Task.FromResult<IReadOnlyList<DailyHistoryPoint>>(result);
+    }
 }
 
 internal class FakeRatingWriter : IRatingWriter

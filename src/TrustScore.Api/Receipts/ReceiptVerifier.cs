@@ -12,6 +12,7 @@ public sealed class ReceiptVerifier : IReceiptVerifier
     private readonly ICacheService _cache;
     private readonly ILogger<ReceiptVerifier> _logger;
     private static readonly TimeSpan MaxReceiptAge = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan MaxClockSkew = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan NonceTtl = TimeSpan.FromMinutes(10);
 
     public ReceiptVerifier(IDidResolver didResolver, ICacheService cache, ILogger<ReceiptVerifier> logger)
@@ -53,31 +54,20 @@ public sealed class ReceiptVerifier : IReceiptVerifier
             return ReceiptVerificationResult.Failed(ReceiptVerificationStatus.InvalidSignature);
         }
 
-        // 4. Check timestamp (must be within 5 minutes)
-        if (DateTimeOffset.TryParse(payload.Timestamp, out var receiptTime))
-        {
-            if (DateTimeOffset.UtcNow - receiptTime > MaxReceiptAge)
-            {
-                _logger.LogInformation("Receipt timestamp expired for {ServiceDid}", expectedServiceDid);
-                return ReceiptVerificationResult.Failed(ReceiptVerificationStatus.TimestampExpired);
-            }
-        }
-        else
+        // 4. Check timestamp: must be recent and not in the future (a future-dated receipt would
+        // otherwise have an unbounded freshness window once its nonce TTL expires).
+        if (!DateTimeOffset.TryParse(payload.Timestamp, out var receiptTime))
         {
             return ReceiptVerificationResult.Failed(ReceiptVerificationStatus.MalformedJwt);
         }
-
-        // 5. Atomically claim nonce (anti-replay). SETNX: only the first caller wins.
-        // If Redis is down, SetIfNotExistsAsync returns false (fail closed = reject).
-        var nonceKey = $"nonce:{payload.Nonce}";
-        var nonceClaimed = await _cache.SetIfNotExistsAsync(nonceKey, "used", NonceTtl);
-        if (!nonceClaimed)
+        var age = DateTimeOffset.UtcNow - receiptTime;
+        if (age > MaxReceiptAge || age < -MaxClockSkew)
         {
-            _logger.LogWarning("Nonce replay or Redis unavailable: {Nonce} for {ServiceDid}", payload.Nonce, expectedServiceDid);
-            return ReceiptVerificationResult.Rejected(ReceiptVerificationStatus.NonceAlreadyUsed);
+            _logger.LogInformation("Receipt timestamp out of range for {ServiceDid}", expectedServiceDid);
+            return ReceiptVerificationResult.Failed(ReceiptVerificationStatus.TimestampExpired);
         }
 
-        // 6. Resolve the service DID to get the public key
+        // 5. Resolve the service DID to get the public key
         var publicKeyBytes = await _didResolver.ResolvePublicKeyAsync(payload.ServiceDid);
         if (publicKeyBytes is null)
         {
@@ -85,7 +75,7 @@ public sealed class ReceiptVerifier : IReceiptVerifier
             return ReceiptVerificationResult.Failed(ReceiptVerificationStatus.DidResolutionFailed);
         }
 
-        // 7. Verify the Ed25519 signature
+        // 6. Verify the Ed25519 signature
         try
         {
             var algorithm = SignatureAlgorithm.Ed25519;
@@ -108,7 +98,18 @@ public sealed class ReceiptVerifier : IReceiptVerifier
             return ReceiptVerificationResult.Failed(ReceiptVerificationStatus.InvalidSignature);
         }
 
-        // Nonce already claimed atomically in step 5 — no need to set again.
+        // 7. Claim the nonce AFTER the signature is verified (anti-replay). Claiming earlier would
+        // burn a legitimate receipt's nonce on a transient failure (e.g. DID resolution timeout),
+        // wrongly rejecting an honest re-submission. The SETNX is still atomic, so concurrent
+        // submissions of the same valid receipt are correctly de-duplicated. Fail-closed if Redis
+        // is down (reject rather than risk a replay).
+        var nonceKey = $"nonce:{payload.Nonce}";
+        var nonceClaimed = await _cache.SetIfNotExistsAsync(nonceKey, "used", NonceTtl);
+        if (!nonceClaimed)
+        {
+            _logger.LogWarning("Nonce replay or Redis unavailable: {Nonce} for {ServiceDid}", payload.Nonce, expectedServiceDid);
+            return ReceiptVerificationResult.Rejected(ReceiptVerificationStatus.NonceAlreadyUsed);
+        }
 
         _logger.LogInformation("Receipt verified for {ServiceDid} from {AgentDid}",
             payload.ServiceDid, payload.AgentDid);
