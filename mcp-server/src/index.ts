@@ -10,9 +10,83 @@ import { randomUUID } from "crypto";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
+import { createRequire } from "module";
 
-const API_BASE_URL =
-  process.env.TRUSTSCORE_API_URL || "https://trustscoreagent-api-staging-xhunhkdtfa-ew.a.run.app";
+const { version: PACKAGE_VERSION } = createRequire(import.meta.url)("../package.json") as {
+  version: string;
+};
+
+// Validate the API URL at startup so a malformed value fails fast with a clear message
+// instead of surfacing as cryptic fetch errors on the first tool call.
+const API_BASE_URL = (() => {
+  const raw =
+    process.env.TRUSTSCORE_API_URL || "https://trustscoreagent-api-staging-xhunhkdtfa-ew.a.run.app";
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    console.error(`TrustScoreAgent: TRUSTSCORE_API_URL is not a valid URL: "${raw}"`);
+    process.exit(1);
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") {
+    console.error(`TrustScoreAgent: TRUSTSCORE_API_URL must be http(s), got "${url.protocol}"`);
+    process.exit(1);
+  }
+  return raw.replace(/\/+$/, "");
+})();
+
+const FETCH_TIMEOUT_MS = 10_000;
+
+// fetch with a timeout; distinguishes "API took too long" from "API unreachable" so the
+// LLM gets an actionable message instead of hanging until the MCP host kills the request.
+async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
+  return fetch(`${API_BASE_URL}${path}`, {
+    ...init,
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  });
+}
+
+function errorText(error: unknown, action: string): string {
+  if (error instanceof Error && error.name === "TimeoutError") {
+    return `${action}: the TrustScoreAgent API did not respond within ${FETCH_TIMEOUT_MS / 1000}s. It may be down or slow — try again later.`;
+  }
+  return `${action}: ${error instanceof Error ? error.message : "Unknown error"}`;
+}
+
+function asError(text: string) {
+  return { content: [{ type: "text" as const, text }], isError: true };
+}
+
+// Input validators: precise messages (type and bounds, matching the API's own validation)
+// beat a generic "X is required" when the caller is an LLM that will retry from the message.
+function requireString(value: unknown, name: string): string | { error: string } {
+  if (typeof value !== "string" || value.trim() === "")
+    return { error: `Error: ${name} must be a non-empty string` };
+  return value;
+}
+
+function requireInt(
+  value: unknown,
+  name: string,
+  min: number,
+  max: number
+): number | { error: string } {
+  if (typeof value !== "number" || !Number.isFinite(value))
+    return { error: `Error: ${name} must be a number (got ${typeof value})` };
+  if (!Number.isInteger(value) || value < min || value > max)
+    return { error: `Error: ${name} must be an integer between ${min} and ${max}` };
+  return value;
+}
+
+function optionalInt(
+  value: unknown,
+  name: string,
+  min: number,
+  max: number
+): number | undefined | { error: string } {
+  if (value === undefined || value === null) return undefined;
+  return requireInt(value, name, min, max);
+}
 
 // Each MCP installation gets a unique persistent agent ID.
 // Stored in ~/.trustscoreagent/agent-id so it survives restarts.
@@ -49,7 +123,7 @@ const AGENT_DID = getAgentDid();
 const server = new Server(
   {
     name: "trustscoreagent",
-    version: "0.1.0",
+    version: PACKAGE_VERSION,
   },
   {
     capabilities: {
@@ -98,14 +172,19 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           },
           status_code: {
             type: "number",
+            minimum: 100,
+            maximum: 599,
             description: "HTTP status code returned by the service (e.g., 200, 500)",
           },
           latency_ms: {
             type: "number",
-            description: "Response time in milliseconds",
+            minimum: 1,
+            maximum: 600000,
+            description: "Response time in milliseconds (round sub-millisecond responses up to 1)",
           },
           response_size_bytes: {
             type: "number",
+            minimum: 0,
             description: "Size of the response in bytes (optional)",
           },
           schema_valid: {
@@ -114,6 +193,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           },
           quality_score: {
             type: "number",
+            minimum: 1,
+            maximum: 5,
             description: "Subjective quality rating from 1 (poor) to 5 (excellent) (optional)",
           },
           receipt: {
@@ -135,18 +216,24 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         properties: {
           sort_by: {
             type: "string",
-            description: "Sort field: 'score' (default), 'ratings_count', or 'last_rated'",
+            enum: ["score", "ratings_count", "last_rated"],
+            description: "Sort field (default: score)",
           },
           min_score: {
             type: "number",
+            minimum: 0,
+            maximum: 1,
             description: "Minimum trust score filter (0.0-1.0)",
           },
           min_ratings: {
             type: "number",
+            minimum: 0,
             description: "Minimum number of ratings filter",
           },
           limit: {
             type: "number",
+            minimum: 1,
+            maximum: 100,
             description: "Number of results (default 20, max 100)",
           },
         },
@@ -161,27 +248,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
 
   if (name === "check_reputation") {
-    const serviceDid = args?.service_did as string;
-    if (!serviceDid) {
-      return {
-        content: [{ type: "text" as const, text: "Error: service_did is required" }],
-        isError: true,
-      };
-    }
+    const serviceDid = requireString(args?.service_did, "service_did");
+    if (typeof serviceDid !== "string") return asError(serviceDid.error);
 
     try {
-      const response = await fetch(
-        `${API_BASE_URL}/v1/score?service=${encodeURIComponent(serviceDid)}`
-      );
+      const response = await apiFetch(`/v1/score?service=${encodeURIComponent(serviceDid)}`);
 
       // API always returns 200 (unknown services get neutral score 0.5)
 
       if (!response.ok) {
-        const errorText = await response.text();
-        return {
-          content: [{ type: "text" as const, text: `Error checking reputation: ${errorText}` }],
-          isError: true,
-        };
+        const body = await response.text();
+        return asError(`Error checking reputation (HTTP ${response.status}): ${body}`);
       }
 
       const score = await response.json();
@@ -221,9 +298,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               `Confidence: ${score.confidence} (based on ${score.ratings_count} ratings)`,
               ``,
               `Dimensions:`,
-              `  Availability: ${score.dimensions.availability}`,
-              `  Latency:      ${score.dimensions.latency}`,
-              `  Conformity:   ${score.dimensions.conformity}`,
+              `  Availability: ${score.dimensions?.availability ?? "n/a"}`,
+              `  Latency:      ${score.dimensions?.latency ?? "n/a"}`,
+              `  Conformity:   ${score.dimensions?.conformity ?? "n/a"}`,
               ``,
               score.recent_incidents > 0
                 ? `⚠ ${score.recent_incidents} incidents in the last 30 days`
@@ -238,49 +315,55 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         ],
       };
     } catch (error) {
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: `Failed to reach TrustScoreAgent API: ${error instanceof Error ? error.message : "Unknown error"}`,
-          },
-        ],
-        isError: true,
-      };
+      return asError(errorText(error, "Failed to check reputation"));
     }
   }
 
   if (name === "submit_rating") {
-    const serviceDid = args?.service_did as string;
-    const statusCode = args?.status_code as number;
-    const latencyMs = args?.latency_ms as number;
+    const serviceDid = requireString(args?.service_did, "service_did");
+    if (typeof serviceDid !== "string") return asError(serviceDid.error);
 
-    if (!serviceDid || !statusCode || !latencyMs) {
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: "Error: service_did, status_code, and latency_ms are required",
-          },
-        ],
-        isError: true,
-      };
-    }
+    const statusCode = requireInt(args?.status_code, "status_code", 100, 599);
+    if (typeof statusCode !== "number") return asError(statusCode.error);
+
+    const latencyMs = requireInt(args?.latency_ms, "latency_ms", 1, 600_000);
+    if (typeof latencyMs !== "number") return asError(latencyMs.error);
+
+    const qualityScore = optionalInt(args?.quality_score, "quality_score", 1, 5);
+    if (typeof qualityScore === "object" && qualityScore !== undefined)
+      return asError(qualityScore.error);
+
+    const responseSizeBytes = optionalInt(
+      args?.response_size_bytes,
+      "response_size_bytes",
+      0,
+      Number.MAX_SAFE_INTEGER
+    );
+    if (typeof responseSizeBytes === "object" && responseSizeBytes !== undefined)
+      return asError(responseSizeBytes.error);
+
+    if (args?.schema_valid !== undefined && typeof args.schema_valid !== "boolean")
+      return asError("Error: schema_valid must be a boolean");
+
+    if (args?.receipt !== undefined && typeof args.receipt !== "string")
+      return asError("Error: receipt must be a string (the JWT from the X-Trust-Receipt header)");
 
     try {
       const body = {
-        service_did: serviceDid,
+        // "service" is the canonical field; "service_did" is only kept server-side for
+        // backwards compatibility.
+        service: serviceDid,
         metrics: {
           status_code: statusCode,
           latency_ms: latencyMs,
-          response_size_bytes: args?.response_size_bytes as number | undefined,
+          response_size_bytes: responseSizeBytes,
           schema_valid: args?.schema_valid as boolean | undefined,
         },
-        quality_score: args?.quality_score as number | undefined,
+        quality_score: qualityScore,
         receipt: args?.receipt as string | undefined,
       };
 
-      const response = await fetch(`${API_BASE_URL}/v1/rate`, {
+      const response = await apiFetch(`/v1/rate`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -290,11 +373,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       });
 
       if (!response.ok) {
-        const errorText = await response.text();
-        return {
-          content: [{ type: "text" as const, text: `Error submitting rating: ${errorText}` }],
-          isError: true,
-        };
+        const body2 = await response.text();
+        return asError(`Error submitting rating (HTTP ${response.status}): ${body2}`);
       }
 
       const result = await response.json();
@@ -304,41 +384,37 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             type: "text" as const,
             text: [
               `Rating submitted successfully for ${serviceDid}`,
-              `Rating weight: ${result.rating_weight}`,
-              `Updated score: ${result.new_score}`,
+              `Rating weight: ${result.rating_weight ?? "unknown"}`,
+              `Updated score: ${result.new_score ?? "unknown"}`,
             ].join("\n"),
           },
         ],
       };
     } catch (error) {
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: `Failed to submit rating: ${error instanceof Error ? error.message : "Unknown error"}`,
-          },
-        ],
-        isError: true,
-      };
+      return asError(errorText(error, "Failed to submit rating"));
     }
   }
 
   if (name === "list_services") {
+    if (
+      args?.sort_by !== undefined &&
+      !["score", "ratings_count", "last_rated"].includes(args.sort_by as string)
+    )
+      return asError("Error: sort_by must be one of 'score', 'ratings_count', 'last_rated'");
+
     try {
       const params = new URLSearchParams();
-      if (args?.sort_by) params.set("sort_by", args.sort_by as string);
-      if (args?.min_score) params.set("min_score", String(args.min_score));
-      if (args?.min_ratings) params.set("min_ratings", String(args.min_ratings));
-      if (args?.limit) params.set("limit", String(args.limit));
+      // Explicit undefined checks: 0 is a legitimate filter value and must not be dropped.
+      if (args?.sort_by !== undefined) params.set("sort_by", String(args.sort_by));
+      if (args?.min_score !== undefined) params.set("min_score", String(args.min_score));
+      if (args?.min_ratings !== undefined) params.set("min_ratings", String(args.min_ratings));
+      if (args?.limit !== undefined) params.set("limit", String(args.limit));
 
-      const response = await fetch(`${API_BASE_URL}/v1/services?${params.toString()}`);
+      const response = await apiFetch(`/v1/services?${params.toString()}`);
 
       if (!response.ok) {
-        const errorText = await response.text();
-        return {
-          content: [{ type: "text" as const, text: `Error listing services: ${errorText}` }],
-          isError: true,
-        };
+        const body = await response.text();
+        return asError(`Error listing services (HTTP ${response.status}): ${body}`);
       }
 
       const data = (await response.json()) as {
@@ -352,7 +428,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         pagination: { count: number; limit: number; offset: number };
       };
 
-      if (data.services.length === 0) {
+      if (!Array.isArray(data.services) || data.services.length === 0) {
         return {
           content: [{ type: "text" as const, text: "No services found matching the criteria." }],
         };
@@ -369,7 +445,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           {
             type: "text" as const,
             text: [
-              `Found ${data.pagination.count} service(s):`,
+              `Found ${data.pagination?.count ?? data.services.length} service(s):`,
               "",
               ...lines,
             ].join("\n"),
@@ -377,15 +453,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         ],
       };
     } catch (error) {
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: `Failed to list services: ${error instanceof Error ? error.message : "Unknown error"}`,
-          },
-        ],
-        isError: true,
-      };
+      return asError(errorText(error, "Failed to list services"));
     }
   }
 
