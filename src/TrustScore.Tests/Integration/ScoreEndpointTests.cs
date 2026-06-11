@@ -683,14 +683,6 @@ internal class FakeAgentRepository : IAgentRepository
 
 internal class FakeAuditService : IAuditService
 {
-    private readonly List<(Guid RatingId, string ServiceDid, DateTimeOffset Timestamp)> _leaves = new();
-
-    public Task RecordLeafAsync(Guid ratingId, string serviceDid, DateTimeOffset timestamp)
-    {
-        _leaves.Add((ratingId, serviceDid, timestamp));
-        return Task.CompletedTask;
-    }
-
     public Task<MerkleAnchor?> GetLatestAnchorAsync()
         => Task.FromResult<MerkleAnchor?>(null);
 

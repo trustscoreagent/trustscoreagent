@@ -20,17 +20,6 @@ public sealed class AuditService : IAuditService
 
     private sealed record MerkleSnapshot(MerkleTree Tree, IReadOnlyDictionary<Guid, int> Index);
 
-    public async Task RecordLeafAsync(Guid ratingId, string serviceDid, DateTimeOffset timestamp)
-    {
-        var leafHash = MerkleTree.ComputeLeafHash(ratingId, serviceDid, timestamp);
-        var leafHex = Convert.ToHexString(leafHash).ToLowerInvariant();
-
-        using var conn = _db.CreateConnection();
-        await conn.ExecuteAsync(
-            "UPDATE ratings SET merkle_leaf_hash = @LeafHash WHERE id = @RatingId",
-            new { LeafHash = leafHex, RatingId = ratingId });
-    }
-
     public async Task<MerkleAnchor?> GetLatestAnchorAsync()
     {
         using var conn = _db.CreateConnection();
@@ -64,6 +53,14 @@ public sealed class AuditService : IAuditService
         if (targetLeaf is null || targetLeaf.MerkleLeafHash is null)
             return null;
 
+        return await BuildInclusionProofAsync(anchor, targetLeaf, ratingId);
+    }
+
+    // Pure proof construction against a given anchor (no DB access beyond the rating repo), so it
+    // can be unit-tested without a database.
+    internal async Task<InclusionProofResult?> BuildInclusionProofAsync(
+        MerkleAnchor anchor, RatingLeafInfo targetLeaf, Guid ratingId)
+    {
         // Build (or reuse) the anchored snapshot. The anchored set is immutable, so the rebuilt
         // tree is cached by anchor root — repeated proofs against the same anchor skip the
         // O(n) reload + rehash of up to 100k leaves (DoS mitigation).
