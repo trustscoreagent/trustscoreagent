@@ -40,12 +40,8 @@ public static class AgentEndpoints
         .WithName("GetAgentTrust")
         .WithTags("Agent")
         .Produces(200)
-        .WithOpenApi(op =>
-        {
-            op.Summary = "Get your agent's trust score";
-            op.Description = "Returns the EigenTrust-computed trust score for an agent. Agents with high trust have more influence on service ratings.";
-            return op;
-        });
+        .WithSummary("Get your agent's trust score")
+        .WithDescription("Returns the EigenTrust-computed trust score for an agent. Agents with high trust have more influence on service ratings.");
 
         // Trigger EigenTrust recalculation (will be replaced by Cloud Run Job in production)
         app.MapPost("/v1/admin/eigentrust", async (
@@ -81,11 +77,7 @@ public static class AgentEndpoints
         .WithName("RunEigenTrust")
         .WithTags("Admin")
         .Produces(200)
-        .WithOpenApi(op =>
-        {
-            op.Summary = "Trigger EigenTrust recalculation (admin)";
-            op.Description = "Recalculates trust scores for all agents based on rating consistency. In production, this runs automatically every hour via Cloud Scheduler.";
-            return op;
-        });
+        .WithSummary("Trigger EigenTrust recalculation (admin)")
+        .WithDescription("Recalculates trust scores for all agents based on rating consistency. In production, this runs automatically every hour via Cloud Scheduler.");
     }
 }
