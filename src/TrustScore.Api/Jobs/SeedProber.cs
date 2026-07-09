@@ -107,14 +107,35 @@ public sealed class SeedProber
     // Same base weight as any rating without a receipt (spec §5).
     private const double SeedProbeBaseWeight = 0.3;
 
+    // Cap on the probe response body we buffer. Probe endpoints return small JSON/text payloads;
+    // anything larger is truncated (the conformity check only inspects the first field).
+    private const int MaxProbeBodyBytes = 256 * 1024;
+
+    private static async Task<string> ReadBoundedAsync(Stream stream, int maxBytes, CancellationToken ct)
+    {
+        using var buffer = new MemoryStream();
+        var chunk = new byte[8192];
+        int read;
+        while ((read = await stream.ReadAsync(chunk, ct)) > 0)
+        {
+            var remaining = maxBytes - (int)buffer.Length;
+            if (remaining <= 0) break;
+            buffer.Write(chunk, 0, Math.Min(read, remaining));
+        }
+        return System.Text.Encoding.UTF8.GetString(buffer.ToArray());
+    }
+
     private async Task<(int StatusCode, int LatencyMs, bool SchemaValid)> ProbeAsync(HttpClient client, SeedProbeTarget target)
     {
         var sw = Stopwatch.StartNew();
         try
         {
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(_options.TimeoutSeconds));
-            using var response = await client.GetAsync(target.Url, cts.Token);
-            var body = await response.Content.ReadAsStringAsync(cts.Token);
+            using var response = await client.GetAsync(target.Url, HttpCompletionOption.ResponseHeadersRead, cts.Token);
+            await using var stream = await response.Content.ReadAsStreamAsync(cts.Token);
+            // Bound the body: a hostile/compromised target returning gigabytes would otherwise OOM
+            // the hourly job. The conformity check only needs the first field, so a cap is safe.
+            var body = await ReadBoundedAsync(stream, MaxProbeBodyBytes, cts.Token);
             sw.Stop();
 
             var latency = ClampLatency(sw.ElapsedMilliseconds);
