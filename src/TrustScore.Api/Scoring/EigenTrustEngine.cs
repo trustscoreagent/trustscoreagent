@@ -304,10 +304,16 @@ public sealed class EigenTrustEngine
                 break;
         }
 
-        // Scale to [0, 1] range (currently sums to 1, but individual values may be small)
-        var max = t.Max();
-        if (max > 0)
-            for (int i = 0; i < n; i++) t[i] /= max;
+        // Map the converged distribution (sums to 1) to an absolute [0,1] trust scale anchored on
+        // the uniform baseline: an agent at the uniform share 1/n maps to 0.5, above-average agents
+        // rise toward 1, below-average fall toward 0. This is stable over time and does NOT force
+        // the top agent to 1.0 — dividing by max did, so a graph of equally-coherent agents scored
+        // everyone 1.0 and doubled the effective weight of their ratings versus the 0.5 default.
+        for (int i = 0; i < n; i++)
+        {
+            var ratioToUniform = t[i] * n;             // 1.0 == uniform share
+            t[i] = ratioToUniform / (ratioToUniform + 1.0); // uniform -> 0.5, monotonic in (0,1)
+        }
 
         return t;
     }
