@@ -15,7 +15,7 @@ RUN dotnet publish src/TrustScore.Api/TrustScore.Api.csproj \
     -o /app/publish \
     --no-restore
 
-FROM mcr.microsoft.com/dotnet/aspnet:8.0-alpine AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-alpine AS runtime
 WORKDIR /app
 
 # Copy migrations
