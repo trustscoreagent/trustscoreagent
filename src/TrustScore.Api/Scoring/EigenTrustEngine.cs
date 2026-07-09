@@ -123,12 +123,13 @@ public sealed class EigenTrustEngine
                 g =>
                 {
                     var records = g.ToList();
+                    var schemaRatings = records.Where(r => r.SchemaValid.HasValue).ToList();
                     return new ServiceConsensus
                     {
                         MedianStatusIsSuccess = records.Count(r => r.StatusCode >= 200 && r.StatusCode < 300) > records.Count / 2.0,
                         MedianLatencyMs = ComputeMedianLatency(records),
-                        MedianSchemaValid = records.Where(r => r.SchemaValid.HasValue).Count(r => r.SchemaValid == true) >
-                                           records.Where(r => r.SchemaValid.HasValue).Count() / 2.0,
+                        HasSchemaConsensus = schemaRatings.Count > 0,
+                        MedianSchemaValid = schemaRatings.Count(r => r.SchemaValid == true) > schemaRatings.Count / 2.0,
                     };
                 });
     }
@@ -172,6 +173,13 @@ public sealed class EigenTrustEngine
                 // Check latency agreement (within 2x of median)
                 if (rec.LatencyMs > svcConsensus.MedianLatencyMs * 2 ||
                     rec.LatencyMs < svcConsensus.MedianLatencyMs / 2)
+                    isCoherent = false;
+
+                // Check schema_valid agreement (only when both the rating and the consensus have a
+                // value; a null on either side is neutral). Without this, an agent could lie on
+                // schema_valid — a quarter of the score — and stay perfectly coherent.
+                if (rec.SchemaValid.HasValue && svcConsensus.HasSchemaConsensus &&
+                    rec.SchemaValid.Value != svcConsensus.MedianSchemaValid)
                     isCoherent = false;
 
                 if (isCoherent) coherent++;
@@ -334,6 +342,7 @@ public sealed class EigenTrustEngine
     {
         public bool MedianStatusIsSuccess { get; init; }
         public int MedianLatencyMs { get; init; }
+        public bool HasSchemaConsensus { get; init; }
         public bool MedianSchemaValid { get; init; }
     }
 }
