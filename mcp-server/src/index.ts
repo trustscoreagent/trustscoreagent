@@ -185,6 +185,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           response_size_bytes: {
             type: "number",
             minimum: 0,
+            maximum: 2147483647,
             description: "Size of the response in bytes (optional)",
           },
           schema_valid: {
@@ -337,7 +338,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       args?.response_size_bytes,
       "response_size_bytes",
       0,
-      Number.MAX_SAFE_INTEGER
+      // The API stores this as a 32-bit int; cap here so an out-of-range value fails with a clear
+      // MCP validation error instead of a raw 400 from .NET deserialization.
+      2_147_483_647
     );
     if (typeof responseSizeBytes === "object" && responseSizeBytes !== undefined)
       return asError(responseSizeBytes.error);
