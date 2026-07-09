@@ -56,7 +56,11 @@ public sealed class ReceiptVerifier : IReceiptVerifier
 
         // 4. Check timestamp: must be recent and not in the future (a future-dated receipt would
         // otherwise have an unbounded freshness window once its nonce TTL expires).
-        if (!DateTimeOffset.TryParse(payload.Timestamp, out var receiptTime))
+        // Parse invariant + assume UTC for offset-less timestamps, so the freshness window does not
+        // shift with the host's culture or local time zone.
+        if (!DateTimeOffset.TryParse(payload.Timestamp, System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal,
+                out var receiptTime))
         {
             return ReceiptVerificationResult.Failed(ReceiptVerificationStatus.MalformedJwt);
         }
