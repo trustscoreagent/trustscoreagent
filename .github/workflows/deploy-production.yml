@@ -104,6 +104,17 @@ jobs:
           docker build -f src/TrustScore.Api/Dockerfile -t "$IMAGE" .
           docker push "$IMAGE"
 
+      # Capture the revision currently serving 100% of traffic BEFORE deploying the canary, so a
+      # failed canary can be rolled back to it. Without this, "rollback" has no stable target to
+      # point at and --to-latest would (wrongly) promote the just-deployed canary.
+      - name: Capture current stable revision
+        run: |
+          STABLE=$(gcloud run services describe $SERVICE_NAME \
+            --region $GCP_REGION \
+            --format 'value(status.traffic[0].revisionName)')
+          echo "STABLE_REVISION=$STABLE" >> "$GITHUB_ENV"
+          echo "Current stable revision: ${STABLE:-<none>}"
+
       - name: Deploy canary (0% traffic)
         run: |
           gcloud run deploy $SERVICE_NAME \
@@ -139,10 +150,18 @@ jobs:
             HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$URL/health")
             echo "Check $i/10: HTTP $HTTP_CODE"
             if [ "$HTTP_CODE" != "200" ]; then
-              echo "Canary check failed (HTTP $HTTP_CODE), rolling back..."
-              gcloud run services update-traffic $SERVICE_NAME \
-                --region $GCP_REGION \
-                --to-latest
+              echo "Canary check failed (HTTP $HTTP_CODE), rolling back to $STABLE_REVISION..."
+              if [ -n "$STABLE_REVISION" ]; then
+                # Pin 100% back to the previously-serving revision (this also drops canary to 0%).
+                gcloud run services update-traffic $SERVICE_NAME \
+                  --region $GCP_REGION \
+                  --to-revisions "$STABLE_REVISION=100"
+              else
+                # No prior stable revision (first ever deploy): just remove traffic from the canary.
+                gcloud run services update-traffic $SERVICE_NAME \
+                  --region $GCP_REGION \
+                  --to-tags canary=0
+              fi
               exit 1
             fi
           done
