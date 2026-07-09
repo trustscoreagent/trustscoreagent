@@ -12,9 +12,12 @@ updates:
     commit-message:
       prefix: "deps"
     ignore:
-      # FluentAssertions 8.x switched to a paid commercial license; stay on the free 6.x line.
+      # FluentAssertions 8.x switched to a paid commercial license; stay on the free 7.x line.
       - dependency-name: "FluentAssertions"
         versions: [">=8.0.0"]
+      # Microsoft.OpenApi 3.x is a different major; Swashbuckle 10.x targets the 2.x line.
+      - dependency-name: "Microsoft.OpenApi"
+        versions: [">=3.0.0"]
 
   - package-ecosystem: "docker"
     directory: "/src/TrustScore.Api"
