@@ -40,7 +40,10 @@ public static class ServiceIdentifier
             && (uri.Scheme == "http" || uri.Scheme == "https"))
         {
             var host = uri.Host.ToLowerInvariant();
-            var path = uri.AbsolutePath.TrimEnd('/');
+            // Lowercase the path too, matching the raw-input branch below. Otherwise the same
+            // endpoint given as a URL vs. raw string normalizes to two different identifiers and
+            // its reputation is split across two rows.
+            var path = uri.AbsolutePath.TrimEnd('/').ToLowerInvariant();
             return path is "" or "/" ? host : $"{host}{path}";
         }
 
