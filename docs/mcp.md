@@ -70,6 +70,15 @@ Rate a microservice after calling it.
 - `quality_score` (optional): 1-5 subjective quality
 - `receipt` (optional): JWT from X-Trust-Receipt header
 
+### list_services
+
+List rated services, most-trusted first.
+
+**Parameters:**
+- `sort_by` (optional): `score` (default), `ratings_count`, or `last_rated`
+- `limit` (optional): 1–100 (default 20)
+- `min_score` (optional): only return services at or above this score
+
 ## Agent Identity
 
 Each MCP installation automatically generates a unique agent ID on first run, stored in `~/.trustscoreagent/agent-id`. This ensures:
