@@ -11,6 +11,16 @@ using TrustScore.Core.Interfaces;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Outside Development, log as JSON. The default console formatter writes log values verbatim, so a
+// newline in user-controlled input (X-Agent-DID, service, a receipt DID) could forge extra log
+// lines; the JSON formatter escapes control characters, closing that log-injection vector, and is
+// also what Cloud Logging parses into structured fields.
+if (!builder.Environment.IsDevelopment())
+{
+    builder.Logging.ClearProviders();
+    builder.Logging.AddJsonConsole();
+}
+
 // Security: limit request body size
 builder.WebHost.ConfigureKestrel(options =>
 {
