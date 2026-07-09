@@ -93,7 +93,10 @@ public class AuditServiceTests
         var cutoff = anchored[^1].CreatedAt; // exactly the 4th leaf's created_at
         var anchor = new MerkleAnchor
         {
-            Id = 1, MerkleRoot = AnchoredRoot(anchored), LeafCount = anchored.Count, CutoffAt = cutoff,
+            Id = 1,
+            MerkleRoot = AnchoredRoot(anchored),
+            LeafCount = anchored.Count,
+            CutoffAt = cutoff,
         };
         var service = NewService(new StubRatingRepo(all));
 
