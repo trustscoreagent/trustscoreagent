@@ -132,6 +132,18 @@ echo -n "$REDIS_CONNECTION_STRING" | gcloud secrets create redis-connection-stri
   --quiet 2>/dev/null || \
 echo -n "$REDIS_CONNECTION_STRING" | gcloud secrets versions add redis-connection-string --data-file=-
 
+# admin-api-key protects POST /v1/admin/eigentrust. Generate a strong random value ONCE; never
+# overwrite an existing one (that would rotate the key out from under any configured client).
+if gcloud secrets describe admin-api-key >/dev/null 2>&1; then
+  echo "  admin-api-key already exists, leaving it unchanged"
+else
+  openssl rand -base64 32 | tr -d '\n' | gcloud secrets create admin-api-key \
+    --data-file=- \
+    --replication-policy=automatic \
+    --quiet
+  echo "  Created admin-api-key (read it with: gcloud secrets versions access latest --secret=admin-api-key)"
+fi
+
 # -------------------------------------------------------
 # 8. Create service account for GitHub Actions
 # -------------------------------------------------------
@@ -155,7 +167,7 @@ for ROLE in \
 done
 
 # Grant secretAccessor only on the specific secrets this SA deploys with.
-for SECRET in db-connection-string redis-connection-string; do
+for SECRET in db-connection-string redis-connection-string admin-api-key; do
   gcloud secrets add-iam-policy-binding "$SECRET" \
     --member="serviceAccount:${SA_EMAIL}" \
     --role="roles/secretmanager.secretAccessor" \
