@@ -72,7 +72,16 @@ builder.Services.AddHttpClient(SeedProber.HttpClientName, client =>
     client.Timeout = TimeSpan.FromSeconds(30);
     client.DefaultRequestHeaders.UserAgent.ParseAdd("TrustScoreAgent-Probe/0.1 (+https://trustscoreagent.com)");
     client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
-});
+})
+    // Probe targets are server-configured, but a compromised or DNS-hijacked target could 302 to a
+    // link-local/metadata address; route through the same SSRF guard as did:web resolution and
+    // refuse redirects so a probe can never reach an internal endpoint.
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+    {
+        AllowAutoRedirect = false,
+        ConnectTimeout = TimeSpan.FromSeconds(10),
+        ConnectCallback = SsrfGuard.ConnectAsync,
+    });
 builder.Services.AddScoped<SeedProber>();
 
 // OpenAPI
