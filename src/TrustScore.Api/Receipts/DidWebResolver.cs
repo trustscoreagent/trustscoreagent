@@ -290,6 +290,10 @@ internal static class SsrfGuard
             if (ip.IsIPv6LinkLocal || ip.IsIPv6SiteLocal || ip.IsIPv6Multicast) return true;
             var b = ip.GetAddressBytes();
             if ((b[0] & 0xfe) == 0xfc) return true;                       // fc00::/7 unique local
+            // 64:ff9b::/96 NAT64: block so 64:ff9b::a9fe:a9fe (→169.254.169.254) can't reach metadata.
+            if (b[0] == 0x00 && b[1] == 0x64 && b[2] == 0xff && b[3] == 0x9b &&
+                b[4] == 0 && b[5] == 0 && b[6] == 0 && b[7] == 0 &&
+                b[8] == 0 && b[9] == 0 && b[10] == 0 && b[11] == 0) return true;
             return false;
         }
 
