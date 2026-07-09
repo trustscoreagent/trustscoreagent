@@ -171,9 +171,11 @@ public sealed class RatingRepository : IRatingRepository
                    receipt_verified AS ReceiptVerified
             FROM ratings
             WHERE created_at > NOW() - INTERVAL '90 days'
-            ORDER BY created_at ASC
+            ORDER BY created_at DESC
             LIMIT 100000
             """);
+        // DESC so that if the 90-day window exceeds the cap we keep the 100k MOST RECENT ratings
+        // (including any current-day Sybil activity), not the oldest as before.
         return results.ToList().AsReadOnly();
     }
 

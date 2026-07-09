@@ -54,6 +54,11 @@ public static class HourlyJob
 
         logger.LogInformation("EigenTrust: processing {Count} ratings", ratings.Count);
 
+        // GetAllRatingsForTrustAsync caps at 100k most-recent ratings; warn if we hit it so a
+        // silently-truncated trust computation is visible in the logs.
+        if (ratings.Count >= 100_000)
+            logger.LogWarning("EigenTrust: rating set hit the 100k cap; trust is computed on the most recent 100k only");
+
         if (ratings.Count < 2)
         {
             logger.LogInformation("EigenTrust: not enough ratings, skipping");
