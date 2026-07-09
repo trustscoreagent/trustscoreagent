@@ -22,7 +22,7 @@ public sealed class ReceiptVerifier : IReceiptVerifier
         _logger = logger;
     }
 
-    public async Task<ReceiptVerificationResult> VerifyAsync(string jwt, string expectedServiceDid)
+    public async Task<ReceiptVerificationResult> VerifyAsync(string jwt, string expectedServiceDid, string expectedAgentDid)
     {
         // 1. Parse the JWT (header.payload.signature)
         var parts = jwt.Split('.');
@@ -95,6 +95,18 @@ public sealed class ReceiptVerifier : IReceiptVerifier
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Signature verification error for {ServiceDid}", payload.ServiceDid);
+            return ReceiptVerificationResult.Failed(ReceiptVerificationStatus.InvalidSignature);
+        }
+
+        // 6b. The receipt must attest the agent that is actually submitting it. Without this check
+        // the receipt is a bearer token: anyone who observes it (it travels in the X-Trust-Receipt
+        // header) could replay it under their own DID to gain verified weight and burn the real
+        // agent's nonce. Checked AFTER the signature but BEFORE claiming the nonce, so a mismatched
+        // attempt neither counts nor consumes the legitimate agent's nonce.
+        if (payload.AgentDid != expectedAgentDid)
+        {
+            _logger.LogWarning("Receipt agent_did mismatch for {ServiceDid}: signed {Signed}, submitted by {Submitter}",
+                payload.ServiceDid, payload.AgentDid, expectedAgentDid);
             return ReceiptVerificationResult.Failed(ReceiptVerificationStatus.InvalidSignature);
         }
 
