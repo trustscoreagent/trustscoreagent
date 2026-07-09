@@ -136,7 +136,8 @@ GET /v1/services?sort_by=score&order=desc&min_score=0.7&min_ratings=10&limit=20&
 
 ## GET /v1/agent/trust
 
-An agent can look up **its own** trust score (you cannot query other agents').
+Look up an agent's EigenTrust score by DID. Note: this endpoint is currently unauthenticated, so
+any DID can be queried; binding it to proof-of-DID-possession is a Phase 2 item.
 
 ```
 GET /v1/agent/trust?did=did:web:my-agent.example.com
@@ -183,8 +184,8 @@ Free during Phase 1; metered via [x402](https://x402.org/) micropayments in Phas
 
 ## GET /health
 
-Liveness/readiness probe (not for public use). Returns `200` healthy or `503` degraded
-with per-dependency checks.
+Liveness/readiness probe (not for public use). Returns `200` when healthy or degraded (Redis down
+but the DB is up) and `503` only when the database is unavailable, with per-dependency checks.
 
 ---
 
