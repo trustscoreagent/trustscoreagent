@@ -16,10 +16,10 @@
 
   <ItemGroup>
     <PackageReference Include="Dapper" Version="2.1.79" />
-    <PackageReference Include="Npgsql" Version="10.0.2" />
+    <PackageReference Include="Npgsql" Version="10.0.3" />
     <PackageReference Include="StackExchange.Redis" Version="2.12.14" />
     <PackageReference Include="DbUp-PostgreSQL" Version="7.0.1" />
-    <PackageReference Include="Swashbuckle.AspNetCore" Version="10.1.7" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="10.2.3" />
     <!-- Pin the patched Microsoft.OpenApi (pulled transitively by Swashbuckle 10.x) to resolve
          GHSA-v5pm-xwqc-g5wc (High: circular schema references terminate OpenAPI parsing).
          Stay on the 2.x line that Swashbuckle 10 targets — do not jump to 3.x. -->
