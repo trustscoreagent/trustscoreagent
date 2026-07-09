@@ -22,7 +22,7 @@ Add to your `claude_desktop_config.json`:
 ### Claude Code (CLI)
 
 ```bash
-claude mcp add trustscoreagent npx -y @trustscoreagent/mcp-server
+claude mcp add trustscoreagent -- npx -y @trustscoreagent/mcp-server
 ```
 
 ### Manual / Development
