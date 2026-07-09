@@ -1,0 +1,20 @@
+# Keep the build context small and free of local secrets/artifacts. The Dockerfile does `COPY . .`
+# in the build stage, so anything not excluded here is sent to the daemon and can end up in a layer.
+**/bin/
+**/obj/
+.git/
+.github/
+**/node_modules/
+mcp-server/dist/
+site/
+TestResults/
+**/TestResults/
+*.user
+**/appsettings.*.Local.json
+**/appsettings.Development.json
+.env
+.env.*
+*.md
+.vs/
+.vscode/
+.idea/
