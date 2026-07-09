@@ -16,7 +16,7 @@
 
   <ItemGroup>
     <PackageReference Include="Dapper" Version="2.1.79" />
-    <PackageReference Include="Npgsql" Version="10.0.2" />
+    <PackageReference Include="Npgsql" Version="10.0.3" />
     <PackageReference Include="StackExchange.Redis" Version="2.12.14" />
     <PackageReference Include="DbUp-PostgreSQL" Version="7.0.1" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="10.1.7" />
