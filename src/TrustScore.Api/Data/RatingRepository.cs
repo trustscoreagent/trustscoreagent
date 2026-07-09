@@ -146,12 +146,17 @@ public sealed class RatingRepository : IRatingRepository
         using var conn = _db.CreateConnection();
         var results = await conn.QueryAsync<DailyHistoryPoint>(
             """
-            SELECT date_trunc('day', created_at)::date AS Date,
-                   COUNT(*) AS RatingsCount,
+            -- Explicit casts: DailyHistoryPoint is a positional record, so Dapper binds these by
+            -- constructor parameter and needs the exact CLR types (COUNT() is bigint, AVG() is
+            -- numeric — neither converts implicitly through a constructor).
+            -- ::date alone comes back as DateOnly in Npgsql; ::timestamp yields the DateTime the
+            -- record declares.
+            SELECT date_trunc('day', created_at)::date::timestamp AS Date,
+                   COUNT(*)::int AS RatingsCount,
                    COALESCE(AVG(latency_ms), 0)::int AS AvgLatencyMs,
-                   COALESCE(AVG(CASE WHEN status_code BETWEEN 200 AND 299 THEN 1.0 ELSE 0.0 END), 0) AS SuccessRate,
-                   COALESCE(AVG(quality_score), 0) AS AvgQuality,
-                   COUNT(*) FILTER (WHERE receipt_verified) AS VerifiedCount
+                   COALESCE(AVG(CASE WHEN status_code BETWEEN 200 AND 299 THEN 1.0 ELSE 0.0 END), 0)::float8 AS SuccessRate,
+                   COALESCE(AVG(quality_score), 0)::float8 AS AvgQuality,
+                   (COUNT(*) FILTER (WHERE receipt_verified))::int AS VerifiedCount
             FROM ratings
             WHERE service_did = @ServiceDid
               AND created_at > @Since
@@ -196,7 +201,7 @@ public sealed class RatingRepository : IRatingRepository
                    status_code AS StatusCode,
                    latency_ms AS LatencyMs,
                    schema_valid AS SchemaValid,
-                   quality_score AS QualityScore,
+                   quality_score::int AS QualityScore,
                    has_receipt AS HasReceipt,
                    receipt_verified AS ReceiptVerified,
                    weight AS Weight
