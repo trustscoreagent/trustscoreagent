@@ -29,12 +29,13 @@ public sealed class AuditService : IAuditService
                    merkle_root AS MerkleRoot,
                    leaf_count AS LeafCount,
                    anchored_at AS AnchoredAt,
+                   cutoff_at AS CutoffAt,
                    blockchain AS Blockchain,
                    contract_address AS ContractAddress,
                    transaction_hash AS TransactionHash,
                    block_number AS BlockNumber
             FROM merkle_anchors
-            ORDER BY anchored_at DESC
+            ORDER BY anchored_at DESC, id DESC
             LIMIT 1
             """);
     }
@@ -98,7 +99,11 @@ public sealed class AuditService : IAuditService
         {
             entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(2);
 
-            var leaves = await _ratingRepo.GetAnchoredLeafHashesAsync(anchor.LeafCount);
+            // Reproduce the anchored set from its cutoff (stable under concurrent writes); fall back
+            // to leaf_count for legacy anchors written before the cutoff column existed.
+            var leaves = anchor.CutoffAt is { } cutoff
+                ? await _ratingRepo.GetLeafHashesUpToAsync(cutoff)
+                : await _ratingRepo.GetAnchoredLeafHashesAsync(anchor.LeafCount);
             if (leaves.Count == 0)
             {
                 entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(10); // don't pin a null

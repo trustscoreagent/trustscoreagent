@@ -22,7 +22,7 @@ Add to your `claude_desktop_config.json`:
 ### Claude Code (CLI)
 
 ```bash
-claude mcp add trustscoreagent npx -y @trustscoreagent/mcp-server
+claude mcp add trustscoreagent -- npx -y @trustscoreagent/mcp-server
 ```
 
 ### Manual / Development
@@ -69,6 +69,15 @@ Rate a microservice after calling it.
 - `schema_valid` (optional): Whether response matched expected format
 - `quality_score` (optional): 1-5 subjective quality
 - `receipt` (optional): JWT from X-Trust-Receipt header
+
+### list_services
+
+List rated services, most-trusted first.
+
+**Parameters:**
+- `sort_by` (optional): `score` (default), `ratings_count`, or `last_rated`
+- `limit` (optional): 1–100 (default 20)
+- `min_score` (optional): only return services at or above this score
 
 ## Agent Identity
 

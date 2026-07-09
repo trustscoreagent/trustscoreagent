@@ -70,7 +70,7 @@ public static class RateEndpoints
 
             if (hasReceipt)
             {
-                var verification = await receiptVerifier.VerifyAsync(request.Receipt!, SvcId.ToDid(serviceId));
+                var verification = await receiptVerifier.VerifyAsync(request.Receipt!, SvcId.ToDid(serviceId), agentDid);
 
                 if (verification.Status == ReceiptStatus.NonceAlreadyUsed)
                     return Results.Json(

@@ -32,6 +32,9 @@ public sealed class MerkleAnchor
     public required string MerkleRoot { get; init; }
     public int LeafCount { get; init; }
     public DateTimeOffset AnchoredAt { get; init; }
+    // The created_at cutoff the anchored set was taken at. Null for legacy anchors, which fall back
+    // to leaf_count-based reproduction.
+    public DateTimeOffset? CutoffAt { get; init; }
     public string? Blockchain { get; init; }
     public string? ContractAddress { get; init; }
     public string? TransactionHash { get; init; }

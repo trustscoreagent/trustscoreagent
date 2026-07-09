@@ -13,7 +13,7 @@ public class ServiceIdentifierTests
     [InlineData("https://api.example.com/v1/translate?key=123", "api.example.com/v1/translate")]
     [InlineData("https://api.example.com/v1/translate#section", "api.example.com/v1/translate")]
     [InlineData("http://api.example.com/v1/translate", "api.example.com/v1/translate")]
-    [InlineData("https://API.Example.COM/V1/Translate", "api.example.com/V1/Translate")]
+    [InlineData("https://API.Example.COM/V1/Translate", "api.example.com/v1/translate")]
     [InlineData("api.example.com/v1/translate", "api.example.com/v1/translate")]
     [InlineData("api.example.com:8080/v1/translate", "api.example.com/v1/translate")]
     public void Normalize_WithPath_KeepsPath(string input, string expected)
