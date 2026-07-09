@@ -4,6 +4,8 @@
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Keep the assembly version in sync with package.json / agent.json so /health reports it. -->
+    <Version>0.1.0</Version>
   </PropertyGroup>
 
   <ItemGroup>
