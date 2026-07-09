@@ -22,12 +22,22 @@ public static class HourlyJob
             logger.LogInformation("=== Hourly job started ===");
 
             // Probe first so the fresh measurements feed EigenTrust and get anchored this run.
-            await RunSeedProbe(services, logger);
-            await RunEigenTrust(services, logger);
-            await RunMerkleAnchor(services, logger);
+            // Each step is isolated: a failure in one (e.g. an unreachable probe target) must not
+            // skip EigenTrust or the Merkle anchor for the whole hour.
+            var failed = false;
+            foreach (var (name, step) in new (string, Func<Task>)[]
+                     {
+                         ("SeedProbe", () => RunSeedProbe(services, logger)),
+                         ("EigenTrust", () => RunEigenTrust(services, logger)),
+                         ("MerkleAnchor", () => RunMerkleAnchor(services, logger)),
+                     })
+            {
+                try { await step(); }
+                catch (Exception ex) { failed = true; logger.LogError(ex, "Hourly job step {Step} failed", name); }
+            }
 
-            logger.LogInformation("=== Hourly job completed successfully ===");
-            return 0;
+            logger.LogInformation("=== Hourly job completed ({Status}) ===", failed ? "with errors" : "successfully");
+            return failed ? 1 : 0;
         }
         catch (Exception ex)
         {
