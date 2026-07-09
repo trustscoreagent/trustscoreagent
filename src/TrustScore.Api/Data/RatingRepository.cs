@@ -192,6 +192,7 @@ public sealed class RatingRepository : IRatingRepository
             WHERE service_did = @ServiceDid
               AND created_at > @Since
             ORDER BY created_at DESC
+            LIMIT 10000
             """,
             new
             {
