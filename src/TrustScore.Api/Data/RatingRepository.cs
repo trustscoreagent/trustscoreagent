@@ -27,10 +27,18 @@ public sealed class RatingRepository : IRatingRepository
             @QualityScore, @Comment, @HasReceipt, @ReceiptVerified, @Weight, @CreatedAt, @MerkleLeafHash)
         """;
 
+    // PostgreSQL TIMESTAMPTZ has microsecond resolution, but .NET ticks are 100 ns, so a raw
+    // CreatedAt would be hashed at 100 ns precision yet stored (and re-read by the anchoring job) at
+    // µs precision — the stored merkle_leaf_hash would then never match the anchored leaf. Truncate
+    // to microseconds once and use that single value for both the hash and the stored timestamp.
+    private static DateTimeOffset TruncateToMicroseconds(DateTimeOffset value) =>
+        new(value.Ticks - value.Ticks % (TimeSpan.TicksPerMillisecond / 1000), value.Offset);
+
     private static object BuildInsertParams(Rating rating)
     {
+        var createdAt = TruncateToMicroseconds(rating.CreatedAt);
         var leafHash = Convert.ToHexString(
-            MerkleTree.ComputeLeafHash(rating.Id, rating.ServiceDid, rating.CreatedAt)).ToLowerInvariant();
+            MerkleTree.ComputeLeafHash(rating.Id, rating.ServiceDid, createdAt)).ToLowerInvariant();
         return new
         {
             rating.Id,
@@ -45,7 +53,7 @@ public sealed class RatingRepository : IRatingRepository
             rating.HasReceipt,
             rating.ReceiptVerified,
             rating.Weight,
-            rating.CreatedAt,
+            CreatedAt = createdAt,
             MerkleLeafHash = leafHash,
         };
     }
