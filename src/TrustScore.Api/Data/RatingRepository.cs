@@ -93,9 +93,12 @@ public sealed class RatingRepository : IRatingRepository
             new { Id = ratingId });
     }
 
-    public async Task<IReadOnlyList<RatingLeafInfo>> GetAllLeafHashesAsync()
+    public async Task<IReadOnlyList<RatingLeafInfo>> GetLeafHashesUpToAsync(DateTimeOffset cutoff)
     {
         using var conn = _db.CreateConnection();
+        // Every anchored leaf up to the cutoff, in deterministic (created_at, id) order. The cutoff
+        // is far enough in the past that all transactions with created_at <= cutoff have committed,
+        // so this set is stable and reproduces the anchored root exactly.
         var results = await conn.QueryAsync<RatingLeafInfo>(
             """
             SELECT id AS Id,
@@ -104,18 +107,17 @@ public sealed class RatingRepository : IRatingRepository
                    merkle_leaf_hash AS MerkleLeafHash
             FROM ratings
             WHERE merkle_leaf_hash IS NOT NULL
+              AND created_at <= @Cutoff
             ORDER BY created_at, id
-            LIMIT 100000
-            """);
+            """,
+            new { Cutoff = cutoff });
         return results.ToList().AsReadOnly();
     }
 
     public async Task<IReadOnlyList<RatingLeafInfo>> GetAnchoredLeafHashesAsync(int leafCount)
     {
         using var conn = _db.CreateConnection();
-        // The anchored snapshot is the first `leafCount` leaves in the same deterministic order
-        // used by the hourly anchoring job. Because leaves are append-only, this reproduces the
-        // exact set the anchor's root was computed over.
+        // Legacy reproduction for anchors stored before the cutoff column existed.
         var results = await conn.QueryAsync<RatingLeafInfo>(
             """
             SELECT id AS Id,

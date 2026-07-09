@@ -1,0 +1,13 @@
+-- Make the anchored Merkle snapshot reproducible under concurrent writes.
+--
+-- The anchored set was defined as "the first leaf_count leaves ordered by (created_at, id)".
+-- created_at is assigned application-side before the row commits, so when the commit order differs
+-- from the created_at order, a later-committing row with an earlier created_at changes which rows
+-- are "the first leaf_count", and the snapshot no longer reproduces the anchored root — every
+-- /v1/audit/proof then 404s until the next anchor.
+--
+-- Instead the anchoring job now selects every leaf with created_at <= a cutoff set a few minutes in
+-- the past (a grace window longer than any transaction), which is a stable, immutable set once all
+-- transactions up to the cutoff have committed. Store that cutoff so the proof rebuilds the exact
+-- same set. Nullable: pre-existing anchors keep the legacy leaf_count reproduction path.
+ALTER TABLE merkle_anchors ADD COLUMN IF NOT EXISTS cutoff_at TIMESTAMPTZ;

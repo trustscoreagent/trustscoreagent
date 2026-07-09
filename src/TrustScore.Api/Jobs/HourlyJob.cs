@@ -72,8 +72,12 @@ public static class HourlyJob
         var ratingRepo = scope.ServiceProvider.GetRequiredService<IRatingRepository>();
         var db = scope.ServiceProvider.GetRequiredService<DbConnectionFactory>();
 
-        // Get all leaf hashes to build the tree
-        var leaves = await ratingRepo.GetAllLeafHashesAsync();
+        // Anchor every leaf up to a cutoff a few minutes in the past. The grace window must exceed
+        // the longest write transaction so that, by the time we query, every row with
+        // created_at <= cutoff has committed — making the anchored set stable and reproducible for
+        // /v1/audit/proof, regardless of rows still committing with a more recent created_at.
+        var cutoff = DateTimeOffset.UtcNow - TimeSpan.FromMinutes(5);
+        var leaves = await ratingRepo.GetLeafHashesUpToAsync(cutoff);
 
         if (leaves.Count == 0)
         {
@@ -89,14 +93,15 @@ public static class HourlyJob
         }
 
         var rootHex = tree.RootHex!;
-        logger.LogInformation("Merkle: computed root {Root} from {Count} leaves", rootHex, leaves.Count);
+        logger.LogInformation("Merkle: computed root {Root} from {Count} leaves (cutoff {Cutoff:o})",
+            rootHex, leaves.Count, cutoff);
 
         // Store anchor in database
         using var conn = db.CreateConnection();
         await conn.ExecuteAsync(
             """
-            INSERT INTO merkle_anchors (merkle_root, leaf_count, first_rating_id, last_rating_id, anchored_at)
-            VALUES (@Root, @LeafCount, @FirstId, @LastId, NOW())
+            INSERT INTO merkle_anchors (merkle_root, leaf_count, first_rating_id, last_rating_id, cutoff_at, anchored_at)
+            VALUES (@Root, @LeafCount, @FirstId, @LastId, @Cutoff, NOW())
             """,
             new
             {
@@ -104,6 +109,7 @@ public static class HourlyJob
                 LeafCount = leaves.Count,
                 FirstId = leaves[0].Id,
                 LastId = leaves[^1].Id,
+                Cutoff = cutoff,
             });
 
         logger.LogInformation("Merkle: anchor stored in database");

@@ -516,10 +516,13 @@ internal class FakeRatingRepository : IRatingRepository
             new RatingLeafInfo(rating.Id, rating.ServiceDid, rating.CreatedAt, "fakehash"));
     }
 
-    public Task<IReadOnlyList<RatingLeafInfo>> GetAllLeafHashesAsync()
+    public Task<IReadOnlyList<RatingLeafInfo>> GetLeafHashesUpToAsync(DateTimeOffset cutoff)
     {
-        var result = _ratings.Select(r =>
-            new RatingLeafInfo(r.Id, r.ServiceDid, r.CreatedAt, "fakehash")).ToList().AsReadOnly();
+        var result = _ratings
+            .Where(r => r.CreatedAt <= cutoff)
+            .OrderBy(r => r.CreatedAt).ThenBy(r => r.Id)
+            .Select(r => new RatingLeafInfo(r.Id, r.ServiceDid, r.CreatedAt, "fakehash"))
+            .ToList().AsReadOnly();
         return Task.FromResult<IReadOnlyList<RatingLeafInfo>>(result);
     }
 
