@@ -128,7 +128,7 @@ jobs:
             --cpu 2 \
             --memory 1Gi \
             --set-env-vars "ASPNETCORE_ENVIRONMENT=Production" \
-            --set-secrets "ConnectionStrings__PostgreSQL=db-connection-string:latest,ConnectionStrings__Redis=redis-connection-string:latest" \
+            --set-secrets "ConnectionStrings__PostgreSQL=db-connection-string:latest,ConnectionStrings__Redis=redis-connection-string:latest,AdminApiKey=admin-api-key:latest" \
             --add-cloudsql-instances "${{ secrets.GCP_PROJECT_ID }}:europe-west1:trustscoreagent-db" \
             --vpc-connector "trustscoreagent-connector" \
             --tag canary \
