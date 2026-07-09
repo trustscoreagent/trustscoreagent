@@ -82,6 +82,31 @@ public class AuditServiceTests
     }
 
     [Fact]
+    public async Task Proof_WithCutoff_ReproducesFromCutoffAndExcludesLaterLeaves()
+    {
+        // 5 leaves exist in the repo, but the anchor was taken at a cutoff covering only the first
+        // 4. The snapshot must reproduce from the cutoff (root over 4 leaves), a pre-cutoff rating
+        // must be provable, and the 5th (post-cutoff) rating must not be — even though it is present
+        // in the table. This is the concurrent-write reproducibility guarantee.
+        var all = BuildLeaves(5);
+        var anchored = all.Take(4).ToList();
+        var cutoff = anchored[^1].CreatedAt; // exactly the 4th leaf's created_at
+        var anchor = new MerkleAnchor
+        {
+            Id = 1, MerkleRoot = AnchoredRoot(anchored), LeafCount = anchored.Count, CutoffAt = cutoff,
+        };
+        var service = NewService(new StubRatingRepo(all));
+
+        var provable = await service.BuildInclusionProofAsync(anchor, anchored[1], anchored[1].Id);
+        provable.Should().NotBeNull();
+        provable!.TotalLeaves.Should().Be(4);
+
+        var afterCutoff = all[4];
+        var notProvable = await service.BuildInclusionProofAsync(anchor, afterCutoff, afterCutoff.Id);
+        notProvable.Should().BeNull();
+    }
+
+    [Fact]
     public async Task Proof_WhenSnapshotRootDoesNotMatchAnchor_ReturnsNull()
     {
         var leaves = BuildLeaves(5);
@@ -108,7 +133,9 @@ public class AuditServiceTests
         public Task InsertAsync(IDbConnection conn, IDbTransaction tx, Rating rating) => throw new NotImplementedException();
         public Task<int> CountRecentAsync(string agentDid, string serviceDid, TimeSpan window) => throw new NotImplementedException();
         public Task<RatingLeafInfo?> GetLeafInfoAsync(Guid ratingId) => throw new NotImplementedException();
-        public Task<IReadOnlyList<RatingLeafInfo>> GetAllLeafHashesAsync() => throw new NotImplementedException();
+        public Task<IReadOnlyList<RatingLeafInfo>> GetLeafHashesUpToAsync(DateTimeOffset cutoff)
+            => Task.FromResult<IReadOnlyList<RatingLeafInfo>>(
+                _leaves.Where(l => l.CreatedAt <= cutoff).OrderBy(l => l.CreatedAt).ThenBy(l => l.Id).ToList());
         public Task<IReadOnlyList<RatingSummary>> GetHistoryAsync(string serviceDid, int months) => throw new NotImplementedException();
         public Task<IReadOnlyList<DailyHistoryPoint>> GetDailyHistoryAsync(string serviceDid, int months) => throw new NotImplementedException();
         public Task<IReadOnlyList<AgentRatingRecord>> GetAllRatingsForTrustAsync() => throw new NotImplementedException();

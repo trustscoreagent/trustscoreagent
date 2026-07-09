@@ -11,11 +11,17 @@ public interface IRatingRepository
     Task InsertAsync(IDbConnection conn, IDbTransaction tx, Rating rating);
     Task<int> CountRecentAsync(string agentDid, string serviceDid, TimeSpan window);
     Task<RatingLeafInfo?> GetLeafInfoAsync(Guid ratingId);
-    Task<IReadOnlyList<RatingLeafInfo>> GetAllLeafHashesAsync();
 
     /// <summary>
-    /// The first <paramref name="leafCount"/> leaves in deterministic (created_at, id) order —
-    /// i.e. the exact snapshot a Merkle anchor of that leaf count was computed over.
+    /// Every leaf with created_at &lt;= <paramref name="cutoff"/>, in deterministic (created_at, id)
+    /// order. The cutoff is a stable boundary (rows commit within the grace window before it), so
+    /// this reproduces the exact anchored set regardless of later-committing rows.
+    /// </summary>
+    Task<IReadOnlyList<RatingLeafInfo>> GetLeafHashesUpToAsync(DateTimeOffset cutoff);
+
+    /// <summary>
+    /// Legacy reproduction for anchors without a cutoff: the first <paramref name="leafCount"/>
+    /// leaves in (created_at, id) order.
     /// </summary>
     Task<IReadOnlyList<RatingLeafInfo>> GetAnchoredLeafHashesAsync(int leafCount);
     Task<IReadOnlyList<RatingSummary>> GetHistoryAsync(string serviceDid, int months);
