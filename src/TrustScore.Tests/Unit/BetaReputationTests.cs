@@ -18,9 +18,9 @@ public class BetaReputationTests
 
         score.Score.Should().Be(0.5);
         score.RatingsCount.Should().Be(0);
-        // Beta(1,1) has variance 1/12 ≈ 0.083, confidence = 1 - 0.083 ≈ 0.917
-        // With no ratings, the confidence is high on the prior but meaningless
-        // The real signal is ratings_count = 0
+        // An unknown service has no evidence, so confidence must be 0 (not the ~0.9167 the
+        // Beta(1,1) prior variance used to yield, which made unknowns look near-certain).
+        score.Confidence.Should().Be(0.0);
     }
 
     [Fact]
