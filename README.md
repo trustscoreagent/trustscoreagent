@@ -109,7 +109,7 @@ TrustScoreAgent is available as an MCP server for Claude, Cursor, and other agen
 
 ```bash
 # Add to Claude Code
-claude mcp add trustscoreagent npx -y @trustscoreagent/mcp-server
+claude mcp add trustscoreagent -- npx -y @trustscoreagent/mcp-server
 ```
 
 See [docs/mcp.md](docs/mcp.md) for full setup instructions.

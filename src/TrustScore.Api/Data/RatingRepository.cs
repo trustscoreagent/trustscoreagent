@@ -27,10 +27,18 @@ public sealed class RatingRepository : IRatingRepository
             @QualityScore, @Comment, @HasReceipt, @ReceiptVerified, @Weight, @CreatedAt, @MerkleLeafHash)
         """;
 
+    // PostgreSQL TIMESTAMPTZ has microsecond resolution, but .NET ticks are 100 ns, so a raw
+    // CreatedAt would be hashed at 100 ns precision yet stored (and re-read by the anchoring job) at
+    // µs precision — the stored merkle_leaf_hash would then never match the anchored leaf. Truncate
+    // to microseconds once and use that single value for both the hash and the stored timestamp.
+    private static DateTimeOffset TruncateToMicroseconds(DateTimeOffset value) =>
+        new(value.Ticks - value.Ticks % (TimeSpan.TicksPerMillisecond / 1000), value.Offset);
+
     private static object BuildInsertParams(Rating rating)
     {
+        var createdAt = TruncateToMicroseconds(rating.CreatedAt);
         var leafHash = Convert.ToHexString(
-            MerkleTree.ComputeLeafHash(rating.Id, rating.ServiceDid, rating.CreatedAt)).ToLowerInvariant();
+            MerkleTree.ComputeLeafHash(rating.Id, rating.ServiceDid, createdAt)).ToLowerInvariant();
         return new
         {
             rating.Id,
@@ -45,7 +53,7 @@ public sealed class RatingRepository : IRatingRepository
             rating.HasReceipt,
             rating.ReceiptVerified,
             rating.Weight,
-            rating.CreatedAt,
+            CreatedAt = createdAt,
             MerkleLeafHash = leafHash,
         };
     }
@@ -93,9 +101,12 @@ public sealed class RatingRepository : IRatingRepository
             new { Id = ratingId });
     }
 
-    public async Task<IReadOnlyList<RatingLeafInfo>> GetAllLeafHashesAsync()
+    public async Task<IReadOnlyList<RatingLeafInfo>> GetLeafHashesUpToAsync(DateTimeOffset cutoff)
     {
         using var conn = _db.CreateConnection();
+        // Every anchored leaf up to the cutoff, in deterministic (created_at, id) order. The cutoff
+        // is far enough in the past that all transactions with created_at <= cutoff have committed,
+        // so this set is stable and reproduces the anchored root exactly.
         var results = await conn.QueryAsync<RatingLeafInfo>(
             """
             SELECT id AS Id,
@@ -104,18 +115,17 @@ public sealed class RatingRepository : IRatingRepository
                    merkle_leaf_hash AS MerkleLeafHash
             FROM ratings
             WHERE merkle_leaf_hash IS NOT NULL
+              AND created_at <= @Cutoff
             ORDER BY created_at, id
-            LIMIT 100000
-            """);
+            """,
+            new { Cutoff = cutoff });
         return results.ToList().AsReadOnly();
     }
 
     public async Task<IReadOnlyList<RatingLeafInfo>> GetAnchoredLeafHashesAsync(int leafCount)
     {
         using var conn = _db.CreateConnection();
-        // The anchored snapshot is the first `leafCount` leaves in the same deterministic order
-        // used by the hourly anchoring job. Because leaves are append-only, this reproduces the
-        // exact set the anchor's root was computed over.
+        // Legacy reproduction for anchors stored before the cutoff column existed.
         var results = await conn.QueryAsync<RatingLeafInfo>(
             """
             SELECT id AS Id,
@@ -136,12 +146,17 @@ public sealed class RatingRepository : IRatingRepository
         using var conn = _db.CreateConnection();
         var results = await conn.QueryAsync<DailyHistoryPoint>(
             """
-            SELECT date_trunc('day', created_at)::date AS Date,
-                   COUNT(*) AS RatingsCount,
+            -- Explicit casts: DailyHistoryPoint is a positional record, so Dapper binds these by
+            -- constructor parameter and needs the exact CLR types (COUNT() is bigint, AVG() is
+            -- numeric — neither converts implicitly through a constructor).
+            -- ::date alone comes back as DateOnly in Npgsql; ::timestamp yields the DateTime the
+            -- record declares.
+            SELECT date_trunc('day', created_at)::date::timestamp AS Date,
+                   COUNT(*)::int AS RatingsCount,
                    COALESCE(AVG(latency_ms), 0)::int AS AvgLatencyMs,
-                   COALESCE(AVG(CASE WHEN status_code BETWEEN 200 AND 299 THEN 1.0 ELSE 0.0 END), 0) AS SuccessRate,
-                   COALESCE(AVG(quality_score), 0) AS AvgQuality,
-                   COUNT(*) FILTER (WHERE receipt_verified) AS VerifiedCount
+                   COALESCE(AVG(CASE WHEN status_code BETWEEN 200 AND 299 THEN 1.0 ELSE 0.0 END), 0)::float8 AS SuccessRate,
+                   COALESCE(AVG(quality_score), 0)::float8 AS AvgQuality,
+                   (COUNT(*) FILTER (WHERE receipt_verified))::int AS VerifiedCount
             FROM ratings
             WHERE service_did = @ServiceDid
               AND created_at > @Since
@@ -169,9 +184,11 @@ public sealed class RatingRepository : IRatingRepository
                    receipt_verified AS ReceiptVerified
             FROM ratings
             WHERE created_at > NOW() - INTERVAL '90 days'
-            ORDER BY created_at ASC
+            ORDER BY created_at DESC
             LIMIT 100000
             """);
+        // DESC so that if the 90-day window exceeds the cap we keep the 100k MOST RECENT ratings
+        // (including any current-day Sybil activity), not the oldest as before.
         return results.ToList().AsReadOnly();
     }
 
@@ -184,7 +201,7 @@ public sealed class RatingRepository : IRatingRepository
                    status_code AS StatusCode,
                    latency_ms AS LatencyMs,
                    schema_valid AS SchemaValid,
-                   quality_score AS QualityScore,
+                   quality_score::int AS QualityScore,
                    has_receipt AS HasReceipt,
                    receipt_verified AS ReceiptVerified,
                    weight AS Weight
@@ -192,6 +209,7 @@ public sealed class RatingRepository : IRatingRepository
             WHERE service_did = @ServiceDid
               AND created_at > @Since
             ORDER BY created_at DESC
+            LIMIT 10000
             """,
             new
             {

@@ -21,8 +21,16 @@ jobs:
     name: Deploy to Staging
     runs-on: ubuntu-latest
     environment: staging
-    # Skip unless the CI run we are reacting to actually passed.
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    # Only deploy a CI run that (a) passed, (b) came from a push to main in THIS repo — not a pull
+    # request, and not a fork. The workflow_run 'branches: [main]' filter matches head_branch (the
+    # source branch name), which a fork PR can spoof by naming its branch 'main'; without the
+    # head_repository + event guards, that fork's code would be built and deployed to staging with
+    # the real WIF / Cloud SQL / Secret Manager credentials.
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
 
     permissions:
       contents: read
@@ -68,7 +76,7 @@ jobs:
             --cpu 1 \
             --memory 512Mi \
             --set-env-vars "ASPNETCORE_ENVIRONMENT=Staging" \
-            --set-secrets "ConnectionStrings__PostgreSQL=db-connection-string:latest,ConnectionStrings__Redis=redis-connection-string:latest" \
+            --set-secrets "ConnectionStrings__PostgreSQL=db-connection-string:latest,ConnectionStrings__Redis=redis-connection-string:latest,AdminApiKey=admin-api-key:latest" \
             --add-cloudsql-instances "${{ secrets.GCP_PROJECT_ID }}:europe-west1:trustscoreagent-db" \
             --vpc-connector "trustscoreagent-connector" \
             --quiet

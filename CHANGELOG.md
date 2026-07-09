@@ -2,6 +2,23 @@
 
 All notable changes to TrustScoreAgent will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- Seed prober: hourly measurements of real public APIs under a transparent probe agent
+- Migrations 006–008 (removed fictitious seeds, performance indexes, anchor cutoff)
+
+### Changed
+- Rate limiter now **fails open** when Redis is unavailable (per the "never fail if Redis is
+  down" convention), falling back to a bounded per-instance limiter; the receipt nonce
+  anti-replay stays fail-closed
+- Merkle anchoring is reproducible under concurrent writes (cutoff-based snapshot)
+- Receipt verification accepts standard DID key encodings (multibase multicodec, base58, JWK)
+
+### Security
+- Receipts are bound to the submitting agent; SSRF guard also covers the seed prober and NAT64
+- EigenTrust matrix is capped to bound the hourly job's memory
+
 ## [0.1.0] — 2026-04-04
 
 ### Added
@@ -22,7 +39,7 @@ All notable changes to TrustScoreAgent will be documented in this file.
 ### Security
 - Admin endpoints require API key authentication
 - SSRF protection in DID resolver (blocks private IPs)
-- Rate limiter fails closed when Redis is unavailable
+- Rate limiter (fail-open on Redis outage as of Unreleased; see above)
 - Input validation: length limits, range checks on all fields
 - Request body size limited to 1MB
 - Swagger disabled in production

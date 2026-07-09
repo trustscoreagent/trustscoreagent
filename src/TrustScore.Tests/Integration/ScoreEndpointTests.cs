@@ -516,10 +516,13 @@ internal class FakeRatingRepository : IRatingRepository
             new RatingLeafInfo(rating.Id, rating.ServiceDid, rating.CreatedAt, "fakehash"));
     }
 
-    public Task<IReadOnlyList<RatingLeafInfo>> GetAllLeafHashesAsync()
+    public Task<IReadOnlyList<RatingLeafInfo>> GetLeafHashesUpToAsync(DateTimeOffset cutoff)
     {
-        var result = _ratings.Select(r =>
-            new RatingLeafInfo(r.Id, r.ServiceDid, r.CreatedAt, "fakehash")).ToList().AsReadOnly();
+        var result = _ratings
+            .Where(r => r.CreatedAt <= cutoff)
+            .OrderBy(r => r.CreatedAt).ThenBy(r => r.Id)
+            .Select(r => new RatingLeafInfo(r.Id, r.ServiceDid, r.CreatedAt, "fakehash"))
+            .ToList().AsReadOnly();
         return Task.FromResult<IReadOnlyList<RatingLeafInfo>>(result);
     }
 
@@ -636,14 +639,14 @@ internal class FakeRateLimiter : IRateLimiter
 
 internal class FakeReceiptVerifier : IReceiptVerifier
 {
-    public Task<ReceiptVerificationResult> VerifyAsync(string jwt, string expectedServiceDid)
+    public Task<ReceiptVerificationResult> VerifyAsync(string jwt, string expectedServiceDid, string expectedAgentDid)
     {
         // Simulate: JWT starting with "valid-" is treated as verified
         if (jwt.StartsWith("valid-"))
             return Task.FromResult(ReceiptVerificationResult.Verified(new ReceiptPayload
             {
                 ServiceDid = expectedServiceDid,
-                AgentDid = "did:web:test-agent.example.com",
+                AgentDid = expectedAgentDid,
                 Timestamp = DateTimeOffset.UtcNow.ToString("o"),
                 Nonce = Guid.NewGuid().ToString(),
                 Endpoint = "/test",

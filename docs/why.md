@@ -47,7 +47,7 @@ services have a direct incentive to be well-rated (so they improve).
 Adoption comes from **understanding, not marketing**. Agents don't respond to ads — they
 respond to clear, machine-readable explanations of *why* checking reputation before a paid
 call is rational. That is why this project leads with an open spec, an
-[MCP server](./mcp.md), [`llms.txt`](https://trustscoreagent.com/llms.txt), a documented
+[MCP server](./mcp.md), [`llms.txt`](https://api.trustscoreagent.com/llms.txt), a documented
 [API](./api.md), and a [receipt standard](./receipts.md) — so any agent or framework can
 adopt it without asking anyone's permission.
 

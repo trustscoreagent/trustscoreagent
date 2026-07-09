@@ -101,31 +101,11 @@ public sealed class DidWebResolver : IDidResolver
                 if (typeStr is not ("Ed25519VerificationKey2020" or "Ed25519VerificationKey2018" or "JsonWebKey2020"))
                     continue;
 
-                // Try publicKeyMultibase (preferred)
-                if (method.TryGetProperty("publicKeyMultibase", out var multibase))
+                var keyBytes = ExtractEd25519Key(method);
+                if (keyBytes is not null)
                 {
-                    var keyStr = multibase.GetString();
-                    if (keyStr is not null && keyStr.StartsWith("z"))
-                    {
-                        // Multibase z prefix = base58btc encoded
-                        var keyBytes = Base58.Decode(keyStr[1..]);
-
-                        // Cache the key
-                        await _cache.SetAsync(cacheKey, Convert.ToBase64String(keyBytes), CacheTtl);
-                        return keyBytes;
-                    }
-                }
-
-                // Try publicKeyBase64
-                if (method.TryGetProperty("publicKeyBase64", out var base64Key))
-                {
-                    var keyStr = base64Key.GetString();
-                    if (keyStr is not null)
-                    {
-                        var keyBytes = Convert.FromBase64String(keyStr);
-                        await _cache.SetAsync(cacheKey, Convert.ToBase64String(keyBytes), CacheTtl);
-                        return keyBytes;
-                    }
+                    await _cache.SetAsync(cacheKey, Convert.ToBase64String(keyBytes), CacheTtl);
+                    return keyBytes;
                 }
             }
 
@@ -137,6 +117,83 @@ public sealed class DidWebResolver : IDidResolver
             _logger.LogWarning(ex, "DID resolution error for {Did}", did);
             return null;
         }
+    }
+
+    /// <summary>
+    /// Extracts a raw 32-byte Ed25519 public key from a verification method, supporting the
+    /// standard encodings: publicKeyMultibase (2020, base58btc of the 0xED01 multicodec prefix +
+    /// key), publicKeyBase58 (2018), publicKeyJwk (JsonWebKey2020, OKP/Ed25519, x = base64url), and
+    /// the non-standard publicKeyBase64 kept for backwards compatibility. Returns null if no field
+    /// yields a valid 32-byte key.
+    /// </summary>
+    internal static byte[]? ExtractEd25519Key(JsonElement method)
+    {
+        if (method.TryGetProperty("publicKeyMultibase", out var multibase))
+        {
+            var keyStr = multibase.GetString();
+            if (keyStr is not null && keyStr.StartsWith('z'))
+            {
+                try { return NormalizeEd25519(Base58.Decode(keyStr[1..])); }
+                catch (FormatException) { /* fall through to other fields */ }
+            }
+        }
+
+        if (method.TryGetProperty("publicKeyBase58", out var base58))
+        {
+            var keyStr = base58.GetString();
+            if (keyStr is not null)
+            {
+                try { return NormalizeEd25519(Base58.Decode(keyStr)); }
+                catch (FormatException) { }
+            }
+        }
+
+        if (method.TryGetProperty("publicKeyJwk", out var jwk))
+        {
+            if (jwk.TryGetProperty("kty", out var kty) && kty.GetString() == "OKP"
+                && jwk.TryGetProperty("crv", out var crv) && crv.GetString() == "Ed25519"
+                && jwk.TryGetProperty("x", out var x) && x.GetString() is { } xStr)
+            {
+                try { return NormalizeEd25519(Base64UrlDecode(xStr)); }
+                catch (FormatException) { }
+            }
+        }
+
+        if (method.TryGetProperty("publicKeyBase64", out var base64Key))
+        {
+            var keyStr = base64Key.GetString();
+            if (keyStr is not null)
+            {
+                try { return NormalizeEd25519(Convert.FromBase64String(keyStr)); }
+                catch (FormatException) { }
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Returns the raw 32-byte Ed25519 key, stripping the 0xED 0x01 multicodec prefix if present
+    /// (as in Ed25519VerificationKey2020's multibase encoding). Returns null on any other length.
+    /// </summary>
+    private static byte[]? NormalizeEd25519(byte[] keyBytes)
+    {
+        if (keyBytes.Length == 34 && keyBytes[0] == 0xED && keyBytes[1] == 0x01)
+            return keyBytes[2..];
+        if (keyBytes.Length == 32)
+            return keyBytes;
+        return null;
+    }
+
+    private static byte[] Base64UrlDecode(string input)
+    {
+        var padded = input.Replace('-', '+').Replace('_', '/');
+        switch (padded.Length % 4)
+        {
+            case 2: padded += "=="; break;
+            case 3: padded += "="; break;
+        }
+        return Convert.FromBase64String(padded);
     }
 
     /// <summary>
@@ -233,6 +290,10 @@ internal static class SsrfGuard
             if (ip.IsIPv6LinkLocal || ip.IsIPv6SiteLocal || ip.IsIPv6Multicast) return true;
             var b = ip.GetAddressBytes();
             if ((b[0] & 0xfe) == 0xfc) return true;                       // fc00::/7 unique local
+            // 64:ff9b::/96 NAT64: block so 64:ff9b::a9fe:a9fe (→169.254.169.254) can't reach metadata.
+            if (b[0] == 0x00 && b[1] == 0x64 && b[2] == 0xff && b[3] == 0x9b &&
+                b[4] == 0 && b[5] == 0 && b[6] == 0 && b[7] == 0 &&
+                b[8] == 0 && b[9] == 0 && b[10] == 0 && b[11] == 0) return true;
             return false;
         }
 

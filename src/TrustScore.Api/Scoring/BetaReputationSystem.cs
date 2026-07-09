@@ -13,6 +13,10 @@ public sealed class BetaReputationSystem : IScoringEngine
     private const double LatencyWeight = 0.35;
     private const double ConformityWeight = 0.25;
 
+    // Smoothing constant for the confidence curve: confidence reaches 0.5 at this many effective
+    // observations. Higher = more evidence required before the score is treated as confident.
+    private const double ConfidenceSmoothing = 10.0;
+
     // Verify weights sum to 1.0 at compile time
     static BetaReputationSystem()
     {
@@ -37,9 +41,12 @@ public sealed class BetaReputationSystem : IScoringEngine
                         + LatencyWeight * latency
                         + ConformityWeight * conformity;
 
-        var totalAlpha = service.Alpha;
-        var totalBeta = service.Beta;
-        var confidence = 1.0 - BetaVariance(totalAlpha, totalBeta);
+        // Confidence reflects how much evidence backs the score, not the variance of the Beta(1,1)
+        // prior (which is a near-constant 0.9167 even with zero ratings — an unknown service must
+        // not look near-certain). Use the effective number of observations accumulated beyond the
+        // (1,1) prior, smoothed so confidence is 0 with no data and rises toward 1 with more.
+        var effectiveObservations = Math.Max(0.0, service.Alpha + service.Beta - 2.0);
+        var confidence = effectiveObservations / (effectiveObservations + ConfidenceSmoothing);
 
         return new ServiceScore
         {
@@ -255,12 +262,6 @@ public sealed class BetaReputationSystem : IScoringEngine
     {
         var denom = alpha + beta;
         return denom > 0 ? alpha / denom : 0.5;
-    }
-
-    private static double BetaVariance(double alpha, double beta)
-    {
-        var denom = (alpha + beta) * (alpha + beta) * (alpha + beta + 1);
-        return denom > 0 ? (alpha * beta) / denom : 0.0;
     }
 
     private class RatingDeltaBuilder

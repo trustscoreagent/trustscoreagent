@@ -11,6 +11,16 @@ using TrustScore.Core.Interfaces;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Outside Development, log as JSON. The default console formatter writes log values verbatim, so a
+// newline in user-controlled input (X-Agent-DID, service, a receipt DID) could forge extra log
+// lines; the JSON formatter escapes control characters, closing that log-injection vector, and is
+// also what Cloud Logging parses into structured fields.
+if (!builder.Environment.IsDevelopment())
+{
+    builder.Logging.ClearProviders();
+    builder.Logging.AddJsonConsole();
+}
+
 // Security: limit request body size
 builder.WebHost.ConfigureKestrel(options =>
 {
@@ -72,7 +82,16 @@ builder.Services.AddHttpClient(SeedProber.HttpClientName, client =>
     client.Timeout = TimeSpan.FromSeconds(30);
     client.DefaultRequestHeaders.UserAgent.ParseAdd("TrustScoreAgent-Probe/0.1 (+https://trustscoreagent.com)");
     client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
-});
+})
+    // Probe targets are server-configured, but a compromised or DNS-hijacked target could 302 to a
+    // link-local/metadata address; route through the same SSRF guard as did:web resolution and
+    // refuse redirects so a probe can never reach an internal endpoint.
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+    {
+        AllowAutoRedirect = false,
+        ConnectTimeout = TimeSpan.FromSeconds(10),
+        ConnectCallback = SsrfGuard.ConnectAsync,
+    });
 builder.Services.AddScoped<SeedProber>();
 
 // OpenAPI

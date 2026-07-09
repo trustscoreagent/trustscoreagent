@@ -68,6 +68,11 @@ public sealed class ServiceRepository : IServiceRepository
         return results.ToList().AsReadOnly();
     }
 
+    // Escape LIKE metacharacters so a provider containing % or _ is matched literally rather than
+    // as a wildcard (e.g. "%" must not match every service and pull the whole table into memory).
+    private static string EscapeLike(string value) =>
+        value.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
+
     public async Task<IReadOnlyList<ServiceEntity>> GetByProviderAsync(string provider)
     {
         using var conn = _db.CreateConnection();
@@ -86,10 +91,11 @@ public sealed class ServiceRepository : IServiceRepository
                    created_at AS CreatedAt,
                    updated_at AS UpdatedAt
             FROM services
-            WHERE did LIKE @Pattern
+            WHERE did LIKE @Pattern ESCAPE '\'
             ORDER BY ratings_count DESC
+            LIMIT 1000
             """,
-            new { Pattern = $"{provider}/%" });
+            new { Pattern = $"{EscapeLike(provider)}/%" });
         return results.ToList().AsReadOnly();
     }
 

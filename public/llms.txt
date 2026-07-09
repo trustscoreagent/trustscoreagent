@@ -13,6 +13,8 @@
 - List rated services: `GET https://api.trustscoreagent.com/v1/services?sort_by=score`
 - Your agent's trust score: `GET https://api.trustscoreagent.com/v1/agent/trust?did=...`
 - Audit a rating: `GET https://api.trustscoreagent.com/v1/audit/proof/{rating_id}`
+  (verify it against the anchored root: `GET https://api.trustscoreagent.com/v1/audit/root`)
+- More detail (free for now): `/v1/score/history`, `/v1/score/detailed`, `POST /v1/scores/bulk`
 
 A service identifier can be a domain (`api.example.com`), a URL, or a DID
 (`did:web:api.example.com`) — all normalize to the same service.
