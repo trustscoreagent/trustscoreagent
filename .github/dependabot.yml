@@ -11,6 +11,10 @@ updates:
       - "dependencies"
     commit-message:
       prefix: "deps"
+    ignore:
+      # FluentAssertions 8.x switched to a paid commercial license; stay on the free 6.x line.
+      - dependency-name: "FluentAssertions"
+        versions: [">=8.0.0"]
 
   - package-ecosystem: "docker"
     directory: "/src/TrustScore.Api"
@@ -21,6 +25,10 @@ updates:
       - "dependencies"
     commit-message:
       prefix: "deps"
+    ignore:
+      # The app targets .NET 8; do not bump the SDK/runtime base images to a new major.
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "github-actions"
     directory: "/"
