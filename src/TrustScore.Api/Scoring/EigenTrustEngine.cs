@@ -19,6 +19,21 @@ public sealed class EigenTrustEngine
     private const double DefaultTrustScore = 0.5;
     private const int LatencyThresholdMs = 2000;
 
+    // The EigenTrust step allocates a dense n×n matrix. Agent DIDs are self-asserted and
+    // unauthenticated (X-Agent-DID), so an attacker can mint tens of thousands of distinct DIDs
+    // and OOM the hourly job (n=20k ≈ 3.2 GB). Cap the matrix at the highest-volume agents; the
+    // excluded long tail (lowest rating counts) falls back to the neutral default trust, exactly
+    // like a brand-new agent, so a mass-Sybil flood is bounded, not amplified. Below the cap the
+    // behaviour is unchanged. 5000 ≈ a 200 MB matrix, within the hourly job's memory budget.
+    private const int MaxAgents = 5000;
+
+    private readonly ILogger<EigenTrustEngine>? _logger;
+
+    public EigenTrustEngine(ILogger<EigenTrustEngine>? logger = null)
+    {
+        _logger = logger;
+    }
+
     /// <summary>
     /// Compute trust scores for all agents based on their rating history.
     /// </summary>
@@ -27,16 +42,44 @@ public sealed class EigenTrustEngine
         if (ratings.Count == 0)
             return new Dictionary<string, double>();
 
-        // 1. Get all unique agents
-        var agents = ratings.Select(r => r.AgentDid).Distinct().ToList();
+        // 1. Get all unique agents. If there are more than MaxAgents, keep only the highest-volume
+        // ones so the dense matrix stays bounded; the rest get default trust below.
+        var distinctAgents = ratings.Select(r => r.AgentDid).Distinct().ToList();
+
+        List<string> agents;
+        if (distinctAgents.Count > MaxAgents)
+        {
+            var ratingCounts = ratings
+                .GroupBy(r => r.AgentDid)
+                .ToDictionary(g => g.Key, g => g.Count());
+            agents = ratingCounts
+                .OrderByDescending(kv => kv.Value)
+                .Take(MaxAgents)
+                .Select(kv => kv.Key)
+                .ToList();
+            _logger?.LogWarning(
+                "EigenTrust: {Total} distinct agents exceeds cap {Cap}; scoring the top {Cap} by rating count, the rest get default trust",
+                distinctAgents.Count, MaxAgents, MaxAgents);
+        }
+        else
+        {
+            agents = distinctAgents;
+        }
+
         var agentIndex = agents.Select((a, i) => (a, i)).ToDictionary(x => x.a, x => x.i);
         var n = agents.Count;
 
         if (n < 2)
         {
             // With 0 or 1 agent, everyone gets default trust
-            return agents.ToDictionary(a => a, _ => DefaultTrustScore);
+            return distinctAgents.ToDictionary(a => a, _ => DefaultTrustScore);
         }
+
+        // If we capped, restrict the rating set to scored agents so consensus/local trust ignore
+        // the excluded DIDs, and seed the excluded agents with default trust in the result.
+        var cappedOut = distinctAgents.Count != n;
+        if (cappedOut)
+            ratings = ratings.Where(r => agentIndex.ContainsKey(r.AgentDid)).ToList();
 
         // 2. Compute per-service consensus (objective metrics only)
         var serviceConsensus = ComputeServiceConsensus(ratings);
@@ -57,6 +100,12 @@ public sealed class EigenTrustEngine
             var score = Math.Max(MinTrustScore, Math.Min(1.0, trustVector[i]));
             result[agents[i]] = Math.Round(score, 4);
         }
+
+        // Agents excluded by the cap get the neutral default trust.
+        if (cappedOut)
+            foreach (var a in distinctAgents)
+                if (!result.ContainsKey(a))
+                    result[a] = DefaultTrustScore;
 
         return result;
     }
