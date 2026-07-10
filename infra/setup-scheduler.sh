@@ -48,7 +48,7 @@ gcloud run jobs create "$JOB_NAME" \
   --args="--job" \
   --set-env-vars "ASPNETCORE_ENVIRONMENT=Production" \
   --set-secrets "ConnectionStrings__PostgreSQL=db-connection-string:latest,ConnectionStrings__Redis=redis-connection-string:latest" \
-  --add-cloudsql-instances "${PROJECT_ID}:${REGION}:trustscoreagent-db" \
+  --set-cloudsql-instances "${PROJECT_ID}:${REGION}:trustscoreagent-db" \
   --vpc-connector "trustscoreagent-connector" \
   --max-retries 2 \
   --task-timeout 300s \
@@ -61,7 +61,7 @@ gcloud run jobs update "$JOB_NAME" \
   --args="--job" \
   --set-env-vars "ASPNETCORE_ENVIRONMENT=Production" \
   --set-secrets "ConnectionStrings__PostgreSQL=db-connection-string:latest,ConnectionStrings__Redis=redis-connection-string:latest" \
-  --add-cloudsql-instances "${PROJECT_ID}:${REGION}:trustscoreagent-db" \
+  --set-cloudsql-instances "${PROJECT_ID}:${REGION}:trustscoreagent-db" \
   --vpc-connector "trustscoreagent-connector" \
   --max-retries 2 \
   --task-timeout 300s \
