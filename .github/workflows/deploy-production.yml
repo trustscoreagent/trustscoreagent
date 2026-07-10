@@ -109,11 +109,13 @@ jobs:
       # point at and --to-latest would (wrongly) promote the just-deployed canary.
       - name: Capture current stable revision
         run: |
+          # On the very first deploy the service does not exist yet, so `describe` errors; tolerate
+          # that (STABLE stays empty) instead of failing the whole job under `bash -e`.
           STABLE=$(gcloud run services describe $SERVICE_NAME \
             --region $GCP_REGION \
-            --format 'value(status.traffic[0].revisionName)')
+            --format 'value(status.traffic[0].revisionName)' 2>/dev/null || true)
           echo "STABLE_REVISION=$STABLE" >> "$GITHUB_ENV"
-          echo "Current stable revision: ${STABLE:-<none>}"
+          echo "Current stable revision: ${STABLE:-<none, first deploy>}"
 
       - name: Deploy canary (0% traffic)
         run: |
@@ -137,9 +139,16 @@ jobs:
 
       - name: Route 5% traffic to canary
         run: |
-          gcloud run services update-traffic $SERVICE_NAME \
-            --region $GCP_REGION \
-            --to-tags canary=5
+          # First deploy: there is no prior stable revision to run 5% alongside, so skip the
+          # gradual rollout. The canary is still verified via its tagged URL below, then promoted
+          # to 100%. Subsequent deploys get the real 5% canary against the serving revision.
+          if [ -z "$STABLE_REVISION" ]; then
+            echo "First deploy (no prior stable revision): skipping the 5% gradual rollout."
+          else
+            gcloud run services update-traffic $SERVICE_NAME \
+              --region $GCP_REGION \
+              --to-tags canary=5
+          fi
 
       - name: Verify canary (5 min)
         run: |
