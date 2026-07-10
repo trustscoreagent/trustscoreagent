@@ -15,13 +15,26 @@ set -euo pipefail
 PROJECT_ID="trustscoreagent"
 REGION="europe-west1"
 JOB_NAME="trustscoreagent-hourly"
-IMAGE="europe-west1-docker.pkg.dev/${PROJECT_ID}/trustscoreagent/api:latest"
+API_SERVICE="trustscoreagent-api"
 # Dedicated, least-privilege identity for the scheduler — only allowed to run THIS job,
 # instead of reusing the broad github-actions CI/CD service account.
 SCHEDULER_SA_NAME="scheduler-invoker"
 SCHEDULER_SA_EMAIL="${SCHEDULER_SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
 
+gcloud config set project "$PROJECT_ID" >/dev/null 2>&1 || true
+
 echo "=== TrustScoreAgent Scheduler Setup ==="
+
+# Run the SAME image the production API currently serves, so the hourly job runs identical code.
+# The deploy pipeline tags images by commit SHA (there is no :latest tag), so resolve it live.
+IMAGE=$(gcloud run services describe "$API_SERVICE" \
+  --region "$REGION" --project "$PROJECT_ID" \
+  --format 'value(spec.template.spec.containers[0].image)' 2>/dev/null || true)
+if [ -z "$IMAGE" ]; then
+  echo "ERROR: could not resolve the '$API_SERVICE' image. Deploy the API to Cloud Run first." >&2
+  exit 1
+fi
+echo "  Using production image: $IMAGE"
 
 # 1. Enable Cloud Scheduler API
 echo "[1/4] Enabling Cloud Scheduler API..."
@@ -33,7 +46,9 @@ gcloud run jobs create "$JOB_NAME" \
   --image "$IMAGE" \
   --region "$REGION" \
   --args="--job" \
+  --set-env-vars "ASPNETCORE_ENVIRONMENT=Production" \
   --set-secrets "ConnectionStrings__PostgreSQL=db-connection-string:latest,ConnectionStrings__Redis=redis-connection-string:latest" \
+  --add-cloudsql-instances "${PROJECT_ID}:${REGION}:trustscoreagent-db" \
   --vpc-connector "trustscoreagent-connector" \
   --max-retries 2 \
   --task-timeout 300s \
@@ -44,7 +59,9 @@ gcloud run jobs update "$JOB_NAME" \
   --image "$IMAGE" \
   --region "$REGION" \
   --args="--job" \
+  --set-env-vars "ASPNETCORE_ENVIRONMENT=Production" \
   --set-secrets "ConnectionStrings__PostgreSQL=db-connection-string:latest,ConnectionStrings__Redis=redis-connection-string:latest" \
+  --add-cloudsql-instances "${PROJECT_ID}:${REGION}:trustscoreagent-db" \
   --vpc-connector "trustscoreagent-connector" \
   --max-retries 2 \
   --task-timeout 300s \
