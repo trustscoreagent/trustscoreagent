@@ -20,7 +20,7 @@ const { version: PACKAGE_VERSION } = createRequire(import.meta.url)("../package.
 // instead of surfacing as cryptic fetch errors on the first tool call.
 const API_BASE_URL = (() => {
   const raw =
-    process.env.TRUSTSCORE_API_URL || "https://trustscoreagent-api-staging-xhunhkdtfa-ew.a.run.app";
+    process.env.TRUSTSCORE_API_URL || "https://api.trustscoreagent.com";
   let url: URL;
   try {
     url = new URL(raw);
