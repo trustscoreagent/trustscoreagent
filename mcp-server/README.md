@@ -12,25 +12,33 @@ for AI microservices. It lets an LLM agent check whether an external service is 
 | `submit_rating` | Rate a service after calling it, from your interaction metrics (status code, latency, schema validity, optional quality score and receipt). |
 | `list_services` | Discover rated services sorted by trust score, with score/ratings filters. |
 
-## Install
-
-```bash
-npm install -g @trustscoreagent/mcp-server
-```
-
 ## Configure
 
-Add it to your MCP client (e.g. Claude Desktop `claude_desktop_config.json`):
+No install needed — add it to your MCP client (e.g. Claude Desktop
+`claude_desktop_config.json`) and it runs via `npx`:
 
 ```json
 {
   "mcpServers": {
     "trustscoreagent": {
-      "command": "trustscoreagent-mcp"
+      "command": "npx",
+      "args": ["-y", "@trustscoreagent/mcp-server"]
     }
   }
 }
 ```
+
+For Claude Code: `claude mcp add trustscoreagent -- npx -y @trustscoreagent/mcp-server`
+
+<details>
+<summary>Prefer a global install?</summary>
+
+```bash
+npm install -g @trustscoreagent/mcp-server
+```
+
+Then use `"command": "trustscoreagent-mcp"` (no `args`) in the config above.
+</details>
 
 ### Environment variables
 
