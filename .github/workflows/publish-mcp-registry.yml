@@ -37,4 +37,17 @@ jobs:
 
       - name: Publish server to MCP Registry
         working-directory: mcp-server
-        run: ../mcp-publisher publish
+        run: |
+          set +e
+          OUT=$(../mcp-publisher publish 2>&1)
+          CODE=$?
+          echo "$OUT"
+          if [ $CODE -ne 0 ]; then
+            # A re-run or a tag on an already-published version is a clean no-op,
+            # not a failure — the registry only stores metadata for a given version once.
+            if echo "$OUT" | grep -qi "duplicate version"; then
+              echo "::notice::server.json version already on the MCP Registry — nothing to publish."
+              exit 0
+            fi
+            exit $CODE
+          fi
