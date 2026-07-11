@@ -25,7 +25,7 @@ A faire quand le MVP est pret et qu'on repasse le repo en public.
 - [ ] PR dans LangChain (tool TrustScoreAgent)
 - [ ] PR dans CrewAI
 - [ ] Premier post (Hacker News, Reddit, Dev.to)
-- [ ] Configurer l'email hello@trustscoreagent.com (Cloudflare Email Routing)
+- [ ] Configurer les emails security@ et hello@trustscoreagent.com (Cloudflare Email Routing) — security@ est le contact de SECURITY.md
 
 ## Receipts — Validation end-to-end
 
