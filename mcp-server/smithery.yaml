@@ -15,8 +15,8 @@ startCommand:
     required: []
   commandFunction: |
     (config) => ({
-      command: "node",
-      args: ["dist/index.js"],
+      command: "npx",
+      args: ["-y", "@trustscoreagent/mcp-server"],
       env: {
         ...(config.trustscoreApiUrl ? { TRUSTSCORE_API_URL: config.trustscoreApiUrl } : {}),
         ...(config.trustscoreAgentDid ? { TRUSTSCORE_AGENT_DID: config.trustscoreAgentDid } : {})
