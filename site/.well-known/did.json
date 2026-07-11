@@ -1,0 +1,29 @@
+{
+  "@context": [
+    "https://www.w3.org/ns/did/v1",
+    "https://w3id.org/security/suites/jws-2020/v1"
+  ],
+  "id": "did:web:trustscoreagent.pages.dev",
+  "verificationMethod": [
+    {
+      "id": "did:web:trustscoreagent.pages.dev#key-1",
+      "type": "JsonWebKey2020",
+      "controller": "did:web:trustscoreagent.pages.dev",
+      "publicKeyJwk": {
+        "kty": "OKP",
+        "crv": "Ed25519",
+        "x": "L7Xn1RrzMYPpQbyGHDCX3ZgMeRZw-qxDZ2G58Z65CNk"
+      }
+    }
+  ],
+  "assertionMethod": [
+    "did:web:trustscoreagent.pages.dev#key-1"
+  ],
+  "service": [
+    {
+      "id": "did:web:trustscoreagent.pages.dev#reference",
+      "type": "LinkedDomains",
+      "serviceEndpoint": "https://github.com/trustscoreagent/trustscoreagent"
+    }
+  ]
+}
