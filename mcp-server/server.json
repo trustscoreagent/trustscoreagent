@@ -1,0 +1,34 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.trustscoreagent/mcp-server",
+  "description": "Check the reputation of AI microservices and public APIs from the free, open TrustScoreAgent registry: query trust scores, submit ratings, and verify Merkle-audited history.",
+  "repository": {
+    "url": "https://github.com/trustscoreagent/trustscoreagent",
+    "source": "github"
+  },
+  "version": "0.1.1",
+  "websiteUrl": "https://trustscoreagent.com",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "@trustscoreagent/mcp-server",
+      "version": "0.1.1",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "TRUSTSCORE_API_URL",
+          "description": "Base URL of the TrustScore registry. Defaults to the public production API; override only for a self-hosted or staging instance.",
+          "isRequired": false,
+          "default": "https://api.trustscoreagent.com"
+        },
+        {
+          "name": "TRUSTSCORE_AGENT_DID",
+          "description": "Optional stable agent DID used when submitting ratings. If omitted, a local anonymous DID is generated and persisted on first use.",
+          "isRequired": false
+        }
+      ]
+    }
+  ]
+}
