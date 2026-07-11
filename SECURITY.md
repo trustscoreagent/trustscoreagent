@@ -8,7 +8,7 @@ Report privately via one of:
 
 1. **GitHub** → the repository's **Security** tab → **Report a vulnerability**
    (private advisory). This is the preferred channel.
-2. Email **trustscoreagent@gmail.com** with `[SECURITY]` in the subject.
+2. Email **security@trustscoreagent.com** with `[SECURITY]` in the subject.
 
 Please include: a description, reproduction steps, affected endpoint/component, and the
 potential impact. We aim to acknowledge within **72 hours** and to agree on a disclosure
