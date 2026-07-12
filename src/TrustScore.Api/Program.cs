@@ -191,9 +191,12 @@ app.Use(async (context, next) =>
 app.UseCors();
 app.UseMiddleware<GlobalRateLimitMiddleware>();
 
+// Serve the machine-readable OpenAPI document everywhere (discoverability is a core
+// design goal — agents/frameworks consume /swagger/v1/swagger.json). The interactive
+// Swagger UI stays dev-only to keep the production surface minimal.
+app.UseSwagger();
 if (!app.Environment.IsProduction())
 {
-    app.UseSwagger();
     app.UseSwaggerUI();
 }
 

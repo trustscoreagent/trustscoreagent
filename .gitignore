@@ -53,6 +53,9 @@ out/
 mcp-server/node_modules/
 mcp-server/dist/
 
+# Cloudflare Wrangler (landing / DID doc deploys)
+.wrangler/
+
 # Logs
 *.log
 logs/

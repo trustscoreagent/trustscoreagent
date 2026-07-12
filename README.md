@@ -117,9 +117,17 @@ See [docs/mcp.md](docs/mcp.md) for full setup instructions.
 ## Documentation
 
 - [API Reference](docs/api.md)
+- [Examples & Recipes](docs/examples.md)
 - [Receipt Standard](docs/receipts.md)
-- [MCP Server Setup](docs/mcp.md)
+- [MCP Server Setup](docs/mcp.md) — Claude, Cursor, Windsurf
 - [Why Trust Matters for Agents](docs/why.md)
+- [Privacy & Data Handling](docs/privacy.md)
+
+## Contributing
+
+Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) and our
+[Code of Conduct](CODE_OF_CONDUCT.md). To report a vulnerability, follow
+[SECURITY.md](SECURITY.md).
 
 ## Project status & trust model
 

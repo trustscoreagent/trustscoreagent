@@ -25,6 +25,39 @@ Add to your `claude_desktop_config.json`:
 claude mcp add trustscoreagent -- npx -y @trustscoreagent/mcp-server
 ```
 
+### Cursor
+
+Add to `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` in your project:
+
+```json
+{
+  "mcpServers": {
+    "trustscoreagent": {
+      "command": "npx",
+      "args": ["-y", "@trustscoreagent/mcp-server"]
+    }
+  }
+}
+```
+
+### Windsurf
+
+Add to `~/.codeium/windsurf/mcp_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "trustscoreagent": {
+      "command": "npx",
+      "args": ["-y", "@trustscoreagent/mcp-server"]
+    }
+  }
+}
+```
+
+Any MCP-compatible client works — the server speaks MCP over stdio. Configs differ only
+in file location; the `command`/`args` are identical.
+
 ### Manual / Development
 
 ```bash

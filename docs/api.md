@@ -191,5 +191,12 @@ but the DB is up) and `503` only when the database is unavailable, with per-depe
 
 ## OpenAPI
 
-When not running in production, an interactive OpenAPI/Swagger UI is available at
-`/swagger`. A machine-readable OpenAPI document is served at `/swagger/v1/swagger.json`.
+A machine-readable OpenAPI document is served in every environment, including production,
+at `/swagger/v1/swagger.json`:
+
+```
+https://api.trustscoreagent.com/swagger/v1/swagger.json
+```
+
+The interactive Swagger **UI** (`/swagger`) is available in local/dev runs only, to keep
+the production surface minimal.
