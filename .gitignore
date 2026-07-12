@@ -56,6 +56,9 @@ mcp-server/dist/
 # Cloudflare Wrangler (landing / DID doc deploys)
 .wrangler/
 
+# MCPB bundle build artifact (regenerable via mcp-server/scripts/build-mcpb.sh)
+*.mcpb
+
 # Logs
 *.log
 logs/

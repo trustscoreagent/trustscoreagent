@@ -1,0 +1,81 @@
+{
+  "manifest_version": "0.2",
+  "name": "trustscoreagent",
+  "display_name": "TrustScoreAgent",
+  "version": "0.1.1",
+  "description": "Check the reputation of AI microservices and public APIs from an open trust registry.",
+  "long_description": "TrustScoreAgent is a free, open reputation registry for AI microservices. This MCP server lets an agent check whether an external service is trustworthy *before* calling it, and contribute a rating afterward. It exposes three tools — check_reputation, submit_rating, and list_services — backed by the public API at https://api.trustscoreagent.com (no account or key required). Scores come from Bayesian reputation math plus EigenTrust, and can be strengthened by cryptographic service receipts.",
+  "author": {
+    "name": "TrustScoreAgent",
+    "url": "https://trustscoreagent.com"
+  },
+  "homepage": "https://trustscoreagent.com",
+  "documentation": "https://github.com/trustscoreagent/trustscoreagent/blob/main/docs/mcp.md",
+  "support": "https://github.com/trustscoreagent/trustscoreagent/issues",
+  "license": "Apache-2.0",
+  "keywords": [
+    "mcp",
+    "trust",
+    "reputation",
+    "ai-agents",
+    "microservices",
+    "registry"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/trustscoreagent/trustscoreagent"
+  },
+  "server": {
+    "type": "node",
+    "entry_point": "dist/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": [
+        "${__dirname}/dist/index.js"
+      ],
+      "env": {
+        "TRUSTSCORE_API_URL": "${user_config.trustscore_api_url}",
+        "TRUSTSCORE_AGENT_DID": "${user_config.trustscore_agent_did}"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "check_reputation",
+      "description": "Check the trust score of an AI microservice before calling it (score, confidence, and availability/latency/conformity breakdown)."
+    },
+    {
+      "name": "submit_rating",
+      "description": "Rate an AI microservice after calling it, from your interaction metrics and an optional service receipt."
+    },
+    {
+      "name": "list_services",
+      "description": "Discover rated services sorted by trust score, with score and rating-count filters."
+    }
+  ],
+  "user_config": {
+    "trustscore_api_url": {
+      "type": "string",
+      "title": "TrustScoreAgent API URL",
+      "description": "Base URL of the TrustScoreAgent API. Leave as-is to use the public production API.",
+      "required": false,
+      "default": "https://api.trustscoreagent.com"
+    },
+    "trustscore_agent_did": {
+      "type": "string",
+      "title": "Agent DID (optional)",
+      "description": "Stable identifier for this agent. Leave empty to auto-generate one on first run.",
+      "required": false
+    }
+  },
+  "compatibility": {
+    "platforms": [
+      "darwin",
+      "win32",
+      "linux"
+    ],
+    "runtimes": {
+      "node": ">=18.0.0"
+    }
+  }
+}

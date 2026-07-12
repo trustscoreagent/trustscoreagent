@@ -55,6 +55,20 @@ npm run build      # compile TypeScript to dist/
 npm run dev        # run from source with tsx
 ```
 
+## MCPB bundle
+
+For one-click / offline installation (Smithery "local" install, Claude Desktop
+drag-and-drop), the server can be packaged as a self-contained `.mcpb` bundle. The
+bundle embeds `dist/` plus production dependencies and runs with `node dist/index.js`
+— no network install at launch. The manifest is [`manifest.json`](./manifest.json).
+
+```bash
+bash scripts/build-mcpb.sh          # -> trustscoreagent-<version>.mcpb
+```
+
+The `.mcpb` is a build artifact (git-ignored). Released copies are attached to the
+corresponding [GitHub Release](https://github.com/trustscoreagent/trustscoreagent/releases).
+
 ## License
 
 Apache-2.0 — see [LICENSE](./LICENSE).
