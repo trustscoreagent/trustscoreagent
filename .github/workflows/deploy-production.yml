@@ -12,6 +12,7 @@ env:
   GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   GCP_REGION: europe-west1
   SERVICE_NAME: trustscoreagent-api
+  HOURLY_JOB_NAME: trustscoreagent-hourly
   IMAGE_NAME: europe-west1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/trustscoreagent/api
   DOTNET_VERSION: '8.0.x'
 
@@ -185,6 +186,17 @@ jobs:
             --region "$GCP_REGION" \
             --to-latest
           echo "Production deployment complete."
+
+      - name: Update hourly job to the deployed image
+        run: |
+          # The Cloud Run Job (hourly probe + EigenTrust + Merkle anchor) runs the same
+          # image as the API but is NOT touched by the service deploy above. Without this
+          # step it keeps running whatever image it was last set to — stale code AND stale
+          # appsettings (e.g. seed-probe URLs). Point it at the just-deployed image.
+          gcloud run jobs update "$HOURLY_JOB_NAME" \
+            --region "$GCP_REGION" \
+            --image "${IMAGE_NAME}:${DEPLOY_SHA}"
+          echo "Hourly job image updated to ${DEPLOY_SHA}."
 
       - name: Get production URL
         run: |
