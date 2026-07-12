@@ -59,6 +59,13 @@ mcp-server/dist/
 # MCPB bundle build artifact (regenerable via mcp-server/scripts/build-mcpb.sh)
 *.mcpb
 
+# Python (integrations/)
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
 # Logs
 *.log
 logs/
