@@ -114,6 +114,16 @@ claude mcp add trustscoreagent -- npx -y @trustscoreagent/mcp-server
 
 See [docs/mcp.md](docs/mcp.md) for full setup instructions.
 
+## Framework integrations
+
+Drop-in tools for agent frameworks (no account or API key needed):
+
+- **LangChain** — `from trustscoreagent_langchain import get_trustscoreagent_tools`
+- **CrewAI** — `from trustscoreagent_crewai import get_trustscoreagent_tools`
+
+Each exposes `trustscore_check_reputation`, `trustscore_submit_rating`, and
+`trustscore_list_services`. See [`integrations/`](integrations/).
+
 ## Documentation
 
 - [API Reference](docs/api.md)
