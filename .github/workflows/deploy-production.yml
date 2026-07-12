@@ -151,9 +151,11 @@ jobs:
           # would mostly hit the old revision). On a first deploy there is no canary tag — the new
           # revision already serves 100%, so probe the main URL.
           if [ "$CANARY_MODE" = "true" ]; then
+            # `gcloud run services describe` has no --filter (that's a list-only flag); pull the
+            # traffic array as JSON and select the canary target's per-tag URL with jq.
             URL=$(gcloud run services describe "$SERVICE_NAME" --region "$GCP_REGION" \
-              --flatten 'status.traffic[]' --filter 'status.traffic.tag=canary' \
-              --format 'value(status.traffic.url)')
+              --format 'json(status.traffic)' \
+              | jq -r '.status.traffic[] | select(.tag == "canary") | .url')
           else
             URL=$(gcloud run services describe "$SERVICE_NAME" --region "$GCP_REGION" \
               --format 'value(status.url)')
