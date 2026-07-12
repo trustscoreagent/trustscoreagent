@@ -1,0 +1,44 @@
+name: Build MCPB bundle
+
+# Builds the self-contained .mcpb bundle (mcp-server/scripts/build-mcpb.sh) and
+# attaches it to the GitHub Release, so every release ships a reproducible bundle
+# built in CI rather than a hand-built one.
+#
+# Triggers when a release is published, or manually against an existing tag.
+# npm publishing stays manual (see publish-mcp-registry.yml); this only packages
+# the already-released source into an installable bundle.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to attach the bundle to (e.g. v0.1.1)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 20
+
+      - name: Build .mcpb bundle
+        working-directory: mcp-server
+        run: bash scripts/build-mcpb.sh
+
+      - name: Attach bundle to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          FILE=$(ls mcp-server/*.mcpb)
+          echo "Attaching $FILE to release $TAG"
+          gh release upload "$TAG" "$FILE" --clobber
