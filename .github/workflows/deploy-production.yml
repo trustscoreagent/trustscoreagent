@@ -128,7 +128,10 @@ jobs:
             --region "$GCP_REGION"
             --platform managed
             --allow-unauthenticated
-            --min-instances 1 --max-instances 10 --concurrency 200 --cpu 2 --memory 1Gi
+            # Scale-to-zero to avoid paying for an always-on instance; the 5-min uptime
+            # check keeps one instance warm cheaply. Bump --min-instances to 1-2 by hand
+            # for a launch/traffic spike, then let the next deploy reset it to 0.
+            --min-instances 0 --max-instances 10 --concurrency 200 --cpu 1 --memory 512Mi
             --set-env-vars "ASPNETCORE_ENVIRONMENT=Production"
             --set-secrets "ConnectionStrings__PostgreSQL=db-connection-string:latest,ConnectionStrings__Redis=redis-connection-string:latest,AdminApiKey=admin-api-key:latest"
             --add-cloudsql-instances "${{ secrets.GCP_PROJECT_ID }}:europe-west1:trustscoreagent-db"
