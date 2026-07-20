@@ -73,3 +73,6 @@ src/src.sln
 *.png
 *.jpg
 *.jpeg
+
+.dev.vars*
+!.dev.vars.example
