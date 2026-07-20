@@ -94,27 +94,24 @@ DB_CONNECTION_NAME=$(gcloud sql instances describe "$DB_INSTANCE" --format='valu
 DB_CONNECTION_STRING="Host=/cloudsql/${DB_CONNECTION_NAME};Database=${DB_NAME};Username=${DB_USER};Password=${DB_PASSWORD}"
 
 # -------------------------------------------------------
-# 5. Create Redis (Memorystore) instance
+# 5. Redis — external serverless (Upstash), not Memorystore
 # -------------------------------------------------------
-echo "[5/9] Creating Redis instance (this takes ~5 minutes)..."
-gcloud redis instances create "$REDIS_INSTANCE" \
-  --size=1 \
-  --region="$REGION" \
-  --tier=basic \
-  --redis-version=redis_7_0 \
-  --quiet 2>/dev/null || echo "  (already exists)"
-
-REDIS_HOST=$(gcloud redis instances describe "$REDIS_INSTANCE" --region="$REGION" --format='value(host)')
-REDIS_CONNECTION_STRING="${REDIS_HOST}:6379"
+# Memorystore has a ~1GB minimum (Basic tier) that costs ~€35/mo even when idle.
+# Redis is now provided by Upstash (serverless, pay-per-request, ~€0 at low
+# volume). Create a Regional Redis DB at https://upstash.com (region close to
+# $REGION, e.g. eu-central-1; TLS enabled) and export its StackExchange.Redis
+# connection string before running this script:
+#   export REDIS_CONNECTION_STRING="HOST:6379,password=...,ssl=True,abortConnect=False"
+echo "[5/9] Redis: using external Upstash endpoint from \$REDIS_CONNECTION_STRING."
+: "${REDIS_CONNECTION_STRING:?Set REDIS_CONNECTION_STRING to your Upstash connection string (HOST:6379,password=...,ssl=True,abortConnect=False)}"
 
 # -------------------------------------------------------
-# 6. Create VPC Connector (for Cloud Run → Cloud SQL/Redis)
+# 6. No VPC connector needed
 # -------------------------------------------------------
-echo "[6/9] Creating VPC connector..."
-gcloud compute networks vpc-access connectors create trustscoreagent-connector \
-  --region="$REGION" \
-  --range="10.8.0.0/28" \
-  --quiet 2>/dev/null || echo "  (already exists)"
+# Cloud Run reaches Cloud SQL via the built-in socket connector and Upstash over
+# public egress, so no Serverless VPC Access connector is required (it also cost
+# ~€8-10/mo for its minimum instances).
+echo "[6/9] No VPC connector needed (Cloud SQL via socket, Redis via public egress)."
 
 # -------------------------------------------------------
 # 7. Store secrets in Secret Manager
