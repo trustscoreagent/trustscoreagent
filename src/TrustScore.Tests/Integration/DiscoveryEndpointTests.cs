@@ -43,4 +43,37 @@ public class DiscoveryEndpointTests : IClassFixture<WebApplicationFactory<Progra
         var body = await response.Content.ReadAsStringAsync();
         body.Should().Contain("TrustScoreAgent");
     }
+
+    [Fact]
+    public async Task Root_IsServed_AndPointsToDocs()
+    {
+        // The API root was a 404, which Search Console flagged as "Introuvable (404)". It now
+        // returns a small JSON index pointing at the human documentation.
+        var response = await _client.GetAsync("/");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.Content.ReadAsStringAsync();
+        using var doc = JsonDocument.Parse(body);
+        doc.RootElement.GetProperty("documentation").GetString().Should().Be("https://trustscoreagent.com");
+    }
+
+    [Fact]
+    public async Task RobotsTxt_IsServed()
+    {
+        var response = await _client.GetAsync("/robots.txt");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        response.Content.Headers.ContentType!.MediaType.Should().Be("text/plain");
+        var body = await response.Content.ReadAsStringAsync();
+        body.Should().Contain("User-agent: *");
+    }
+
+    [Fact]
+    public async Task Responses_AreMarkedNoindex_ToKeepTheApiHostOutOfSearch()
+    {
+        // Only the landing (trustscoreagent.com) should be indexed; the API host must not be.
+        var response = await _client.GetAsync("/");
+
+        response.Headers.GetValues("X-Robots-Tag").Should().Contain("noindex");
+    }
 }
