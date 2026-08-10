@@ -178,13 +178,18 @@ app.UseExceptionHandler(errorApp => errorApp.Run(async context =>
 if (app.Environment.IsProduction())
     app.UseHsts();
 
-// Minimal security headers for a JSON API.
+// Minimal security headers for a JSON API. X-Robots-Tag: noindex keeps the whole API host out
+// of search indexes — this middleware only runs on the API (Cloud Run), never on the landing
+// (trustscoreagent.com, on Cloudflare Pages), so only the landing is ever indexed. Crawling is
+// still allowed (robots.txt below) so crawlers can fetch this header and drop any API URL they
+// already discovered; without it, Google was reporting the API root as an "Introuvable (404)".
 app.Use(async (context, next) =>
 {
     var headers = context.Response.Headers;
     headers["X-Content-Type-Options"] = "nosniff";
     headers["X-Frame-Options"] = "DENY";
     headers["Referrer-Policy"] = "no-referrer";
+    headers["X-Robots-Tag"] = "noindex";
     await next();
 });
 
@@ -217,6 +222,25 @@ app.MapGet("/llms.txt", () => ServePublicFile(publicFolder, "llms.txt", "text/pl
     .ExcludeFromDescription();
 app.MapGet("/.well-known/agent.json", () => ServePublicFile(publicFolder, Path.Combine(".well-known", "agent.json"), "application/json"))
     .ExcludeFromDescription();
+
+// The API host is machine-facing, not a website. Give crawlers a valid robots.txt and a
+// non-404 root (both were 404, which Search Console flagged) that point at the human docs.
+// Indexing is prevented by the X-Robots-Tag: noindex header above, not by disallowing crawl.
+app.MapGet("/", () => Results.Json(new
+{
+    name = "TrustScoreAgent API",
+    description = "Free, open reputation registry for AI microservices.",
+    documentation = "https://trustscoreagent.com",
+    openapi = "/swagger/v1/swagger.json",
+    source = "https://github.com/trustscoreagent/trustscoreagent",
+})).ExcludeFromDescription();
+
+app.MapGet("/robots.txt", () => Results.Text(
+    "# api.trustscoreagent.com serves the TrustScoreAgent API, not indexable web pages.\n" +
+    "# Crawling is allowed; every response carries X-Robots-Tag: noindex.\n" +
+    "User-agent: *\n" +
+    "Disallow:\n",
+    "text/plain")).ExcludeFromDescription();
 
 app.Run();
 return 0;
