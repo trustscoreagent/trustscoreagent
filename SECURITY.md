@@ -48,6 +48,13 @@ TrustScoreAgent is in **Phase 1 (early)**. Be aware of the current trust model:
   **Unsigned ratings are still accepted, at half weight**, because their `X-Agent-DID` is
   merely asserted and could name any agent. Signing is therefore how a rating is attributed
   rather than claimed; it is not yet mandatory, so that existing clients keep working.
+
+  Because that DID is unproven, an unsigned rating accrues reputation under a **separate,
+  namespaced identity** rather than the one it names. Otherwise anyone could file
+  deliberately inconsistent ratings in a victim's name to drive their EigenTrust score down
+  (shrinking the weight of the victim's own honest ratings), or conversely name a reputable
+  agent to borrow its standing as a weight multiplier. Unsigned ratings still feed service
+  consensus; they simply cannot spend or damage a reputation they only claim.
   Sybil resistance combines this with rate limiting and the hourly EigenTrust recompute
   (inconsistent raters converge toward low trust), and ratings backed by a verified service
   **receipt** remain the strongest signal.

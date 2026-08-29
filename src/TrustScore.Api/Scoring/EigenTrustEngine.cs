@@ -1,4 +1,5 @@
 using TrustScore.Core.Interfaces;
+using TrustScore.Core.Models;
 
 namespace TrustScore.Api.Scoring;
 
@@ -41,6 +42,15 @@ public sealed class EigenTrustEngine
     {
         if (ratings.Count == 0)
             return new Dictionary<string, double>();
+
+        // 0. Resolve each rating to the identity it may accrue reputation under. An unsigned rating
+        // names a DID the sender never proved it holds, so it is namespaced away from the real one;
+        // otherwise anyone could tank a victim's trust score (and therefore the weight of the
+        // victim's honest ratings) by submitting deliberately inconsistent ratings in their name.
+        // Done here, before any grouping, so every downstream step sees the same identity.
+        ratings = ratings
+            .Select(r => r with { AgentDid = TrustIdentity.For(r.AgentDid, r.SignatureVerified) })
+            .ToList();
 
         // 1. Get all unique agents. If there are more than MaxAgents, keep only the highest-volume
         // ones so the dense matrix stays bounded; the rest get default trust below.

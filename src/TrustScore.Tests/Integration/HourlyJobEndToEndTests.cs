@@ -148,9 +148,16 @@ public class HourlyJobEndToEndTests : PostgresDatabaseTest
         dead.LatencyMs.Should().Be(ProbeTimeoutSeconds * 1000);
         dead.SchemaValid.Should().BeNull();
 
-        // EigenTrust persisted trust scores for the rating agents.
+        // EigenTrust persisted trust scores for the rating agents. These ratings are written
+        // straight to the store, so they carry no request signature and accrue under the
+        // namespaced identity rather than the bare DID. Derived through TrustIdentity so the
+        // assertion tracks the production rule instead of hardcoding its current shape.
+        var ratingAgents = new[] { "did:web:agent-a.test", "did:web:agent-b.test" }
+            .Select(did => TrustIdentity.For(did, signatureVerified: false))
+            .ToArray();
+
         var agentCount = await conn.ExecuteScalarAsync<int>(
-            "SELECT COUNT(*) FROM agents WHERE did IN ('did:web:agent-a.test', 'did:web:agent-b.test')");
+            "SELECT COUNT(*) FROM agents WHERE did = ANY(@Dids)", new { Dids = ratingAgents });
         agentCount.Should().Be(2);
     }
 }

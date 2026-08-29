@@ -48,7 +48,8 @@ public sealed record AgentRatingRecord(
     int StatusCode,
     int LatencyMs,
     bool? SchemaValid,
-    bool ReceiptVerified);
+    bool ReceiptVerified,
+    bool SignatureVerified = false);
 
 public sealed record RatingLeafInfo(Guid Id, string ServiceDid, DateTimeOffset CreatedAt, string? MerkleLeafHash);
 

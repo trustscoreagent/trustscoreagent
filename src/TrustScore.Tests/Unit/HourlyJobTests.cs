@@ -18,10 +18,10 @@ public class HourlyJobComponentTests
         var engine = new EigenTrustEngine();
         var ratings = new List<AgentRatingRecord>
         {
-            new("agent-a", "service-1", 200, 100, true, true),
-            new("agent-a", "service-2", 200, 150, true, false),
-            new("agent-b", "service-1", 200, 100, true, false),
-            new("agent-b", "service-2", 500, 5000, false, false),
+            new("agent-a", "service-1", 200, 100, true, true, SignatureVerified: true),
+            new("agent-a", "service-2", 200, 150, true, false, SignatureVerified: true),
+            new("agent-b", "service-1", 200, 100, true, false, SignatureVerified: true),
+            new("agent-b", "service-2", 500, 5000, false, false, SignatureVerified: true),
         };
 
         var scores = engine.ComputeTrustScores(ratings);
