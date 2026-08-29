@@ -1,6 +1,6 @@
 {
   "name": "@trustscoreagent/mcp-server",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "mcpName": "io.github.trustscoreagent/mcp-server",
   "description": "MCP server for TrustScoreAgent — check reputation of AI microservices",
   "license": "Apache-2.0",

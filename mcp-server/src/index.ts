@@ -6,7 +6,15 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import { randomUUID } from "crypto";
+import {
+  randomUUID,
+  generateKeyPairSync,
+  createPrivateKey,
+  createPublicKey,
+  createHash,
+  sign as cryptoSign,
+  type KeyObject,
+} from "crypto";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
@@ -88,37 +96,147 @@ function optionalInt(
   return requireInt(value, name, min, max);
 }
 
-// Each MCP installation gets a unique persistent agent ID.
-// Stored in ~/.trustscoreagent/agent-id so it survives restarts.
-// Can be overridden via TRUSTSCORE_AGENT_DID env var.
-function getAgentDid(): string {
-  if (process.env.TRUSTSCORE_AGENT_DID) {
-    return process.env.TRUSTSCORE_AGENT_DID;
+const CONFIG_DIR = join(homedir(), ".trustscoreagent");
+const KEY_FILE = join(CONFIG_DIR, "agent-key.pem");
+
+const BASE58_ALPHABET =
+  "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+
+function base58Encode(bytes: Uint8Array): string {
+  let value = 0n;
+  for (const byte of bytes) value = value * 256n + BigInt(byte);
+
+  let out = "";
+  while (value > 0n) {
+    out = BASE58_ALPHABET[Number(value % 58n)] + out;
+    value /= 58n;
   }
-
-  const configDir = join(homedir(), ".trustscoreagent");
-  const idFile = join(configDir, "agent-id");
-
-  if (existsSync(idFile)) {
-    return readFileSync(idFile, "utf-8").trim();
+  for (const byte of bytes) {
+    if (byte !== 0) break;
+    out = "1" + out;
   }
-
-  // Generate a unique DID on first run
-  const agentId = `mcp-${randomUUID().slice(0, 8)}`;
-  const did = `did:web:mcp.trustscoreagent.com:${agentId}`;
-
-  try {
-    mkdirSync(configDir, { recursive: true });
-    writeFileSync(idFile, did, "utf-8");
-    console.error(`TrustScoreAgent: generated agent ID ${did} (stored in ${idFile})`);
-  } catch {
-    console.error(`TrustScoreAgent: using ephemeral agent ID ${did} (could not write to ${idFile})`);
-  }
-
-  return did;
+  return out;
 }
 
-const AGENT_DID = getAgentDid();
+function base64url(buffer: Buffer): string {
+  return buffer.toString("base64").replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_");
+}
+
+// did:key encodes the public key in the identifier itself: base58btc of the 0xED01 multicodec
+// prefix followed by the raw 32-byte Ed25519 key. No document to host, no domain to own.
+function deriveDidKey(publicKey: KeyObject): string {
+  const jwk = publicKey.export({ format: "jwk" }) as { x?: string };
+  if (!jwk.x) throw new Error("public key is not an OKP/Ed25519 JWK");
+  const raw = Buffer.from(jwk.x, "base64url");
+  return "did:key:z" + base58Encode(Buffer.concat([Buffer.from([0xed, 0x01]), raw]));
+}
+
+interface AgentIdentity {
+  did: string;
+  /** null when we hold no key for this DID, so requests go out unsigned. */
+  privateKey: KeyObject | null;
+}
+
+// The agent's identity is an Ed25519 keypair persisted in ~/.trustscoreagent/agent-key.pem.
+// Ratings are signed with it so the registry can attribute them to this installation instead of
+// taking the DID header on faith. Unsigned ratings are still accepted, at reduced weight.
+function loadAgentIdentity(): AgentIdentity {
+  let privateKey: KeyObject | null = null;
+
+  if (existsSync(KEY_FILE)) {
+    try {
+      privateKey = createPrivateKey(readFileSync(KEY_FILE, "utf-8"));
+    } catch {
+      console.error(
+        `TrustScoreAgent: could not read the agent key at ${KEY_FILE}; ratings will be sent unsigned.`,
+      );
+    }
+  } else {
+    const generated = generateKeyPairSync("ed25519");
+    try {
+      mkdirSync(CONFIG_DIR, { recursive: true });
+      // 0600: the key is this agent's identity, so it should not be world-readable.
+      writeFileSync(
+        KEY_FILE,
+        generated.privateKey.export({ format: "pem", type: "pkcs8" }) as string,
+        { encoding: "utf-8", mode: 0o600 },
+      );
+      privateKey = generated.privateKey;
+
+      // Installations from before signing existed identified themselves with a did:web that no
+      // key backs. Say plainly that the identity changes, since its reputation history does not
+      // carry over.
+      if (existsSync(join(CONFIG_DIR, "agent-id"))) {
+        console.error(
+          "TrustScoreAgent: generated a signing key. This installation now uses a new did:key " +
+            "identity, so its previous reputation history does not carry over.",
+        );
+      }
+    } catch {
+      // An ephemeral key would produce a different identity on every restart, which is worse than
+      // being unsigned: it would look like a swarm of one-off agents.
+      console.error(
+        `TrustScoreAgent: could not persist an agent key to ${KEY_FILE}; ratings will be sent unsigned.`,
+      );
+    }
+  }
+
+  const derivedDid = privateKey ? deriveDidKey(createPublicKey(privateKey)) : null;
+  const override = process.env.TRUSTSCORE_AGENT_DID;
+
+  if (override && override !== derivedDid) {
+    // Honour the override, but do not sign with a key that does not match it: the server binds the
+    // signature to the DID, so signing here would only produce 401s.
+    console.error(
+      `TrustScoreAgent: TRUSTSCORE_AGENT_DID overrides the local key, so ratings are sent unsigned.`,
+    );
+    return { did: override, privateKey: null };
+  }
+
+  if (derivedDid) return { did: derivedDid, privateKey };
+
+  // No key and no override: fall back to a stable pseudonymous DID rather than failing outright.
+  return { did: `did:web:mcp.trustscoreagent.com:mcp-${randomUUID().slice(0, 8)}`, privateKey: null };
+}
+
+const AGENT_IDENTITY = loadAgentIdentity();
+const AGENT_DID = AGENT_IDENTITY.did;
+
+/**
+ * Signs a request the way the registry verifies it: seven newline-joined fields, with the body
+ * bound by its SHA-256. The exact `body` string passed here must be the one sent on the wire,
+ * otherwise the hashes differ and the server returns 401.
+ */
+function signRequest(
+  method: string,
+  path: string,
+  body: string,
+): Record<string, string> {
+  if (!AGENT_IDENTITY.privateKey) return {};
+
+  const timestamp = new Date().toISOString();
+  const nonce = randomUUID().replace(/-/g, "");
+  const bodyHash = createHash("sha256").update(body, "utf-8").digest("hex");
+
+  const canonical = [
+    "trustscore-v1",
+    method.toUpperCase(),
+    path,
+    AGENT_DID,
+    timestamp,
+    nonce,
+    bodyHash,
+  ].join("\n");
+
+  // Ed25519 signs the message directly, hence the null algorithm.
+  const signature = cryptoSign(null, Buffer.from(canonical, "utf-8"), AGENT_IDENTITY.privateKey);
+
+  return {
+    "X-Agent-Signature": base64url(signature),
+    "X-Agent-Timestamp": timestamp,
+    "X-Agent-Nonce": nonce,
+  };
+}
 
 const server = new Server(
   {
@@ -366,13 +484,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         receipt: args?.receipt as string | undefined,
       };
 
+      // Serialise once and reuse the exact string: the signature covers a hash of these bytes, so
+      // re-stringifying for the request could silently produce a different body than the one signed.
+      const payload = JSON.stringify(body);
+
       const response = await apiFetch(`/v1/rate`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "X-Agent-DID": AGENT_DID,
+          ...signRequest("POST", "/v1/rate", payload),
         },
-        body: JSON.stringify(body),
+        body: payload,
       });
 
       if (!response.ok) {
@@ -388,6 +511,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             text: [
               `Rating submitted successfully for ${serviceDid}`,
               `Rating weight: ${result.rating_weight ?? "unknown"}`,
+              `Agent identity: ${result.agent_identity ?? "unknown"}`,
               `Updated score: ${result.new_score ?? "unknown"}`,
             ].join("\n"),
           },
