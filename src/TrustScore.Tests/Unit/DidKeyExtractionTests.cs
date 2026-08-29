@@ -61,6 +61,19 @@ public class DidKeyExtractionTests
         DidWebResolver.ExtractEd25519Key(method).Should().BeNull();
     }
 
+    [Fact]
+    public void HasMulticodecPrefix_DistinguishesPrefixedKeysFromRawOnes()
+    {
+        // Normalize() accepts both encodings, so did:key needs this stricter primitive to tell
+        // "an Ed25519 key" from "32 bytes of something".
+        var prefixed = new byte[] { 0xED, 0x01 }.Concat(ExpectedKey).ToArray();
+
+        Ed25519KeyCodec.HasMulticodecPrefix(prefixed).Should().BeTrue();
+        Ed25519KeyCodec.HasMulticodecPrefix(ExpectedKey).Should().BeFalse();
+        Ed25519KeyCodec.HasMulticodecPrefix(new byte[] { 0xE7, 0x01 }.Concat(ExpectedKey).ToArray())
+            .Should().BeFalse();
+    }
+
     private static JsonElement Parse(string json) => JsonSerializer.Deserialize<JsonElement>(json);
 
     private static string Base64UrlEncode(byte[] bytes) =>

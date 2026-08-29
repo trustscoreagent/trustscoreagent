@@ -172,18 +172,7 @@ public sealed class DidWebResolver : IDidResolver
         return null;
     }
 
-    /// <summary>
-    /// Returns the raw 32-byte Ed25519 key, stripping the 0xED 0x01 multicodec prefix if present
-    /// (as in Ed25519VerificationKey2020's multibase encoding). Returns null on any other length.
-    /// </summary>
-    private static byte[]? NormalizeEd25519(byte[] keyBytes)
-    {
-        if (keyBytes.Length == 34 && keyBytes[0] == 0xED && keyBytes[1] == 0x01)
-            return keyBytes[2..];
-        if (keyBytes.Length == 32)
-            return keyBytes;
-        return null;
-    }
+    private static byte[]? NormalizeEd25519(byte[] keyBytes) => Ed25519KeyCodec.Normalize(keyBytes);
 
     private static byte[] Base64UrlDecode(string input)
     {
@@ -301,37 +290,3 @@ internal static class SsrfGuard
     }
 }
 
-/// <summary>
-/// Minimal Base58 decoder for multibase-encoded public keys.
-/// </summary>
-internal static class Base58
-{
-    private const string Alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
-
-    public static byte[] Decode(string input)
-    {
-        if (input.Length > 256)
-            throw new FormatException("Base58 input too long (max 256 characters)");
-
-        var bi = System.Numerics.BigInteger.Zero;
-        foreach (var c in input)
-        {
-            var index = Alphabet.IndexOf(c);
-            if (index < 0) throw new FormatException($"Invalid Base58 character: {c}");
-            bi = bi * 58 + index;
-        }
-
-        var bytes = bi.ToByteArray(isUnsigned: true, isBigEndian: true);
-
-        // Count leading '1's (which represent leading zero bytes)
-        var leadingZeros = input.TakeWhile(c => c == '1').Count();
-        if (leadingZeros > 0)
-        {
-            var result = new byte[leadingZeros + bytes.Length];
-            bytes.CopyTo(result, leadingZeros);
-            return result;
-        }
-
-        return bytes;
-    }
-}
