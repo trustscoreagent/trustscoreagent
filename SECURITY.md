@@ -37,12 +37,20 @@ TrustScoreAgent is in **Phase 1 (early)**. Be aware of the current trust model:
   on the scoring code being open source and the audit trail being verifiable
   (`GET /v1/audit/proof/{id}` against `GET /v1/audit/root`), not on decentralization.
   Federation/multi-operator is a later phase.
-- **Agent identity is self-asserted in Phase 1.** The `X-Agent-DID` header is not yet
-  cryptographically bound to the rater. Sybil resistance currently comes from rate
-  limiting plus the hourly EigenTrust recompute (inconsistent raters converge toward low
-  trust). Mandatory per-request agent signatures (`X-Agent-Signature`) are planned for
-  Phase 2. Ratings backed by a verified service **receipt** are the trustworthy signal
-  today.
+- **Agent identity can be cryptographically proven.** An agent identified by a `did:key`
+  signs each rating with the matching Ed25519 key (`X-Agent-Signature`, plus
+  `X-Agent-Timestamp` and `X-Agent-Nonce`). The signature covers the method, path,
+  timestamp, nonce and a SHA-256 of the request body, so it authorises that request and no
+  other, and the nonce makes it single-use. A signature that is present but does not verify
+  is rejected with `401` rather than downgraded, so sending a junk signature is not a way
+  back into the unsigned path.
+
+  **Unsigned ratings are still accepted, at half weight**, because their `X-Agent-DID` is
+  merely asserted and could name any agent. Signing is therefore how a rating is attributed
+  rather than claimed; it is not yet mandatory, so that existing clients keep working.
+  Sybil resistance combines this with rate limiting and the hourly EigenTrust recompute
+  (inconsistent raters converge toward low trust), and ratings backed by a verified service
+  **receipt** remain the strongest signal.
 - **Baseline scores come from an operated probe.** A single transparent probe agent
   (`did:web:trustscoreagent.com:probe`, resolvable at `/probe/did.json`) measures public
   APIs and records real

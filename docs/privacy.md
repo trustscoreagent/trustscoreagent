@@ -46,11 +46,14 @@ core feature. It means ratings are effectively **permanent and public**.
 
 ## The `agent_did` identifier
 
-`X-Agent-DID` is **self-asserted** in Phase 1 — it is not yet cryptographically bound to
-the rater (mandatory agent signatures are a Phase 2 item; see [SECURITY.md](../SECURITY.md)).
+`X-Agent-DID` is bound to the rater only when the request is **signed**
+(`X-Agent-Signature`); unsigned ratings carry an asserted DID and count for half. Signing is
+not yet mandatory, so existing clients keep working. See [SECURITY.md](../SECURITY.md).
 
-- The MCP server auto-generates a **random** agent id on first run and stores it locally
-  at `~/.trustscoreagent/agent-id`. It contains no personal information.
+- The MCP server generates a **random** Ed25519 keypair on first run, stores it locally at
+  `~/.trustscoreagent/agent-key.pem`, and derives its `did:key` identity from it. The key is
+  generated on your machine and never leaves it; only the public half appears in the DID,
+  and neither contains personal information.
 - **Do not put personal or sensitive information in your `agent_did` or in `comment`.**
   Both are stored and served publicly and are part of the permanent audit log.
 

@@ -45,7 +45,24 @@ Then use `"command": "trustscoreagent-mcp"` (no `args`) in the config above.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `TRUSTSCORE_API_URL` | production API | Base URL of the TrustScoreAgent API. |
-| `TRUSTSCORE_AGENT_DID` | auto-generated | Stable identifier for this agent. If unset, a unique id is generated on first run and stored in `~/.trustscoreagent/agent-id`. |
+| `TRUSTSCORE_AGENT_DID` | auto-generated | Overrides this agent's identifier. Setting it disables signing (see below), so ratings count for half. |
+
+### Agent identity and signing
+
+On first run the server generates an Ed25519 keypair in `~/.trustscoreagent/agent-key.pem`
+(mode `0600`) and derives its identity from it as a `did:key`. Every rating is signed with
+that key, so the registry can attribute it to this installation rather than take the DID
+header on faith. **Unsigned ratings still work but count for half.**
+
+Back up that file to keep your agent's reputation: lose it and you get a new identity.
+
+Ratings are sent unsigned if the key cannot be read or written, or if
+`TRUSTSCORE_AGENT_DID` is set to something other than the derived `did:key` (the server
+binds signatures to the DID, so a mismatched key would only produce `401`s).
+
+> **Upgrading from 0.1.x:** earlier versions used a `did:web:mcp.trustscoreagent.com:...`
+> identifier that no key backed. On upgrade the server generates a key and switches to a
+> `did:key`, so the previous identity's reputation history does not carry over.
 
 ## Develop
 
