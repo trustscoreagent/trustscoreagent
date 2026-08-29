@@ -19,12 +19,13 @@ namespace TrustScore.Tests.Unit;
 /// </summary>
 public class AgentSignatureInteropTests
 {
-    private const string Did = "did:key:z6MkvBLvF2b6B6xnoS1zxEt2yhG4TYPqWgxUM6ssc3BSt123";
+    private const string Did = "did:key:z6MkonQJwPi5bfkwfADWxacWjxzneWtKA6bQ9SVaH275jWie";
+    private const string Audience = "api.trustscoreagent.com";
     private const string Timestamp = "2026-08-29T12:00:00.000Z";
     private const string Nonce = "crosslangvector01";
     private const string Body = """{"service":"api.example.com","metrics":{"status_code":200,"latency_ms":100}}""";
     private const string Signature =
-        "TvKyVCncLKIcicBZung9vrXx80tXmnxqPawrfM-0qfqB1sJ1-qSmBJFmTWUhMqGhRBAqUDHjMCHYcgNqy86KCQ";
+        "XdZtLK7Te9aUeWP7GgqMegT4u3Ky0S3SqlHrce0Ep6cXfVZfE8ZLgOayc0lkWSK0vSVhH0iMNF7W9631zHzaCA";
 
     [Fact]
     public void SignatureFromTheTypeScriptClient_VerifiesOnTheServer()
@@ -33,7 +34,7 @@ public class AgentSignatureInteropTests
         publicKeyBytes.Should().NotBeNull("the client's did:key must resolve with the server's decoder");
 
         var canonical = AgentSignaturePayload.CanonicalBytes(
-            "POST", "/v1/rate", Did, Timestamp, Nonce, Encoding.UTF8.GetBytes(Body));
+            Audience, "POST", "/v1/rate", Did, Timestamp, Nonce, Encoding.UTF8.GetBytes(Body));
 
         var algorithm = SignatureAlgorithm.Ed25519;
         var publicKey = PublicKey.Import(algorithm, publicKeyBytes!, KeyBlobFormat.RawPublicKey);
@@ -48,7 +49,7 @@ public class AgentSignatureInteropTests
         // Guards against the test passing for the wrong reason (e.g. a verifier that ignores input).
         var publicKeyBytes = DidKeyResolver.ResolvePublicKey(Did)!;
         var canonical = AgentSignaturePayload.CanonicalBytes(
-            "POST", "/v1/rate", Did, Timestamp, Nonce, Encoding.UTF8.GetBytes(Body + " "));
+            Audience, "POST", "/v1/rate", Did, Timestamp, Nonce, Encoding.UTF8.GetBytes(Body + " "));
 
         var algorithm = SignatureAlgorithm.Ed25519;
         var publicKey = PublicKey.Import(algorithm, publicKeyBytes, KeyBlobFormat.RawPublicKey);

@@ -19,6 +19,12 @@ internal static class AgentSigner
         return "did:key:z" + Base58Encode(new byte[] { 0xED, 0x01 }.Concat(raw).ToArray());
     }
 
+    /// <summary>
+    /// The audience the integration tests sign for. TestServer reports this Host, and no canonical
+    /// audience is configured in tests, so the verifier falls back to it.
+    /// </summary>
+    public const string TestAudience = "localhost";
+
     public static AgentSignatureHeaders Sign(
         Key signingKey,
         byte[] body,
@@ -26,13 +32,14 @@ internal static class AgentSigner
         string path = "/v1/rate",
         string? agentDid = null,
         DateTimeOffset? timestamp = null,
-        string? nonce = null)
+        string? nonce = null,
+        string audience = TestAudience)
     {
         var did = agentDid ?? DidKeyFor(signingKey);
         var ts = (timestamp ?? DateTimeOffset.UtcNow).ToString("o");
         var n = nonce ?? Guid.NewGuid().ToString("N");
 
-        var payload = AgentSignaturePayload.CanonicalBytes(method, path, did, ts, n, body);
+        var payload = AgentSignaturePayload.CanonicalBytes(audience, method, path, did, ts, n, body);
         var signature = SignatureAlgorithm.Ed25519.Sign(signingKey, payload);
 
         return new AgentSignatureHeaders(did, Base64Url(signature), ts, n);
