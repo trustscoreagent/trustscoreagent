@@ -28,9 +28,15 @@ public class RateEndpointSignatureTests : IClassFixture<WebApplicationFactory<Pr
 
     public RateEndpointSignatureTests(WebApplicationFactory<Program> factory) => _factory = factory;
 
-    private (HttpClient Client, CapturingRatingWriter Writer) CreateClient()
+    private sealed record TestContext(
+        HttpClient Client,
+        CapturingRatingWriter Writer,
+        CapturingRateLimiter RateLimiter);
+
+    private TestContext CreateClient()
     {
         var writer = new CapturingRatingWriter();
+        var limiter = new CapturingRateLimiter();
         var client = _factory.WithWebHostBuilder(builder =>
         {
             builder.ConfigureAppConfiguration((_, config) =>
@@ -40,7 +46,6 @@ public class RateEndpointSignatureTests : IClassFixture<WebApplicationFactory<Pr
                 ReplaceService<IServiceRepository, FakeServiceRepository>(services);
                 ReplaceService<IRatingRepository, FakeRatingRepository>(services);
                 ReplaceService<ICacheService, FakeCacheService>(services);
-                ReplaceService<IRateLimiter, FakeRateLimiter>(services);
                 ReplaceService<IReceiptVerifier, FakeReceiptVerifier>(services);
                 ReplaceService<IDidResolver, FakeDidResolver>(services);
                 ReplaceService<IAuditService, FakeAuditService>(services);
@@ -52,6 +57,12 @@ public class RateEndpointSignatureTests : IClassFixture<WebApplicationFactory<Pr
                 if (existing is not null) services.Remove(existing);
                 services.AddSingleton<IRatingWriter>(writer);
 
+                // Capture the rate-limit keys so the tests can assert WHICH bucket a request spends,
+                // which is the whole point of keying on a proven identity.
+                var limiterDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IRateLimiter));
+                if (limiterDescriptor is not null) services.Remove(limiterDescriptor);
+                services.AddSingleton<IRateLimiter>(limiter);
+
                 var redis = services.SingleOrDefault(d =>
                     d.ServiceType == typeof(StackExchange.Redis.IConnectionMultiplexer));
                 if (redis is not null) services.Remove(redis);
@@ -60,7 +71,7 @@ public class RateEndpointSignatureTests : IClassFixture<WebApplicationFactory<Pr
             });
         }).CreateClient();
 
-        return (client, writer);
+        return new TestContext(client, writer, limiter);
     }
 
     private static void ReplaceService<TService, TImpl>(IServiceCollection services)
@@ -90,7 +101,7 @@ public class RateEndpointSignatureTests : IClassFixture<WebApplicationFactory<Pr
     [Fact]
     public async Task SignedRating_IsAccepted_AndMarkedSigned()
     {
-        var (client, writer) = CreateClient();
+        var (client, writer, _) = CreateClient();
         var headers = AgentSigner.Sign(_agentKey, BodyBytes);
 
         var response = await client.SendAsync(Request(headers));
@@ -106,7 +117,7 @@ public class RateEndpointSignatureTests : IClassFixture<WebApplicationFactory<Pr
     {
         // The whole point of not requiring signatures outright: every client written before this
         // feature must keep working, just at reduced weight.
-        var (client, writer) = CreateClient();
+        var (client, writer, _) = CreateClient();
 
         var response = await client.SendAsync(Request(headers: null, agentDid: "did:web:legacy.example.com"));
 
@@ -119,10 +130,10 @@ public class RateEndpointSignatureTests : IClassFixture<WebApplicationFactory<Pr
     [Fact]
     public async Task UnsignedRating_WeighsHalfOfASignedOne()
     {
-        var (signedClient, signedWriter) = CreateClient();
+        var (signedClient, signedWriter, _) = CreateClient();
         await signedClient.SendAsync(Request(AgentSigner.Sign(_agentKey, BodyBytes)));
 
-        var (unsignedClient, unsignedWriter) = CreateClient();
+        var (unsignedClient, unsignedWriter, _) = CreateClient();
         await unsignedClient.SendAsync(Request(headers: null, agentDid: "did:web:legacy.example.com"));
 
         unsignedWriter.Last!.Weight.Should().BeApproximately(signedWriter.Last!.Weight * 0.5, 1e-9);
@@ -133,7 +144,7 @@ public class RateEndpointSignatureTests : IClassFixture<WebApplicationFactory<Pr
     {
         // Signing with a different key while claiming the victim's DID must fail loudly. If it
         // fell through to the unsigned path, impersonation would still be free.
-        var (client, writer) = CreateClient();
+        var (client, writer, _) = CreateClient();
         using var attackerKey = Key.Create(SignatureAlgorithm.Ed25519);
         var forged = AgentSigner.Sign(attackerKey, BodyBytes, agentDid: AgentSigner.DidKeyFor(_agentKey));
 
@@ -148,7 +159,7 @@ public class RateEndpointSignatureTests : IClassFixture<WebApplicationFactory<Pr
     {
         // Proves the body really is bound by hash: the buffering has to hand the handler the exact
         // bytes that arrived, otherwise this would wrongly pass.
-        var (client, _) = CreateClient();
+        var (client, _, _) = CreateClient();
         var otherBody = Encoding.UTF8.GetBytes("""{"service":"evil.example.com","metrics":{"status_code":200,"latency_ms":1}}""");
         var headers = AgentSigner.Sign(_agentKey, otherBody);
 
@@ -160,7 +171,7 @@ public class RateEndpointSignatureTests : IClassFixture<WebApplicationFactory<Pr
     [Fact]
     public async Task PartiallySignedRequest_Is401()
     {
-        var (client, _) = CreateClient();
+        var (client, _, _) = CreateClient();
         var headers = AgentSigner.Sign(_agentKey, BodyBytes) with { Nonce = null };
 
         var response = await client.SendAsync(Request(headers));
@@ -169,16 +180,116 @@ public class RateEndpointSignatureTests : IClassFixture<WebApplicationFactory<Pr
     }
 
     [Fact]
+    public async Task SignedRating_IsAccepted_WhenTheUrlCasingDiffers()
+    {
+        // Routing is case-insensitive, so this reaches the same endpoint. The client signs the
+        // canonical route, so the signature must not depend on how the caller happened to spell
+        // the URL, or a proxy rewriting case would produce inexplicable 401s.
+        var (client, _, _) = CreateClient();
+        var headers = AgentSigner.Sign(_agentKey, BodyBytes, path: "/v1/rate");
+
+        var request = new HttpRequestMessage(HttpMethod.Post, "/V1/Rate")
+        {
+            Content = new StringContent(Body, Encoding.UTF8, "application/json"),
+        };
+        request.Headers.Add(AgentSignatureHeaders.DidHeader, headers.AgentDid);
+        request.Headers.Add(AgentSignatureHeaders.SignatureHeader, headers.Signature!);
+        request.Headers.Add(AgentSignatureHeaders.TimestampHeader, headers.Timestamp!);
+        request.Headers.Add(AgentSignatureHeaders.NonceHeader, headers.Nonce!);
+
+        var response = await client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    // --- rate-limit bucketing: an asserted DID must not spend someone else's quota ---
+
+    [Fact]
+    public async Task UnsignedRating_DoesNotSpendTheClaimedAgentsQuota()
+    {
+        // The attack this prevents: send junk unsigned ratings naming a victim's DID until their
+        // bucket is empty, locking the real agent out for an hour.
+        var (client, _, limiter) = CreateClient();
+        var victimDid = AgentSigner.DidKeyFor(_agentKey);
+
+        await client.SendAsync(Request(headers: null, agentDid: victimDid));
+
+        limiter.RatingKeys.Should().ContainSingle();
+        limiter.RatingKeys[0].Should().NotContain(victimDid, "an asserted DID must not key the bucket");
+        limiter.RatingKeys[0].Should().StartWith("ip:");
+    }
+
+    [Fact]
+    public async Task SignedRating_SpendsItsOwnProvenBucket()
+    {
+        var (client, _, limiter) = CreateClient();
+        var did = AgentSigner.DidKeyFor(_agentKey);
+
+        await client.SendAsync(Request(AgentSigner.Sign(_agentKey, BodyBytes)));
+
+        limiter.RatingKeys.Should().ContainSingle();
+        limiter.RatingKeys[0].Should().Be($"agent:{did}:api.example.com");
+    }
+
+    [Fact]
+    public async Task RotatingAnAssertedDid_DoesNotMintFreshQuota()
+    {
+        // Before the buckets were keyed on a proven identity, rotating X-Agent-DID handed the
+        // caller a brand new allowance each time, which made the per-agent limit meaningless.
+        var (client, _, limiter) = CreateClient();
+
+        await client.SendAsync(Request(headers: null, agentDid: "did:web:one.example.com"));
+        await client.SendAsync(Request(headers: null, agentDid: "did:web:two.example.com"));
+
+        limiter.RatingKeys.Should().HaveCount(2);
+        limiter.RatingKeys.Distinct().Should().ContainSingle("both requests share the caller's bucket");
+    }
+
+    [Fact]
+    public async Task ForgedSignature_DoesNotSpendTheVictimsQuota()
+    {
+        // A 401 must be refused before any bucket is touched, otherwise forging is still a way to
+        // drain the victim's allowance.
+        var (client, _, limiter) = CreateClient();
+        using var attackerKey = Key.Create(SignatureAlgorithm.Ed25519);
+        var forged = AgentSigner.Sign(attackerKey, BodyBytes, agentDid: AgentSigner.DidKeyFor(_agentKey));
+
+        var response = await client.SendAsync(Request(forged));
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        limiter.RatingKeys.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task ReplayedSignature_Is401_OnSecondSubmission()
     {
         // Same client, so the nonce store is shared between the two calls.
-        var (client, _) = CreateClient();
+        var (client, _, _) = CreateClient();
         var headers = AgentSigner.Sign(_agentKey, BodyBytes, nonce: "replay-nonce-value");
 
         (await client.SendAsync(Request(headers))).StatusCode.Should().Be(HttpStatusCode.OK);
         var replay = await client.SendAsync(Request(headers));
 
         replay.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+}
+
+internal sealed class CapturingRateLimiter : IRateLimiter
+{
+    private readonly Dictionary<string, int> _counts = new();
+
+    /// <summary>Keys checked by /v1/rate, excluding the per-IP global middleware bucket.</summary>
+    public List<string> RatingKeys { get; } = new();
+
+    public Task<RateLimitResult> CheckAsync(string key, int maxRequests, TimeSpan window)
+    {
+        if (!key.StartsWith("global:", StringComparison.Ordinal))
+            RatingKeys.Add(key);
+
+        _counts.TryGetValue(key, out var count);
+        count++;
+        _counts[key] = count;
+        return Task.FromResult(new RateLimitResult(count <= maxRequests, count, maxRequests));
     }
 }
 
