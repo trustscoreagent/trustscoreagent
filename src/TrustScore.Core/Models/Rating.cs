@@ -11,6 +11,14 @@ public sealed class Rating
     public string? Receipt { get; init; }
     public bool HasReceipt { get; init; }
     public bool ReceiptVerified { get; init; }
+
+    /// <summary>
+    /// True when the submitter proved possession of the key behind <see cref="AgentDid"/>
+    /// (X-Agent-Signature). False means the DID was merely asserted, as every rating written
+    /// before agent signatures existed.
+    /// </summary>
+    public bool SignatureVerified { get; init; }
+
     public double Weight { get; init; } = 0.3;
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
 }

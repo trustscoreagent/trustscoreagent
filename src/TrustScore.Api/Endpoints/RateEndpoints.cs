@@ -9,6 +9,14 @@ public static class RateEndpoints
 {
     private const int MaxRatingsPerHour = 10;
 
+    /// <summary>
+    /// How much an unsigned rating is discounted. Identity and attestation are orthogonal: a
+    /// receipt says the service saw the call, a signature says we know who is reporting it. An
+    /// unsigned rating still counts (existing clients keep working) but only half, because its
+    /// X-Agent-DID is self-asserted and could name any agent.
+    /// </summary>
+    private const double UnsignedIdentityFactor = 0.5;
+
     public static void MapRateEndpoints(this WebApplication app)
     {
         app.MapPost("/v1/rate", async (
@@ -19,6 +27,7 @@ public static class RateEndpoints
             ICacheService cache,
             IRateLimiter rateLimiter,
             IReceiptVerifier receiptVerifier,
+            IAgentSignatureVerifier agentSignatureVerifier,
             IRatingWriter ratingWriter,
             IAgentRepository agentRepo) =>
         {
@@ -58,12 +67,38 @@ public static class RateEndpoints
                     new { error = "rate_limited", message = $"Maximum {MaxRatingsPerHour} ratings per agent per service per hour", remaining = rateLimitResult.Remaining },
                     statusCode: 429);
 
+            // Verify the agent signature, if the caller sent one. Checked after the rate limit so a
+            // flood is cut by the cheap counter before it can drive Ed25519 verifications and nonce
+            // writes, and before the receipt so a forged submitter is rejected without consuming the
+            // receipt's nonce.
+            var signatureResult = await agentSignatureVerifier.VerifyAsync(
+                new AgentSignatureHeaders(
+                    agentDid,
+                    httpContext.Request.Headers[AgentSignatureHeaders.SignatureHeader].FirstOrDefault(),
+                    httpContext.Request.Headers[AgentSignatureHeaders.TimestampHeader].FirstOrDefault(),
+                    httpContext.Request.Headers[AgentSignatureHeaders.NonceHeader].FirstOrDefault()),
+                httpContext.Request.Method,
+                httpContext.Request.Path.Value ?? "/v1/rate",
+                await ReadRawBodyAsync(httpContext.Request));
+
+            // A present-but-bad signature is a hard failure, never a silent downgrade to the
+            // unsigned path: otherwise sending a junk signature would be the cheapest way to keep
+            // impersonating an agent.
+            if (signatureResult.IsRejected)
+            {
+                return Results.Json(
+                    new
+                    {
+                        error = "invalid_agent_signature",
+                        message = "X-Agent-Signature did not verify for this request",
+                        reason = signatureResult.Status.ToString(),
+                    },
+                    statusCode: 401);
+            }
+
             // Verify receipt if provided. Per spec §5, an unverified rating still counts, but at a
             // reduced base weight (0.3); a verified receipt grants full weight (1.0). The base
-            // weight is then scaled by the agent's EigenTrust score (spec §6.2). MVP Sybil
-            // resistance comes from rate limiting + the hourly EigenTrust recompute (a self-
-            // asserted X-Agent-DID converges toward low trust); mandatory per-request agent
-            // signatures (X-Agent-Signature) are a Phase 2 item.
+            // weight is then scaled by the agent's EigenTrust score (spec §6.2).
             var hasReceipt = !string.IsNullOrWhiteSpace(request.Receipt);
             var receiptVerified = false;
             var weight = 0.3;
@@ -80,6 +115,10 @@ public static class RateEndpoints
                 weight = verification.Weight;
                 receiptVerified = verification.IsVerified;
             }
+
+            // Discount the rating if we cannot prove who sent it.
+            if (!signatureResult.IsVerified)
+                weight *= UnsignedIdentityFactor;
 
             // Apply agent trust score (EigenTrust) to rating weight.
             var agentTrust = await agentRepo.GetTrustScoreAsync(agentDid);
@@ -101,6 +140,7 @@ public static class RateEndpoints
                 Receipt = request.Receipt,
                 HasReceipt = hasReceipt,
                 ReceiptVerified = receiptVerified,
+                SignatureVerified = signatureResult.IsVerified,
                 Weight = weight,
             };
 
@@ -128,6 +168,7 @@ public static class RateEndpoints
             {
                 accepted = true,
                 rating_weight = receiptVerified ? "verified" : "unverified",
+                agent_identity = signatureResult.IsVerified ? "signed" : "unsigned",
                 new_score = score.Score,
             });
         })
@@ -135,9 +176,29 @@ public static class RateEndpoints
         .WithTags("Rating")
         .Produces(200)
         .Produces(400)
+        .Produces(401)
         .Produces(429)
         .WithSummary("Submit a rating for a microservice")
-        .WithDescription("Rate a microservice after calling it. Provide technical metrics from your interaction. Include the receipt from the X-Trust-Receipt header if the service provided one for higher rating weight.");
+        .WithDescription("Rate a microservice after calling it. Provide technical metrics from your interaction. Include the receipt from the X-Trust-Receipt header if the service provided one for higher rating weight. Sign the request with your agent key (X-Agent-Signature) so the rating is attributed to you rather than merely claimed; unsigned ratings are accepted at reduced weight.");
+    }
+
+    /// <summary>
+    /// Re-reads the raw request body, which model binding has already consumed. Returns the exact
+    /// bytes the signature covers, so it must not be a re-serialisation of the parsed model.
+    /// </summary>
+    private static async Task<byte[]> ReadRawBodyAsync(HttpRequest request)
+    {
+        // Buffering is enabled upstream for this route only. If it somehow was not, fail closed:
+        // an empty body yields a different hash, so a signed request is rejected rather than
+        // accepted on an unverified body. Unsigned requests are unaffected.
+        if (!request.Body.CanSeek)
+            return Array.Empty<byte>();
+
+        request.Body.Position = 0;
+        using var buffer = new MemoryStream();
+        await request.Body.CopyToAsync(buffer);
+        request.Body.Position = 0;
+        return buffer.ToArray();
     }
 }
 
