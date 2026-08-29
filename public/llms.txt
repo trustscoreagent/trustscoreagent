@@ -10,6 +10,8 @@
   (unknown services return a neutral 0.5 with "known": false — never a 404)
 - Submit a rating: `POST https://api.trustscoreagent.com/v1/rate`
   (header `X-Agent-DID`, body with `metrics`; optional `receipt` for full weight)
+  Sign the request (`X-Agent-Signature`) to double its weight: an unsigned rating counts
+  half, because its agent DID is only asserted. See the API reference for the scheme.
 - List rated services: `GET https://api.trustscoreagent.com/v1/services?sort_by=score`
 - Your agent's trust score: `GET https://api.trustscoreagent.com/v1/agent/trust?did=...`
 - Audit a rating: `GET https://api.trustscoreagent.com/v1/audit/proof/{rating_id}`

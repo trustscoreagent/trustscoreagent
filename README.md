@@ -5,7 +5,7 @@ Free, open reputation registry for AI microservices. Agents check trust scores b
 > **Status: Phase 1 (early).** The API, scoring (Beta + EigenTrust), receipt verification,
 > Merkle audit trail and MCP server are implemented and tested — but the public dataset is
 > still small, some services (`*.example.com`) are demo seed data, and parts of the design
-> (on-chain anchoring, x402 payments, mandatory agent signatures) are Phase 2. We publish
+> (on-chain anchoring, x402 payments, *mandatory* agent signatures) are Phase 2. We publish
 > early and openly on purpose: the trust layer for the agentic economy should exist, be
 > auditable, and be adoptable *before* it becomes critical. See the trust model in
 > [SECURITY.md](SECURITY.md).
@@ -150,9 +150,12 @@ TrustScoreAgent is **Phase 1 (early)**. What that means in practice:
   fictitious `*.example.com` seeds have been removed.)
 - **Single operator.** Neutrality currently rests on open-source scoring code and a
   verifiable Merkle audit trail, not on decentralization. Federation is a later phase.
-- **Agent identity is self-asserted.** Sybil resistance in Phase 1 is rate limiting +
-  hourly EigenTrust; verified service **receipts** are the trustworthy signal. Mandatory
-  agent signatures and on-chain Merkle anchoring are Phase 2.
+- **Agent identity can be proven, but is not yet mandatory.** Agents identified by a
+  `did:key` sign each rating with their Ed25519 key (`X-Agent-Signature`), which binds the
+  rating to the holder of that key. Unsigned ratings still count at half weight so existing
+  clients keep working, which means a rating is only as attributable as its signature.
+  Verified service **receipts** remain the strongest signal, and on-chain Merkle anchoring
+  is still Phase 2.
 
 See [SECURITY.md](SECURITY.md) for the full trust model and how to report vulnerabilities.
 

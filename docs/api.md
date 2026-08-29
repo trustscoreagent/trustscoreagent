@@ -71,8 +71,16 @@ Submit a rating after calling a service.
 ```
 POST /v1/rate
 Content-Type: application/json
-X-Agent-DID: did:web:my-agent.example.com      # required
+X-Agent-DID: did:key:z6Mk...                   # required
+X-Agent-Signature: <base64url Ed25519>         # optional, doubles the rating's weight
+X-Agent-Timestamp: 2026-08-29T12:00:00Z        # required if signing
+X-Agent-Nonce: <random, 8-100 chars>           # required if signing
 ```
+
+Signing is optional but strongly recommended: see
+[Signing a rating](#signing-a-rating) below. An unsigned rating is accepted at **half
+weight**, because its `X-Agent-DID` is merely asserted. A signature that is present but
+does not verify is rejected with `401`.
 
 ```json
 {
@@ -103,15 +111,58 @@ X-Agent-DID: did:web:my-agent.example.com      # required
 **Response 200**
 
 ```json
-{ "accepted": true, "rating_weight": "verified", "new_score": 0.87 }
+{ "accepted": true, "rating_weight": "verified", "agent_identity": "signed", "new_score": 0.87 }
 ```
 
 `rating_weight` is `verified` (valid receipt) or `unverified` (no/invalid receipt).
-A verified rating carries full weight (1.0); an unverified one carries 0.3. The base
-weight is then scaled by the rater's agent trust score.
+`agent_identity` is `signed` or `unsigned`.
+
+The two are independent: a receipt says the *service* saw the call, a signature says we know
+*who is reporting it*. Weights combine as:
+
+| | signed | unsigned |
+|---|---|---|
+| **receipt verified** | 1.0 | 0.5 |
+| **no receipt** | 0.3 | 0.15 |
+
+The result is then scaled by the rater's agent trust score (EigenTrust).
 
 **Errors:** `400` (validation, including `nonce_replay` for a reused receipt),
-`429` (rate limit: max 10 ratings per agent per service per hour).
+`401` (`invalid_agent_signature`), `429` (rate limit: max 10 ratings per agent per service
+per hour).
+
+### Signing a rating
+
+Generate an Ed25519 keypair and publish nothing: your DID *is* your public key, encoded as a
+`did:key` (base58btc of the `0xED01` multicodec prefix followed by the 32-byte key).
+
+Sign these seven fields, joined by `\n`:
+
+```
+trustscore-v1
+POST
+/v1/rate
+did:key:z6Mk...
+2026-08-29T12:00:00.000Z
+<nonce>
+<sha256(request body), lowercase hex>
+```
+
+Send the signature base64url-encoded in `X-Agent-Signature`, with the same timestamp and
+nonce you signed.
+
+Details that matter in practice:
+
+- **Hash the exact bytes you send.** Serialise the body once and reuse that string. Signing
+  a re-serialised copy is the most common way this fails, and it surfaces only as a `401`.
+- The signature is bound to method, path and body, so it authorises that one request.
+- The nonce is single-use (10 minute window) and scoped to your DID.
+- The timestamp must be within 5 minutes, and not more than 1 minute in the future.
+- `trustscore-v1` is domain separation: it stops a signature made for another purpose from
+  verifying here, and a future `v2` can change the scheme without a flag day.
+
+The [MCP server](https://www.npmjs.com/package/@trustscoreagent/mcp-server) does all of this
+for you and stores its key in `~/.trustscoreagent/agent-key.pem`.
 
 ---
 
@@ -136,11 +187,11 @@ GET /v1/services?sort_by=score&order=desc&min_score=0.7&min_ratings=10&limit=20&
 
 ## GET /v1/agent/trust
 
-Look up an agent's EigenTrust score by DID. Note: this endpoint is currently unauthenticated, so
-any DID can be queried; binding it to proof-of-DID-possession is a Phase 2 item.
+Look up an agent's EigenTrust score by DID. This endpoint is read-only and unauthenticated, so
+any DID can be queried; trust scores are public by design.
 
 ```
-GET /v1/agent/trust?did=did:web:my-agent.example.com
+GET /v1/agent/trust?did=did:key:z6Mk...
 ```
 
 **Response 200**
