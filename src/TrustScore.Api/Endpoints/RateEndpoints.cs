@@ -10,6 +10,14 @@ public static class RateEndpoints
     private const int MaxRatingsPerHour = 10;
 
     /// <summary>
+    /// The canonical route, and the exact string clients sign. Routing is case-insensitive, so the
+    /// raw request path is whatever spelling the caller (or a proxy) used; signing that instead
+    /// would reject a valid signature sent to <c>/V1/Rate</c>. Binding to this constant still ties
+    /// a signature to this one endpoint, because no other endpoint verifies against it.
+    /// </summary>
+    public const string RatePath = "/v1/rate";
+
+    /// <summary>
     /// How much an unsigned rating is discounted. Identity and attestation are orthogonal: a
     /// receipt says the service saw the call, a signature says we know who is reporting it. An
     /// unsigned rating still counts (existing clients keep working) but only half, because its
@@ -59,17 +67,12 @@ public static class RateEndpoints
             if (agentDid.Length > 500)
                 return Results.BadRequest(new { error = "invalid_agent_did", message = "X-Agent-DID too long" });
 
-            // Rate limiting via Redis
-            var rateLimitKey = $"{agentDid}:{serviceId}";
-            var rateLimitResult = await rateLimiter.CheckAsync(rateLimitKey, MaxRatingsPerHour, TimeSpan.FromHours(1));
-            if (!rateLimitResult.Allowed)
-                return Results.Json(
-                    new { error = "rate_limited", message = $"Maximum {MaxRatingsPerHour} ratings per agent per service per hour", remaining = rateLimitResult.Remaining },
-                    statusCode: 429);
-
-            // Verify the agent signature, if the caller sent one. Checked after the rate limit so a
-            // flood is cut by the cheap counter before it can drive Ed25519 verifications and nonce
-            // writes, and before the receipt so a forged submitter is rejected without consuming the
+            // Verify the agent signature BEFORE the per-agent rate limit, so that limit can be keyed
+            // on an identity that was proven rather than one that was merely claimed. Running the
+            // crypto ahead of the counter is safe: GlobalRateLimitMiddleware already caps every
+            // caller at 120 requests/minute per IP, which bounds both the Ed25519 verification
+            // (microseconds) and the single nonce write a request can trigger. It also stays ahead
+            // of receipt verification, so a forged submitter is rejected without consuming the
             // receipt's nonce.
             var signatureResult = await agentSignatureVerifier.VerifyAsync(
                 new AgentSignatureHeaders(
@@ -78,7 +81,7 @@ public static class RateEndpoints
                     httpContext.Request.Headers[AgentSignatureHeaders.TimestampHeader].FirstOrDefault(),
                     httpContext.Request.Headers[AgentSignatureHeaders.NonceHeader].FirstOrDefault()),
                 httpContext.Request.Method,
-                httpContext.Request.Path.Value ?? "/v1/rate",
+                RatePath,
                 await ReadRawBodyAsync(httpContext.Request));
 
             // A present-but-bad signature is a hard failure, never a silent downgrade to the
@@ -95,6 +98,26 @@ public static class RateEndpoints
                     },
                     statusCode: 401);
             }
+
+            // Rate limit on an identity we can hold responsible. The DID keys the bucket only when
+            // it was proven: keying an unsigned request on its asserted X-Agent-DID would let anyone
+            // lock a real agent out for an hour by sending junk ratings in its name. Unsigned callers
+            // are bucketed by IP instead, so they can only spend their own quota, and rotating the
+            // claimed DID no longer mints a fresh allowance.
+            var (rateLimitKey, rateLimitScope) = signatureResult.IsVerified
+                ? ($"agent:{agentDid}:{serviceId}", "agent")
+                : ($"ip:{httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown"}:{serviceId}", "caller");
+
+            var rateLimitResult = await rateLimiter.CheckAsync(rateLimitKey, MaxRatingsPerHour, TimeSpan.FromHours(1));
+            if (!rateLimitResult.Allowed)
+                return Results.Json(
+                    new
+                    {
+                        error = "rate_limited",
+                        message = $"Maximum {MaxRatingsPerHour} ratings per {rateLimitScope} per service per hour",
+                        remaining = rateLimitResult.Remaining,
+                    },
+                    statusCode: 429);
 
             // Verify receipt if provided. Per spec §5, an unverified rating still counts, but at a
             // reduced base weight (0.3); a verified receipt grants full weight (1.0). The base

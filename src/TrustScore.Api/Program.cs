@@ -209,7 +209,7 @@ app.UseMiddleware<GlobalRateLimitMiddleware>();
 app.Use(async (context, next) =>
 {
     if (HttpMethods.IsPost(context.Request.Method)
-        && context.Request.Path.StartsWithSegments("/v1/rate"))
+        && context.Request.Path.StartsWithSegments(RateEndpoints.RatePath))
     {
         context.Request.EnableBuffering();
     }
