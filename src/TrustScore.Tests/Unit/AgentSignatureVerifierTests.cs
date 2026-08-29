@@ -5,6 +5,7 @@ using NSec.Cryptography;
 using TrustScore.Api.Receipts;
 using TrustScore.Core.Models;
 using TrustScore.Tests.Integration;
+using TrustScore.Tests.TestSupport;
 using Xunit;
 
 namespace TrustScore.Tests.Unit;
@@ -27,12 +28,7 @@ public class AgentSignatureVerifierTests
     private static AgentSignatureVerifier CreateVerifier(FakeCacheService? cache = null)
         => new(cache ?? new FakeCacheService(), NullLogger<AgentSignatureVerifier>.Instance);
 
-    /// <summary>Builds the did:key for a keypair: base58btc of 0xED01 + the raw public key.</summary>
-    private static string DidKeyFor(Key key)
-    {
-        var raw = key.PublicKey.Export(KeyBlobFormat.RawPublicKey);
-        return "did:key:z" + Base58Encode(new byte[] { 0xED, 0x01 }.Concat(raw).ToArray());
-    }
+    private static string DidKeyFor(Key key) => AgentSigner.DidKeyFor(key);
 
     private AgentSignatureHeaders Sign(
         Key? signingKey = null,
@@ -42,16 +38,14 @@ public class AgentSignatureVerifierTests
         byte[]? body = null,
         string method = Method,
         string path = Path)
-    {
-        var did = agentDid ?? AgentDid;
-        var ts = (timestamp ?? DateTimeOffset.UtcNow).ToString("o");
-        var n = nonce ?? Guid.NewGuid().ToString("N");
-
-        var payload = AgentSignaturePayload.CanonicalBytes(method, path, did, ts, n, body ?? Body);
-        var signature = SignatureAlgorithm.Ed25519.Sign(signingKey ?? _agentKey, payload);
-
-        return new AgentSignatureHeaders(did, B64Url(signature), ts, n);
-    }
+        => AgentSigner.Sign(
+            signingKey ?? _agentKey,
+            body ?? Body,
+            method,
+            path,
+            agentDid ?? AgentDid,
+            timestamp,
+            nonce);
 
     // --- happy path ---
 
@@ -294,24 +288,4 @@ public class AgentSignatureVerifierTests
             .Be("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
     }
 
-    private static string B64Url(byte[] bytes)
-        => Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
-
-    private static string Base58Encode(byte[] data)
-    {
-        const string alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
-        var value = new System.Numerics.BigInteger(data, isUnsigned: true, isBigEndian: true);
-        var sb = new StringBuilder();
-        while (value > 0)
-        {
-            value = System.Numerics.BigInteger.DivRem(value, 58, out var remainder);
-            sb.Insert(0, alphabet[(int)remainder]);
-        }
-        foreach (var b in data)
-        {
-            if (b != 0) break;
-            sb.Insert(0, '1');
-        }
-        return sb.ToString();
-    }
 }

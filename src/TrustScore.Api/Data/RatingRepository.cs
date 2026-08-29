@@ -21,10 +21,12 @@ public sealed class RatingRepository : IRatingRepository
         """
         INSERT INTO ratings (id, service_did, agent_did,
             status_code, latency_ms, response_size_bytes, schema_valid,
-            quality_score, comment, has_receipt, receipt_verified, weight, created_at, merkle_leaf_hash)
+            quality_score, comment, has_receipt, receipt_verified, signature_verified,
+            weight, created_at, merkle_leaf_hash)
         VALUES (@Id, @ServiceDid, @AgentDid,
             @StatusCode, @LatencyMs, @ResponseSizeBytes, @SchemaValid,
-            @QualityScore, @Comment, @HasReceipt, @ReceiptVerified, @Weight, @CreatedAt, @MerkleLeafHash)
+            @QualityScore, @Comment, @HasReceipt, @ReceiptVerified, @SignatureVerified,
+            @Weight, @CreatedAt, @MerkleLeafHash)
         """;
 
     // PostgreSQL TIMESTAMPTZ has microsecond resolution, but .NET ticks are 100 ns, so a raw
@@ -52,6 +54,7 @@ public sealed class RatingRepository : IRatingRepository
             rating.Comment,
             rating.HasReceipt,
             rating.ReceiptVerified,
+            rating.SignatureVerified,
             rating.Weight,
             CreatedAt = createdAt,
             MerkleLeafHash = leafHash,

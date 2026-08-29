@@ -201,6 +201,22 @@ app.Use(async (context, next) =>
 app.UseCors();
 app.UseMiddleware<GlobalRateLimitMiddleware>();
 
+// An agent signature covers a hash of the raw request body, so /v1/rate has to read those bytes
+// after model binding has already consumed the stream. EnableBuffering makes the body re-readable;
+// it must run before anything touches it, hence a middleware rather than a line in the handler.
+// Scoped to that one route so no other endpoint pays for the buffering, and bounded by Kestrel's
+// 1 MB MaxRequestBodySize above.
+app.Use(async (context, next) =>
+{
+    if (HttpMethods.IsPost(context.Request.Method)
+        && context.Request.Path.StartsWithSegments("/v1/rate"))
+    {
+        context.Request.EnableBuffering();
+    }
+
+    await next();
+});
+
 // Serve the machine-readable OpenAPI document everywhere (discoverability is a core
 // design goal — agents/frameworks consume /swagger/v1/swagger.json). The interactive
 // Swagger UI stays dev-only to keep the production surface minimal.
