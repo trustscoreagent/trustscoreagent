@@ -58,7 +58,11 @@ public sealed class SeedProber
 
         // The probe rates as a single transparent agent; its weight is the normal unverified
         // weight scaled by its own EigenTrust score (no special privilege).
-        var agentTrust = await _agentRepo.GetTrustScoreAsync(_options.AgentDid);
+        // The probe's ratings are written straight to the store, so they carry no request signature
+        // and accrue trust under the namespaced identity. Look that one up, not the bare DID, or the
+        // probe would permanently read the default score instead of the one it earns.
+        var agentTrust = await _agentRepo.GetTrustScoreAsync(
+            TrustIdentity.For(_options.AgentDid, signatureVerified: false));
         var client = _httpClientFactory.CreateClient(HttpClientName);
 
         int recorded = 0, errors = 0;

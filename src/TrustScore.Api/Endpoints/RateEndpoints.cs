@@ -144,8 +144,11 @@ public static class RateEndpoints
             if (!signatureResult.IsVerified)
                 weight *= UnsignedIdentityFactor;
 
-            // Apply agent trust score (EigenTrust) to rating weight.
-            var agentTrust = await agentRepo.GetTrustScoreAsync(agentDid);
+            // Apply agent trust score (EigenTrust) to rating weight. The lookup uses the identity
+            // this rating actually accrues under: an unsigned rating must not borrow the standing
+            // of the DID it names, or naming a reputable agent would be a free weight multiplier.
+            var agentTrust = await agentRepo.GetTrustScoreAsync(
+                TrustIdentity.For(agentDid, signatureResult.IsVerified));
             weight *= agentTrust;
 
             var rating = new Rating

@@ -184,7 +184,8 @@ public sealed class RatingRepository : IRatingRepository
                    status_code AS StatusCode,
                    latency_ms AS LatencyMs,
                    schema_valid AS SchemaValid,
-                   receipt_verified AS ReceiptVerified
+                   receipt_verified AS ReceiptVerified,
+                   signature_verified AS SignatureVerified
             FROM ratings
             WHERE created_at > NOW() - INTERVAL '90 days'
             ORDER BY created_at DESC

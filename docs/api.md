@@ -200,6 +200,10 @@ GET /v1/services?sort_by=score&order=desc&min_score=0.7&min_ratings=10&limit=20&
 Look up an agent's EigenTrust score by DID. This endpoint is read-only and unauthenticated, so
 any DID can be queried; trust scores are public by design.
 
+The score returned for a DID reflects only ratings that were **signed** by it. Unsigned
+ratings naming that DID accumulate separately (under `unsigned:<did>`) and cannot move it,
+so nobody can raise or damage your standing by rating in your name.
+
 ```
 GET /v1/agent/trust?did=did:key:z6Mk...
 ```

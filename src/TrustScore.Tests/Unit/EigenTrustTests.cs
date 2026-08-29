@@ -22,7 +22,7 @@ public class EigenTrustTests
     {
         var ratings = new List<AgentRatingRecord>
         {
-            new("agent-a", "service-1", 200, 100, true, false),
+            new("agent-a", "service-1", 200, 100, true, false, SignatureVerified: true),
         };
 
         var result = _engine.ComputeTrustScores(ratings);
@@ -42,11 +42,11 @@ public class EigenTrustTests
         // 3 honest agents rate 10 services consistently
         for (int h = 0; h < 3; h++)
             for (int i = 0; i < 10; i++)
-                ratings.Add(new($"honest-{h}", $"service-{i}", 200, 100, true, true));
+                ratings.Add(new($"honest-{h}", $"service-{i}", 200, 100, true, true, SignatureVerified: true));
 
         // 1 dishonest agent rates same services inconsistently
         for (int i = 0; i < 10; i++)
-            ratings.Add(new("dishonest", $"service-{i}", 500, 5000, false, false));
+            ratings.Add(new("dishonest", $"service-{i}", 500, 5000, false, false, SignatureVerified: true));
 
         var result = _engine.ComputeTrustScores(ratings);
 
@@ -62,11 +62,11 @@ public class EigenTrustTests
 
         // Agent A has verified ratings (receipts)
         for (int i = 0; i < 10; i++)
-            ratings.Add(new("agent-a", $"service-{i}", 200, 100, true, true));
+            ratings.Add(new("agent-a", $"service-{i}", 200, 100, true, true, SignatureVerified: true));
 
         // Agent B has unverified ratings
         for (int i = 0; i < 10; i++)
-            ratings.Add(new("agent-b", $"service-{i}", 200, 100, true, false));
+            ratings.Add(new("agent-b", $"service-{i}", 200, 100, true, false, SignatureVerified: true));
 
         var result = _engine.ComputeTrustScores(ratings);
 
@@ -82,13 +82,13 @@ public class EigenTrustTests
         // 3 honest agents rating 10 services consistently
         for (int h = 0; h < 3; h++)
             for (int i = 0; i < 10; i++)
-                ratings.Add(new($"honest-{h}", $"service-{i}", 200, 100, true, true));
+                ratings.Add(new($"honest-{h}", $"service-{i}", 200, 100, true, true, SignatureVerified: true));
 
         // 10 Sybil agents all rating 1 specific service with fake high scores
         // (claiming 200 when consensus says otherwise)
         // They only rate "sybil-target" and nothing else
         for (int s = 0; s < 10; s++)
-            ratings.Add(new($"sybil-{s}", "sybil-target", 200, 50, true, false));
+            ratings.Add(new($"sybil-{s}", "sybil-target", 200, 50, true, false, SignatureVerified: true));
 
         var result = _engine.ComputeTrustScores(ratings);
 
@@ -154,8 +154,8 @@ public class EigenTrustTests
     {
         var ratings = new List<AgentRatingRecord>
         {
-            new("agent-a", "service-1", 200, 100, true, false),
-            new("agent-b", "service-1", 200, 100, true, false),
+            new("agent-a", "service-1", 200, 100, true, false, SignatureVerified: true),
+            new("agent-b", "service-1", 200, 100, true, false, SignatureVerified: true),
         };
 
         var result = _engine.ComputeTrustScores(ratings);
