@@ -30,17 +30,41 @@ public sealed class AgentSignatureVerifier : IAgentSignatureVerifier
     private const int MaxNonceLength = 100;
     private const int MaxTimestampLength = 40;
 
+    /// <summary>
+    /// Configuration key for this registry's canonical host. Set it in any deployment that other
+    /// instances could relay signatures to: without it the audience falls back to the request's own
+    /// Host header, which an attacker relaying a captured signature controls, so the binding stops
+    /// being a defence.
+    /// </summary>
+    public const string AudienceConfigKey = "AgentSignature:Audience";
+
     private readonly ICacheService _cache;
     private readonly ILogger<AgentSignatureVerifier> _logger;
+    private readonly string? _configuredAudience;
 
-    public AgentSignatureVerifier(ICacheService cache, ILogger<AgentSignatureVerifier> logger)
+    public AgentSignatureVerifier(
+        ICacheService cache,
+        IConfiguration configuration,
+        ILogger<AgentSignatureVerifier> logger)
     {
         _cache = cache;
         _logger = logger;
+        _configuredAudience = configuration[AudienceConfigKey] is { Length: > 0 } audience
+            ? audience.ToLowerInvariant()
+            : null;
+
+        if (_configuredAudience is null)
+        {
+            _logger.LogWarning(
+                "{Key} is not configured; agent signatures fall back to the request Host, so a " +
+                "signature captured by another registry could be relayed to this one.",
+                AudienceConfigKey);
+        }
     }
 
     public async Task<AgentSignatureResult> VerifyAsync(
         AgentSignatureHeaders headers,
+        string requestHost,
         string httpMethod,
         string requestPath,
         byte[] body)
@@ -106,7 +130,11 @@ public sealed class AgentSignatureVerifier : IAgentSignatureVerifier
         {
             var algorithm = SignatureAlgorithm.Ed25519;
             var publicKey = PublicKey.Import(algorithm, publicKeyBytes, KeyBlobFormat.RawPublicKey);
+            // The audience is this registry's own identity, never a value taken from the request
+            // when one is configured. A signature addressed to a different registry therefore
+            // produces a different signing input and fails here, with no explicit comparison.
             var signedData = AgentSignaturePayload.CanonicalBytes(
+                _configuredAudience ?? requestHost,
                 httpMethod, requestPath, headers.AgentDid, headers.Timestamp, headers.Nonce, body);
 
             if (!algorithm.Verify(publicKey, signedData, signatureBytes))

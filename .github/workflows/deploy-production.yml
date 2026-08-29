@@ -132,7 +132,10 @@ jobs:
             # check keeps one instance warm cheaply. Bump --min-instances to 1-2 by hand
             # for a launch/traffic spike, then let the next deploy reset it to 0.
             --min-instances 0 --max-instances 10 --concurrency 200 --cpu 1 --memory 512Mi
-            --set-env-vars "ASPNETCORE_ENVIRONMENT=Production"
+            # The canonical host agents address their signatures to. Without it the audience falls
+            # back to the request's Host header, which an attacker relaying a signature captured by
+            # another (self-hosted) registry controls, defeating the binding.
+            --set-env-vars "ASPNETCORE_ENVIRONMENT=Production,AgentSignature__Audience=api.trustscoreagent.com"
             --set-secrets "ConnectionStrings__PostgreSQL=db-connection-string:latest,ConnectionStrings__Redis=redis-connection-string:latest,AdminApiKey=admin-api-key:latest"
             --add-cloudsql-instances "${{ secrets.GCP_PROJECT_ID }}:europe-west1:trustscoreagent-db"
             --quiet

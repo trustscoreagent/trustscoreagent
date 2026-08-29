@@ -80,6 +80,7 @@ public static class RateEndpoints
                     httpContext.Request.Headers[AgentSignatureHeaders.SignatureHeader].FirstOrDefault(),
                     httpContext.Request.Headers[AgentSignatureHeaders.TimestampHeader].FirstOrDefault(),
                     httpContext.Request.Headers[AgentSignatureHeaders.NonceHeader].FirstOrDefault()),
+                httpContext.Request.Host.Value ?? string.Empty,
                 httpContext.Request.Method,
                 RatePath,
                 await ReadRawBodyAsync(httpContext.Request));

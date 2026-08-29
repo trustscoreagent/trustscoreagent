@@ -136,10 +136,11 @@ per hour).
 Generate an Ed25519 keypair and publish nothing: your DID *is* your public key, encoded as a
 `did:key` (base58btc of the `0xED01` multicodec prefix followed by the 32-byte key).
 
-Sign these seven fields, joined by `\n`:
+Sign these eight fields, joined by `\n`:
 
 ```
 trustscore-v1
+api.trustscoreagent.com
 POST
 /v1/rate
 did:key:z6Mk...
@@ -148,6 +149,9 @@ did:key:z6Mk...
 <sha256(request body), lowercase hex>
 ```
 
+The second field is the **audience**: the host of the registry you are addressing,
+lowercased (`new URL(apiBaseUrl).host` in JavaScript).
+
 Send the signature base64url-encoded in `X-Agent-Signature`, with the same timestamp and
 nonce you signed.
 
@@ -155,6 +159,12 @@ Details that matter in practice:
 
 - **Hash the exact bytes you send.** Serialise the body once and reuse that string. Signing
   a re-serialised copy is the most common way this fails, and it surfaces only as a `401`.
+- **Address the audience to the registry you are actually calling.** This registry is
+  self-hostable, so signing without it would let the operator of one instance relay the
+  signatures its users produce to another instance and forge ratings in their name. If you
+  self-host, set `AgentSignature:Audience` (env `AgentSignature__Audience`) to your canonical
+  host; leaving it unset falls back to the request's `Host` header, which an attacker
+  relaying a signature controls.
 - The signature is bound to method, path and body, so it authorises that one request.
 - The nonce is single-use (10 minute window) and scoped to your DID.
 - The timestamp must be within 5 minutes, and not more than 1 minute in the future.

@@ -1,5 +1,6 @@
 using System.Text;
 using FluentAssertions;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSec.Cryptography;
 using TrustScore.Api.Receipts;
@@ -19,14 +20,26 @@ public class AgentSignatureVerifierTests
 {
     private const string Method = "POST";
     private const string Path = "/v1/rate";
+    private const string Audience = AgentSigner.TestAudience;
     private static readonly byte[] Body = Encoding.UTF8.GetBytes("""{"service":"api.example.com"}""");
 
     private readonly Key _agentKey = Key.Create(SignatureAlgorithm.Ed25519);
 
     private string AgentDid => DidKeyFor(_agentKey);
 
-    private static AgentSignatureVerifier CreateVerifier(FakeCacheService? cache = null)
-        => new(cache ?? new FakeCacheService(), NullLogger<AgentSignatureVerifier>.Instance);
+    private static AgentSignatureVerifier CreateVerifier(
+        FakeCacheService? cache = null, string? configuredAudience = null)
+    {
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                [AgentSignatureVerifier.AudienceConfigKey] = configuredAudience,
+            })
+            .Build();
+
+        return new AgentSignatureVerifier(
+            cache ?? new FakeCacheService(), config, NullLogger<AgentSignatureVerifier>.Instance);
+    }
 
     private static string DidKeyFor(Key key) => AgentSigner.DidKeyFor(key);
 
@@ -37,7 +50,8 @@ public class AgentSignatureVerifierTests
         string? nonce = null,
         byte[]? body = null,
         string method = Method,
-        string path = Path)
+        string path = Path,
+        string audience = Audience)
         => AgentSigner.Sign(
             signingKey ?? _agentKey,
             body ?? Body,
@@ -45,14 +59,15 @@ public class AgentSignatureVerifierTests
             path,
             agentDid ?? AgentDid,
             timestamp,
-            nonce);
+            nonce,
+            audience);
 
     // --- happy path ---
 
     [Fact]
     public async Task ValidSignature_IsVerified()
     {
-        var result = await CreateVerifier().VerifyAsync(Sign(), Method, Path, Body);
+        var result = await CreateVerifier().VerifyAsync(Sign(), Audience, Method, Path, Body);
 
         result.IsVerified.Should().BeTrue();
         result.Status.Should().Be(AgentSignatureStatus.Valid);
@@ -66,7 +81,7 @@ public class AgentSignatureVerifierTests
         // A legacy unsigned client must keep working, at whatever weight the endpoint decides.
         var headers = new AgentSignatureHeaders("did:key:zSomething", null, null, null);
 
-        var result = await CreateVerifier().VerifyAsync(headers, Method, Path, Body);
+        var result = await CreateVerifier().VerifyAsync(headers, Audience, Method, Path, Body);
 
         result.Status.Should().Be(AgentSignatureStatus.Missing);
         result.IsRejected.Should().BeFalse();
@@ -79,7 +94,7 @@ public class AgentSignatureVerifierTests
         var signed = Sign();
         var headers = signed with { Nonce = null };
 
-        var result = await CreateVerifier().VerifyAsync(headers, Method, Path, Body);
+        var result = await CreateVerifier().VerifyAsync(headers, Audience, Method, Path, Body);
 
         result.Status.Should().Be(AgentSignatureStatus.Malformed);
         result.IsRejected.Should().BeTrue();
@@ -94,7 +109,7 @@ public class AgentSignatureVerifierTests
         // Attacker signs correctly, but claims the victim's DID.
         var headers = Sign(signingKey: attackerKey, agentDid: AgentDid);
 
-        var result = await CreateVerifier().VerifyAsync(headers, Method, Path, Body);
+        var result = await CreateVerifier().VerifyAsync(headers, Audience, Method, Path, Body);
 
         result.Status.Should().Be(AgentSignatureStatus.InvalidSignature);
     }
@@ -105,7 +120,7 @@ public class AgentSignatureVerifierTests
         var headers = Sign(body: Body);
         var tampered = Encoding.UTF8.GetBytes("""{"service":"evil.example.com"}""");
 
-        var result = await CreateVerifier().VerifyAsync(headers, Method, Path, tampered);
+        var result = await CreateVerifier().VerifyAsync(headers, Audience, Method, Path, tampered);
 
         result.Status.Should().Be(AgentSignatureStatus.InvalidSignature);
     }
@@ -118,7 +133,7 @@ public class AgentSignatureVerifierTests
         // A signature captured for POST /v1/rate must not authorise a different request.
         var headers = Sign(method: Method, path: Path);
 
-        var result = await CreateVerifier().VerifyAsync(headers, method, path, Body);
+        var result = await CreateVerifier().VerifyAsync(headers, Audience, method, path, Body);
 
         result.Status.Should().Be(AgentSignatureStatus.InvalidSignature);
     }
@@ -129,7 +144,7 @@ public class AgentSignatureVerifierTests
         // Shifting the timestamp to extend freshness breaks the signature it was signed under.
         var headers = Sign() with { Timestamp = DateTimeOffset.UtcNow.AddMinutes(-1).ToString("o") };
 
-        var result = await CreateVerifier().VerifyAsync(headers, Method, Path, Body);
+        var result = await CreateVerifier().VerifyAsync(headers, Audience, Method, Path, Body);
 
         result.Status.Should().Be(AgentSignatureStatus.InvalidSignature);
     }
@@ -141,7 +156,7 @@ public class AgentSignatureVerifierTests
     {
         var headers = Sign(timestamp: DateTimeOffset.UtcNow.AddMinutes(-10));
 
-        var result = await CreateVerifier().VerifyAsync(headers, Method, Path, Body);
+        var result = await CreateVerifier().VerifyAsync(headers, Audience, Method, Path, Body);
 
         result.Status.Should().Be(AgentSignatureStatus.TimestampExpired);
     }
@@ -152,7 +167,7 @@ public class AgentSignatureVerifierTests
         // A future-dated signature would stay valid long after its nonce entry expired.
         var headers = Sign(timestamp: DateTimeOffset.UtcNow.AddMinutes(10));
 
-        var result = await CreateVerifier().VerifyAsync(headers, Method, Path, Body);
+        var result = await CreateVerifier().VerifyAsync(headers, Audience, Method, Path, Body);
 
         result.Status.Should().Be(AgentSignatureStatus.TimestampExpired);
     }
@@ -162,7 +177,7 @@ public class AgentSignatureVerifierTests
     {
         var headers = Sign(timestamp: DateTimeOffset.UtcNow.AddSeconds(30));
 
-        var result = await CreateVerifier().VerifyAsync(headers, Method, Path, Body);
+        var result = await CreateVerifier().VerifyAsync(headers, Audience, Method, Path, Body);
 
         result.IsVerified.Should().BeTrue();
     }
@@ -176,8 +191,8 @@ public class AgentSignatureVerifierTests
         var verifier = CreateVerifier(cache);
         var headers = Sign(nonce: "fixed-nonce-value");
 
-        (await verifier.VerifyAsync(headers, Method, Path, Body)).IsVerified.Should().BeTrue();
-        var replay = await verifier.VerifyAsync(headers, Method, Path, Body);
+        (await verifier.VerifyAsync(headers, Audience, Method, Path, Body)).IsVerified.Should().BeTrue();
+        var replay = await verifier.VerifyAsync(headers, Audience, Method, Path, Body);
 
         replay.Status.Should().Be(AgentSignatureStatus.NonceAlreadyUsed);
     }
@@ -192,8 +207,8 @@ public class AgentSignatureVerifierTests
         var mine = Sign(nonce: "shared-nonce-value");
         var theirs = Sign(signingKey: otherKey, agentDid: DidKeyFor(otherKey), nonce: "shared-nonce-value");
 
-        (await verifier.VerifyAsync(mine, Method, Path, Body)).IsVerified.Should().BeTrue();
-        (await verifier.VerifyAsync(theirs, Method, Path, Body)).IsVerified.Should().BeTrue();
+        (await verifier.VerifyAsync(mine, Audience, Method, Path, Body)).IsVerified.Should().BeTrue();
+        (await verifier.VerifyAsync(theirs, Audience, Method, Path, Body)).IsVerified.Should().BeTrue();
     }
 
     [Fact]
@@ -205,10 +220,10 @@ public class AgentSignatureVerifierTests
         using var attackerKey = Key.Create(SignatureAlgorithm.Ed25519);
 
         var forged = Sign(signingKey: attackerKey, nonce: "reusable-nonce");
-        (await verifier.VerifyAsync(forged, Method, Path, Body)).IsVerified.Should().BeFalse();
+        (await verifier.VerifyAsync(forged, Audience, Method, Path, Body)).IsVerified.Should().BeFalse();
 
         var honest = Sign(nonce: "reusable-nonce");
-        (await verifier.VerifyAsync(honest, Method, Path, Body)).IsVerified.Should().BeTrue();
+        (await verifier.VerifyAsync(honest, Audience, Method, Path, Body)).IsVerified.Should().BeTrue();
     }
 
     // --- malformed input ---
@@ -218,7 +233,7 @@ public class AgentSignatureVerifierTests
     {
         var headers = Sign(agentDid: "did:web:agent.example.com");
 
-        var result = await CreateVerifier().VerifyAsync(headers, Method, Path, Body);
+        var result = await CreateVerifier().VerifyAsync(headers, Audience, Method, Path, Body);
 
         result.Status.Should().Be(AgentSignatureStatus.UnresolvableDid);
     }
@@ -228,7 +243,7 @@ public class AgentSignatureVerifierTests
     {
         var headers = Sign() with { Signature = "not!base64!" };
 
-        var result = await CreateVerifier().VerifyAsync(headers, Method, Path, Body);
+        var result = await CreateVerifier().VerifyAsync(headers, Audience, Method, Path, Body);
 
         result.Status.Should().Be(AgentSignatureStatus.Malformed);
     }
@@ -238,7 +253,7 @@ public class AgentSignatureVerifierTests
     {
         var headers = Sign() with { Timestamp = "not-a-date" };
 
-        var result = await CreateVerifier().VerifyAsync(headers, Method, Path, Body);
+        var result = await CreateVerifier().VerifyAsync(headers, Audience, Method, Path, Body);
 
         result.Status.Should().Be(AgentSignatureStatus.Malformed);
     }
@@ -250,9 +265,63 @@ public class AgentSignatureVerifierTests
     {
         var headers = Sign() with { Nonce = nonce };
 
-        var result = await CreateVerifier().VerifyAsync(headers, Method, Path, Body);
+        var result = await CreateVerifier().VerifyAsync(headers, Audience, Method, Path, Body);
 
         result.Status.Should().Be(AgentSignatureStatus.Malformed);
+    }
+
+    // --- audience: cross-registry replay ---
+
+    [Fact]
+    public async Task SignatureAddressedToAnotherRegistry_DoesNotVerifyHere()
+    {
+        // The registry is self-hostable, so a hostile operator sees every signature its users
+        // produce. Relaying one to the public registry must not forge a rating in their name.
+        var verifier = CreateVerifier(configuredAudience: "api.trustscoreagent.com");
+        var signedForEvil = Sign(audience: "evil-registry.example.com");
+
+        var result = await verifier.VerifyAsync(
+            signedForEvil, "api.trustscoreagent.com", Method, Path, Body);
+
+        result.Status.Should().Be(AgentSignatureStatus.InvalidSignature);
+    }
+
+    [Fact]
+    public async Task ConfiguredAudience_IgnoresTheHostHeader()
+    {
+        // The relaying attacker controls the Host header, so the audience must come from this
+        // server's own configuration, not from the request.
+        var verifier = CreateVerifier(configuredAudience: "api.trustscoreagent.com");
+        var signedForEvil = Sign(audience: "evil-registry.example.com");
+
+        var result = await verifier.VerifyAsync(
+            signedForEvil, "evil-registry.example.com", Method, Path, Body);
+
+        result.Status.Should().Be(AgentSignatureStatus.InvalidSignature);
+    }
+
+    [Fact]
+    public async Task ConfiguredAudience_AcceptsASignatureAddressedToThisRegistry()
+    {
+        var verifier = CreateVerifier(configuredAudience: "api.trustscoreagent.com");
+        var headers = Sign(audience: "api.trustscoreagent.com");
+
+        var result = await verifier.VerifyAsync(headers, "anything.example.com", Method, Path, Body);
+
+        result.IsVerified.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task AudienceMatching_IsCaseInsensitive()
+    {
+        // Host names are case-insensitive; a caller spelling the registry differently is not an
+        // attacker and must not get an opaque 401.
+        var verifier = CreateVerifier(configuredAudience: "API.TrustScoreAgent.com");
+        var headers = Sign(audience: "api.trustscoreagent.com");
+
+        var result = await verifier.VerifyAsync(headers, Audience, Method, Path, Body);
+
+        result.IsVerified.Should().BeTrue();
     }
 
     // --- canonical payload ---
@@ -262,26 +331,36 @@ public class AgentSignatureVerifierTests
     {
         // Every client must reproduce this byte for byte, so pin the exact layout.
         var canonical = AgentSignaturePayload.Canonicalize(
-            "post", "/v1/rate", "did:key:zAbc", "2026-08-29T10:00:00.0000000+00:00", "nonce123", Body);
+            Audience, "post", "/v1/rate", "did:key:zAbc", "2026-08-29T10:00:00.0000000+00:00", "nonce123", Body);
 
         var lines = canonical.Split('\n');
 
-        lines.Should().HaveCount(7);
+        lines.Should().HaveCount(8);
         lines[0].Should().Be("trustscore-v1");
-        lines[1].Should().Be("POST");           // method is upper-cased
-        lines[2].Should().Be("/v1/rate");
-        lines[3].Should().Be("did:key:zAbc");
-        lines[4].Should().Be("2026-08-29T10:00:00.0000000+00:00");
-        lines[5].Should().Be("nonce123");
-        lines[6].Should().MatchRegex("^[0-9a-f]{64}$");  // sha256 of the body, lowercase hex
+        lines[1].Should().Be(Audience);
+        lines[2].Should().Be("POST");           // method is upper-cased
+        lines[3].Should().Be("/v1/rate");
+        lines[4].Should().Be("did:key:zAbc");
+        lines[5].Should().Be("2026-08-29T10:00:00.0000000+00:00");
+        lines[6].Should().Be("nonce123");
+        lines[7].Should().MatchRegex("^[0-9a-f]{64}$");  // sha256 of the body, lowercase hex
+    }
+
+    [Fact]
+    public void CanonicalPayload_LowercasesTheAudience()
+    {
+        var canonical = AgentSignaturePayload.Canonicalize(
+            "API.TrustScoreAgent.COM", Method, Path, "did:key:zAbc", "2026-08-29T10:00:00Z", "nonce123", Body);
+
+        canonical.Split('\n')[1].Should().Be("api.trustscoreagent.com");
     }
 
     [Fact]
     public void CanonicalPayload_BindsTheExactBodyBytes()
     {
         string Hash(byte[] body) => AgentSignaturePayload
-            .Canonicalize(Method, Path, "did:key:zAbc", "2026-08-29T10:00:00Z", "nonce123", body)
-            .Split('\n')[6];
+            .Canonicalize(Audience, Method, Path, "did:key:zAbc", "2026-08-29T10:00:00Z", "nonce123", body)
+            .Split('\n')[7];
 
         Hash(Encoding.UTF8.GetBytes("{}")).Should().NotBe(Hash(Encoding.UTF8.GetBytes("{ }")));
         Hash(Array.Empty<byte>()).Should()

@@ -91,6 +91,7 @@ public static class AgentSignaturePayload
     ///
     /// <code>
     /// trustscore-v1
+    /// api.trustscoreagent.com
     /// POST
     /// /v1/rate
     /// did:key:z6Mk...
@@ -105,10 +106,17 @@ public static class AgentSignaturePayload
     /// the metrics and the receipt at once, and avoids making clients reimplement the server's
     /// service-identifier normalisation just to sign a request.
     ///
+    /// The <paramref name="audience"/> is the registry the request was addressed to. The registry
+    /// is self-hostable, so without it a signature collected by one instance could be relayed to
+    /// another and accepted there, letting a hostile operator forge ratings under the identities of
+    /// agents that merely used it. No explicit comparison is needed: each server builds this string
+    /// with its own identity, so a signature meant for a different one simply fails to verify.
+    ///
     /// The timestamp is signed as the client wrote it (not reformatted), so the string that is
     /// verified is the string that was sent.
     /// </summary>
     public static string Canonicalize(
+        string audience,
         string httpMethod,
         string requestPath,
         string agentDid,
@@ -120,6 +128,9 @@ public static class AgentSignaturePayload
 
         return string.Join('\n',
             Version,
+            // Host names are case-insensitive, so normalise rather than reject a caller that
+            // spelled the registry's own name differently.
+            audience.ToLowerInvariant(),
             httpMethod.ToUpperInvariant(),
             requestPath,
             agentDid,
@@ -130,11 +141,13 @@ public static class AgentSignaturePayload
 
     /// <summary>UTF-8 bytes of <see cref="Canonicalize"/>, which is what Ed25519 actually signs.</summary>
     public static byte[] CanonicalBytes(
+        string audience,
         string httpMethod,
         string requestPath,
         string agentDid,
         string timestamp,
         string nonce,
         byte[] body)
-        => Encoding.UTF8.GetBytes(Canonicalize(httpMethod, requestPath, agentDid, timestamp, nonce, body));
+        => Encoding.UTF8.GetBytes(
+            Canonicalize(audience, httpMethod, requestPath, agentDid, timestamp, nonce, body));
 }

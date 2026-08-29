@@ -43,6 +43,11 @@ const API_BASE_URL = (() => {
   return raw.replace(/\/+$/, "");
 })();
 
+// The registry a signature is addressed to. Signing it stops an operator of one registry from
+// relaying signatures its users produced to a different one and forging ratings in their name,
+// which matters because the registry is self-hostable.
+const API_AUDIENCE = new URL(API_BASE_URL).host.toLowerCase();
+
 const FETCH_TIMEOUT_MS = 10_000;
 
 // fetch with a timeout; distinguishes "API took too long" from "API unreachable" so the
@@ -220,6 +225,7 @@ function signRequest(
 
   const canonical = [
     "trustscore-v1",
+    API_AUDIENCE,
     method.toUpperCase(),
     path,
     AGENT_DID,
