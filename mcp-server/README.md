@@ -1,6 +1,6 @@
 # @trustscoreagent/mcp-server
 
-MCP server for [TrustScoreAgent](https://trustscoreagent.com) — a free, open reputation registry
+MCP server for [TrustScoreAgent](https://trustscoreagent.com), a free, open reputation registry
 for AI microservices. It lets an LLM agent check whether an external service is trustworthy
 *before* calling it, and contribute ratings afterward.
 
@@ -8,13 +8,13 @@ for AI microservices. It lets an LLM agent check whether an external service is 
 
 | Tool | Purpose |
 |------|---------|
-| `check_reputation` | Get the trust score (0–1), confidence, rating count and dimensional breakdown (availability, latency, conformity) of a service. Call it **before** using an untrusted service. |
+| `check_reputation` | Get the trust score (0 to 1), confidence, rating count and dimensional breakdown (availability, latency, conformity) of a service. Call it **before** using an untrusted service. |
 | `submit_rating` | Rate a service after calling it, from your interaction metrics (status code, latency, schema validity, optional quality score and receipt). |
 | `list_services` | Discover rated services sorted by trust score, with score/ratings filters. |
 
 ## Configure
 
-No install needed — add it to your MCP client (e.g. Claude Desktop
+No install needed: add it to your MCP client (e.g. Claude Desktop
 `claude_desktop_config.json`) and it runs via `npx`:
 
 ```json
@@ -77,7 +77,7 @@ npm run dev        # run from source with tsx
 For one-click / offline installation (Smithery "local" install, Claude Desktop
 drag-and-drop), the server can be packaged as a self-contained `.mcpb` bundle. The
 bundle embeds `dist/` plus production dependencies and runs with `node dist/index.js`
-— no network install at launch. The manifest is [`manifest.json`](./manifest.json).
+with no network install at launch. The manifest is [`manifest.json`](./manifest.json).
 
 ```bash
 bash scripts/build-mcpb.sh          # -> trustscoreagent-<version>.mcpb
@@ -88,4 +88,4 @@ corresponding [GitHub Release](https://github.com/trustscoreagent/trustscoreagen
 
 ## License
 
-Apache-2.0 — see [LICENSE](./LICENSE).
+Apache-2.0, see [LICENSE](./LICENSE).
