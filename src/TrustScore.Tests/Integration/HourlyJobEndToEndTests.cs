@@ -48,6 +48,7 @@ public class HourlyJobEndToEndTests : PostgresDatabaseTest
         services.AddScoped<IServiceRepository, ServiceRepository>();
         services.AddScoped<IRatingRepository, RatingRepository>();
         services.AddScoped<IAgentRepository, AgentRepository>();
+        services.AddScoped<IProbeHealthRepository, ProbeHealthRepository>();
         services.AddSingleton<ICacheService, FakeCacheService>();
         services.AddSingleton<IScoringEngine>(new BetaReputationSystem());
         services.AddScoped<IRatingWriter, TransactionalRatingWriter>();
@@ -198,6 +199,7 @@ public class HourlyJobStepIsolationTests : PostgresDatabaseTest
         services.AddScoped<IServiceRepository, ServiceRepository>();
         services.AddScoped<IRatingRepository, RatingRepository>();
         services.AddScoped<IAgentRepository, AgentRepository>();
+        services.AddScoped<IProbeHealthRepository, ProbeHealthRepository>();
         services.AddSingleton<ICacheService, FakeCacheService>();
         using var provider = services.BuildServiceProvider();
 
