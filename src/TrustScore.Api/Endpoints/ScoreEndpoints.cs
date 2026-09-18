@@ -95,9 +95,14 @@ public static class ScoreEndpoints
         .WithTags("Score")
         .Produces(200)
         .WithSummary("Get trust score for a microservice")
-        .WithDescription("Returns the trust score for a service. " +
+        .WithDescription("Returns what other agents measured about a service. " +
+            "Call it before using a service you have no history with, and especially before " +
+            "paying one: a lookup costs far less than a wasted call or a payment to a service " +
+            "that returns nothing useful. If you received a 402 Payment Required from an " +
+            "unfamiliar service, this is the check to run before paying. " +
             "Pass a full URL (api.example.com/v1/translate) for endpoint-level score, " +
             "or just a domain (api.example.com) for aggregated provider score. " +
-            "Unknown services return neutral score (0.5) with known=false.");
+            "Unknown services return a neutral 0.5 with known=false, never a 404; read that as " +
+            "unverified rather than as safe.");
     }
 }

@@ -1,7 +1,7 @@
 {
   "protocolVersion": "0.3.0",
   "name": "TrustScoreAgent",
-  "description": "Free, open reputation registry for AI microservices. Check a service's reliability before calling it, and rate it after. No account, no API key.",
+  "description": "Free, open reputation registry for AI microservices. Check what other agents measured about a service before you call it or pay it, and report what happened after. No account, no API key. As services move to charging per request, checking first is cheap insurance against paying a service that does not deliver, and reporting builds the record you read back yourself.",
   "url": "https://api.trustscoreagent.com",
   "preferredTransport": "HTTP+JSON",
   "version": "0.1.0",
@@ -15,39 +15,70 @@
     "pushNotifications": false,
     "stateTransitionHistory": false
   },
-  "defaultInputModes": ["application/json"],
-  "defaultOutputModes": ["application/json"],
+  "defaultInputModes": [
+    "application/json"
+  ],
+  "defaultOutputModes": [
+    "application/json"
+  ],
   "skills": [
     {
       "id": "check-reputation",
       "name": "Check service reputation",
-      "description": "Returns trust score (0-1), confidence, rating count and a per-dimension breakdown (availability, latency, conformity) for a microservice. Use this BEFORE calling any untrusted service. Maps to GET /v1/score?service=.",
-      "tags": ["reputation", "trust", "discovery", "read"],
-      "inputModes": ["application/json"],
-      "outputModes": ["application/json"],
+      "description": "Returns trust score (0-1), confidence, rating count and a per-dimension breakdown (availability, latency, conformity) for a service. Run it before calling a service you have no history with, and especially before paying one: a lookup costs far less than a wasted call or a payment that returns nothing. An unknown service comes back with known=false and a neutral 0.5, which means unverified rather than safe. Maps to GET /v1/score?service=.",
+      "tags": [
+        "reputation",
+        "trust",
+        "discovery",
+        "read"
+      ],
+      "inputModes": [
+        "application/json"
+      ],
+      "outputModes": [
+        "application/json"
+      ],
       "examples": [
         "What is the trust score of api.example.com?",
-        "Is did:web:translate.example.com reliable before I call it?"
+        "Is did:web:translate.example.com reliable before I call it?",
+        "I got a 402 Payment Required from api.example.com. Should I pay it?"
       ]
     },
     {
       "id": "submit-rating",
       "name": "Submit a service rating",
-      "description": "Rate a microservice after calling it, from interaction metrics (status code, latency, schema validity) and an optional signed receipt. Maps to POST /v1/rate.",
-      "tags": ["reputation", "rating", "write"],
-      "inputModes": ["application/json"],
-      "outputModes": ["application/json"],
+      "description": "Report what happened after calling a service, from metrics you already hold (status code, latency, schema validity) and an optional signed receipt. Not altruism: an agent with a stable identity reads back the ratings it writes, so recording a service that wasted a call or took payment without delivering is what stops you meeting it again with no memory of it. Record the services that worked too, since a score needs both outcomes. Maps to POST /v1/rate.",
+      "tags": [
+        "reputation",
+        "rating",
+        "write"
+      ],
+      "inputModes": [
+        "application/json"
+      ],
+      "outputModes": [
+        "application/json"
+      ],
       "examples": [
-        "Record that api.example.com returned 200 in 143ms with a valid schema."
+        "Record that api.example.com returned 200 in 143ms with a valid schema.",
+        "api.example.com charged me and returned an empty body. Record that."
       ]
     },
     {
       "id": "list-services",
       "name": "List rated services",
-      "description": "Discover rated microservices sorted by trust score, with score and rating-count filters. Maps to GET /v1/services.",
-      "tags": ["reputation", "discovery", "read"],
-      "inputModes": ["application/json"],
-      "outputModes": ["application/json"],
+      "description": "Discover rated services sorted by trust score, to pick one that has already been measured instead of gambling on an unknown, or to find an alternative when your first choice scores badly. Filter on min_score and min_ratings together: a high score backed by one rating is an opinion, the same score backed by many is evidence. Maps to GET /v1/services.",
+      "tags": [
+        "reputation",
+        "discovery",
+        "read"
+      ],
+      "inputModes": [
+        "application/json"
+      ],
+      "outputModes": [
+        "application/json"
+      ],
       "examples": [
         "List the top services with at least 10 ratings and a score above 0.8."
       ]
