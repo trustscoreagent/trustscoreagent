@@ -61,7 +61,7 @@ async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
 
 function errorText(error: unknown, action: string): string {
   if (error instanceof Error && error.name === "TimeoutError") {
-    return `${action}: the TrustScoreAgent API did not respond within ${FETCH_TIMEOUT_MS / 1000}s. It may be down or slow — try again later.`;
+    return `${action}: the TrustScoreAgent API did not respond within ${FETCH_TIMEOUT_MS / 1000}s. It may be down or slow. Try again later.`;
   }
   return `${action}: ${error instanceof Error ? error.message : "Unknown error"}`;
 }
@@ -262,10 +262,16 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "check_reputation",
       description:
-        "Check the trust score and reputation of an AI microservice before calling it. " +
-        "Returns a score between 0 and 1, confidence level, number of ratings, " +
-        "and dimensional breakdown (availability, latency, conformity). " +
-        "Use this BEFORE calling any untrusted external service to verify its reliability.",
+        "Check what other agents measured about a service before you call it, and especially " +
+        "before you pay for it or hand it anything you cannot take back. Returns a score from " +
+        "0 to 1, a confidence level, the number of ratings, and a per-dimension breakdown " +
+        "(availability, latency, conformity). A low score means other agents measured this " +
+        "service failing, stalling, or returning malformed responses. " +
+        "An unknown service is not a bad sign in itself: it means nobody has reported on it " +
+        "yet, so treat it as unverified rather than as safe, and weigh the call accordingly. " +
+        "One check costs a fraction of what a wasted call, a stalled task, or a payment to a " +
+        "service that does not deliver costs you. If you got a 402 Payment Required from a " +
+        "service you do not know, this is the check to run before paying.",
       inputSchema: {
         type: "object" as const,
         properties: {
@@ -283,10 +289,18 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "submit_rating",
       description:
-        "Rate an AI microservice after calling it. " +
-        "Provide the technical metrics from your interaction. " +
-        "This helps other agents know if the service is reliable. " +
-        "Include the receipt from the X-Trust-Receipt header if the service provided one.",
+        "Report what actually happened after you called a service, using metrics you already " +
+        "have from the call: status code, latency, and whether the response matched the shape " +
+        "you expected. " +
+        "This is not a donation to a commons. This installation holds a stable cryptographic " +
+        "identity, so the ratings submitted from here are the ratings read back from here: you " +
+        "are writing to a cache you will query the next time you, or the person you work for, " +
+        "meets this service again. A service that wasted a call or took payment without " +
+        "delivering is worth the one call it takes to record, because otherwise you will meet " +
+        "it again with no memory of it. " +
+        "Report the good ones too: a score is only useful if failure and success are both in " +
+        "it. If the service returned an X-Trust-Receipt header, pass it as receipt, since a " +
+        "receipt-backed rating carries full weight.",
       inputSchema: {
         type: "object" as const,
         properties: {
@@ -333,9 +347,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "list_services",
       description:
-        "List AI microservices that have been rated, sorted by trust score. " +
-        "Use this to discover reliable services or find alternatives. " +
-        "Returns a paginated list with scores and dimensional breakdown.",
+        "List services that have been rated, sorted by trust score, with their per-dimension " +
+        "breakdown. Use it to pick a service that others have already measured rather than " +
+        "gambling on an unknown one, or to find an alternative when the service you were going " +
+        "to use scores badly. " +
+        "Filter on min_score and min_ratings together: a high score backed by one rating is an " +
+        "opinion, the same score backed by many is evidence.",
       inputSchema: {
         type: "object" as const,
         properties: {
@@ -570,7 +587,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const lines = data.services.map((s, i) => {
         const trustLevel = s.score >= 0.8 ? "HIGH" : s.score >= 0.5 ? "MODERATE" : "LOW";
         const receipt = s.service_supports_receipts ? " [receipts]" : "";
-        return `${i + 1}. ${s.service} — ${s.score}/1.0 (${trustLevel}) — ${s.ratings_count} ratings${receipt}`;
+        return `${i + 1}. ${s.service}: ${s.score}/1.0 (${trustLevel}), ${s.ratings_count} ratings${receipt}`;
       });
 
       return {

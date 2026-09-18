@@ -206,7 +206,16 @@ public static class RateEndpoints
         .Produces(401)
         .Produces(429)
         .WithSummary("Submit a rating for a microservice")
-        .WithDescription("Rate a microservice after calling it. Provide technical metrics from your interaction. Include the receipt from the X-Trust-Receipt header if the service provided one for higher rating weight. Sign the request with your agent key (X-Agent-Signature) so the rating is attributed to you rather than merely claimed; unsigned ratings are accepted at reduced weight.");
+        .WithDescription("Report what happened after calling a service, from metrics you " +
+            "already hold. An agent with a stable identity reads back the ratings it writes, so " +
+            "this is closer to writing a cache you will query than to donating to a commons: a " +
+            "service that wasted a call, or took payment without delivering, is worth the one " +
+            "call it takes to record, because otherwise you meet it again with no memory of it. " +
+            "Record the ones that worked too, since a score needs both outcomes to mean " +
+            "anything. Include the receipt from the X-Trust-Receipt header if the service " +
+            "provided one, for full rating weight. Sign the request with your agent key " +
+            "(X-Agent-Signature) so the rating is attributed to you rather than merely claimed; " +
+            "unsigned ratings are accepted at reduced weight.");
     }
 
     /// <summary>
