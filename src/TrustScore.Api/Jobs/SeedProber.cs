@@ -24,6 +24,7 @@ public sealed class SeedProber
     private readonly IScoringEngine _scoring;
     private readonly IRatingWriter _ratingWriter;
     private readonly IAgentRepository _agentRepo;
+    private readonly IProbeHealthRepository _healthRepo;
     private readonly SeedProbeOptions _options;
     private readonly ILogger<SeedProber> _logger;
 
@@ -32,6 +33,7 @@ public sealed class SeedProber
         IScoringEngine scoring,
         IRatingWriter ratingWriter,
         IAgentRepository agentRepo,
+        IProbeHealthRepository healthRepo,
         IOptions<SeedProbeOptions> options,
         ILogger<SeedProber> logger)
     {
@@ -39,6 +41,7 @@ public sealed class SeedProber
         _scoring = scoring;
         _ratingWriter = ratingWriter;
         _agentRepo = agentRepo;
+        _healthRepo = healthRepo;
         _options = options.Value;
         _logger = logger;
     }
@@ -65,51 +68,100 @@ public sealed class SeedProber
             TrustIdentity.For(_options.AgentDid, signatureVerified: false));
         var client = _httpClientFactory.CreateClient(HttpClientName);
 
-        int recorded = 0, errors = 0;
-        foreach (var target in _options.Targets)
-        {
-            if (string.IsNullOrWhiteSpace(target.Service) || string.IsNullOrWhiteSpace(target.Url))
-                continue;
+        var health = await _healthRepo.GetAllAsync();
 
-            try
+        int recorded = 0, errors = 0, suppressed = 0;
+        var targets = _options.Targets
+            .Where(t => !string.IsNullOrWhiteSpace(t.Service) && !string.IsNullOrWhiteSpace(t.Url))
+            .ToList();
+
+        // Probed concurrently: the pass is almost entirely waiting on other people's servers, and
+        // sequentially a few dozen targets at the per-probe timeout would outlast the job itself.
+        // Bounded, because the point is to stop being slow, not to arrive as a burst.
+        await Parallel.ForEachAsync(
+            targets,
+            new ParallelOptions { MaxDegreeOfParallelism = MaxConcurrentProbes },
+            async (target, _) =>
             {
-                var (statusCode, latencyMs, schemaValid) = await ProbeAsync(client, target);
                 var serviceId = ServiceIdentifier.Normalize(target.Service);
-
-                var rating = new Rating
+                try
                 {
-                    ServiceDid = serviceId,
-                    AgentDid = _options.AgentDid,
-                    Metrics = new RatingMetrics
+                    var (statusCode, latencyMs, schemaValid) = await ProbeAsync(client, target);
+                    var now = DateTimeOffset.UtcNow;
+                    var before = health.GetValueOrDefault(serviceId) ?? ProbeTargetHealth.Unseen(serviceId);
+
+                    // Anything that is not a usable response counts against the target, including
+                    // 4xx: a probe URL that has moved answers 404 forever, which is exactly the
+                    // case this guards against.
+                    var usable = statusCode is >= 200 and < 300;
+                    var after = usable
+                        ? before.AfterSuccess(statusCode, now)
+                        : before.AfterFailure(statusCode, now, _options.QuarantineAfterConsecutiveFailures);
+
+                    await _healthRepo.UpsertAsync(after);
+
+                    if (after.IsQuarantined)
                     {
-                        StatusCode = statusCode,
-                        LatencyMs = latencyMs,
-                        SchemaValid = schemaValid,
-                    },
-                    HasReceipt = false,
-                    ReceiptVerified = false,
-                    Weight = SeedProbeBaseWeight * agentTrust,
-                };
+                        // Held back rather than published. After this many consecutive failures the
+                        // likeliest explanation is our URL, not the service, and publishing it would
+                        // accuse a third party of an outage on the strength of our own stale config.
+                        Interlocked.Increment(ref suppressed);
+                        if (!before.IsQuarantined)
+                        {
+                            _logger.LogWarning(
+                                "SeedProbe {Service}: quarantined after {Failures} consecutive failures " +
+                                "(last HTTP {Status}). The probe URL has most likely moved. Ratings are " +
+                                "suppressed for this target until it answers again: {Url}",
+                                serviceId, after.ConsecutiveFailures, statusCode, target.Url);
+                        }
+                        return;
+                    }
 
-                var delta = _scoring.ComputeDelta(rating);
-                await _ratingWriter.SubmitAsync(serviceId, delta, rating);
-                recorded++;
-                _logger.LogInformation(
-                    "SeedProbe {Service}: HTTP {Status} in {Latency}ms, schema_valid={Schema}",
-                    serviceId, statusCode, latencyMs, schemaValid);
-            }
-            catch (Exception ex)
-            {
-                errors++;
-                _logger.LogWarning(ex, "SeedProbe: failed to record rating for {Service}", target.Service);
-            }
-        }
+                    if (before.IsQuarantined)
+                    {
+                        _logger.LogInformation(
+                            "SeedProbe {Service}: answering again, leaving quarantine", serviceId);
+                    }
 
-        _logger.LogInformation("SeedProbe complete: {Recorded} recorded, {Errors} errors", recorded, errors);
+                    var rating = new Rating
+                    {
+                        ServiceDid = serviceId,
+                        AgentDid = _options.AgentDid,
+                        Metrics = new RatingMetrics
+                        {
+                            StatusCode = statusCode,
+                            LatencyMs = latencyMs,
+                            SchemaValid = schemaValid,
+                        },
+                        HasReceipt = false,
+                        ReceiptVerified = false,
+                        Weight = SeedProbeBaseWeight * agentTrust,
+                    };
+
+                    var delta = _scoring.ComputeDelta(rating);
+                    await _ratingWriter.SubmitAsync(serviceId, delta, rating);
+                    Interlocked.Increment(ref recorded);
+                    _logger.LogInformation(
+                        "SeedProbe {Service}: HTTP {Status} in {Latency}ms, schema_valid={Schema}",
+                        serviceId, statusCode, latencyMs, schemaValid);
+                }
+                catch (Exception ex)
+                {
+                    Interlocked.Increment(ref errors);
+                    _logger.LogWarning(ex, "SeedProbe: failed to record rating for {Service}", target.Service);
+                }
+            });
+
+        _logger.LogInformation(
+            "SeedProbe complete: {Recorded} recorded, {Suppressed} suppressed (quarantined), {Errors} errors",
+            recorded, suppressed, errors);
     }
 
     // Same base weight as any rating without a receipt (spec §5).
     private const double SeedProbeBaseWeight = 0.3;
+
+    // Enough to keep a pass short without arriving at a few dozen third parties all at once.
+    private const int MaxConcurrentProbes = 8;
 
     // Cap on the probe response body we buffer. Probe endpoints return small JSON/text payloads;
     // anything larger is truncated (the conformity check only inspects the first field).
@@ -220,6 +272,13 @@ public sealed class SeedProbeOptions
     public bool Enabled { get; set; }
     public string AgentDid { get; set; } = "did:web:trustscoreagent.com:probe";
     public int TimeoutSeconds { get; set; } = 10;
+
+    /// <summary>
+    /// Consecutive failed probes before a target is treated as a bad URL rather than as evidence
+    /// about the service. At one pass every 6 hours the default is three days, which a real outage
+    /// almost never reaches and a moved endpoint always does.
+    /// </summary>
+    public int QuarantineAfterConsecutiveFailures { get; set; } = 12;
     public List<SeedProbeTarget> Targets { get; set; } = new();
 }
 

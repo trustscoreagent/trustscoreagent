@@ -40,6 +40,7 @@ builder.Services.AddScoped<IServiceRepository, ServiceRepository>();
 builder.Services.AddScoped<IRatingRepository, RatingRepository>();
 builder.Services.AddScoped<IAuditService, AuditService>();
 builder.Services.AddScoped<IAgentRepository, AgentRepository>();
+builder.Services.AddScoped<IProbeHealthRepository, ProbeHealthRepository>();
 builder.Services.AddScoped<IRatingWriter, TransactionalRatingWriter>();
 
 // Redis — do not abort startup if Redis is unreachable; the app is designed to run in a

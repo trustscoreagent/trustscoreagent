@@ -37,6 +37,21 @@ public class SeedProberRunTests
         }
     }
 
+    private sealed class InMemoryProbeHealth : IProbeHealthRepository
+    {
+        public Dictionary<string, ProbeTargetHealth> Store { get; } = new();
+
+        public Task<IReadOnlyDictionary<string, ProbeTargetHealth>> GetAllAsync() =>
+            Task.FromResult<IReadOnlyDictionary<string, ProbeTargetHealth>>(
+                new Dictionary<string, ProbeTargetHealth>(Store));
+
+        public Task UpsertAsync(ProbeTargetHealth health)
+        {
+            Store[health.ServiceDid] = health;
+            return Task.CompletedTask;
+        }
+    }
+
     private sealed class FixedTrustAgentRepository : IAgentRepository
     {
         private readonly double _trust;
@@ -49,24 +64,35 @@ public class SeedProberRunTests
         Func<HttpRequestMessage, HttpResponseMessage> respond,
         List<SeedProbeTarget> targets,
         double agentTrust = 0.8)
+        => (await RunProbeWithHealthAsync(respond, targets, agentTrust)).Writer;
+
+    private static async Task<(CapturingRatingWriter Writer, InMemoryProbeHealth Health)> RunProbeWithHealthAsync(
+        Func<HttpRequestMessage, HttpResponseMessage> respond,
+        List<SeedProbeTarget> targets,
+        double agentTrust = 0.8,
+        InMemoryProbeHealth? health = null,
+        int quarantineAfter = 12)
     {
         var writer = new CapturingRatingWriter();
+        var store = health ?? new InMemoryProbeHealth();
         var prober = new SeedProber(
             new StubHttpClientFactory(new StubHttpMessageHandler(respond)),
             new BetaReputationSystem(),
             writer,
             new FixedTrustAgentRepository(agentTrust),
+            store,
             Options.Create(new SeedProbeOptions
             {
                 Enabled = true,
                 AgentDid = ProbeDid,
                 TimeoutSeconds = TimeoutSeconds,
                 Targets = targets,
+                QuarantineAfterConsecutiveFailures = quarantineAfter,
             }),
             NullLogger<SeedProber>.Instance);
 
         await prober.RunAsync();
-        return writer;
+        return (writer, store);
     }
 
     [Fact]
@@ -158,6 +184,7 @@ public class SeedProberRunTests
             new BetaReputationSystem(),
             writer,
             new FixedTrustAgentRepository(0.8),
+            new InMemoryProbeHealth(),
             Options.Create(new SeedProbeOptions { Enabled = false }),
             NullLogger<SeedProber>.Instance);
 
@@ -184,5 +211,102 @@ public class SeedProberRunTests
 
         writer.Submissions.Should().HaveCount(2);
         writer.Submissions.Select(s => s.Rating.Metrics.StatusCode).Should().BeEquivalentTo(new[] { 503, 200 });
+    }
+
+    // --- quarantine: a rotted probe URL must not be published as a service outage ---
+
+    private static List<SeedProbeTarget> OneTarget(string host = "probe-moved.example.com") =>
+        new() { new() { Service = host, Url = $"https://{host}/v1" } };
+
+    private static readonly Func<HttpRequestMessage, HttpResponseMessage> AlwaysNotFound =
+        _ => new HttpResponseMessage(HttpStatusCode.NotFound);
+
+    [Fact]
+    public async Task ShortOutage_IsStillRecorded()
+    {
+        // Below the threshold the failure is treated as evidence about the service, which is the
+        // whole point of the probe. Quarantine must not swallow real outages.
+        var (writer, health) = await RunProbeWithHealthAsync(
+            _ => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable),
+            OneTarget(), quarantineAfter: 3);
+
+        writer.Submissions.Should().ContainSingle();
+        health.Store.Values.Single().IsQuarantined.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task PersistentFailure_QuarantinesAndStopsRecording()
+    {
+        // A URL answering 404 forever is our configuration being wrong, not the service failing.
+        var health = new InMemoryProbeHealth();
+        var targets = OneTarget();
+
+        for (var pass = 1; pass <= 3; pass++)
+            await RunProbeWithHealthAsync(AlwaysNotFound, targets, health: health, quarantineAfter: 3);
+
+        health.Store.Values.Single().IsQuarantined.Should().BeTrue();
+
+        // A fourth pass, once quarantined, must publish nothing at all.
+        var (writer, _) = await RunProbeWithHealthAsync(
+            AlwaysNotFound, targets, health: health, quarantineAfter: 3);
+
+        writer.Submissions.Should().BeEmpty("a quarantined target must not accuse the service");
+    }
+
+    [Fact]
+    public async Task QuarantinedTarget_RecoversOnceItAnswersAgain()
+    {
+        // Still probed every pass, so a target whose URL comes back to life heals by itself
+        // without anyone editing config.
+        var health = new InMemoryProbeHealth();
+        var targets = OneTarget();
+
+        for (var pass = 1; pass <= 3; pass++)
+            await RunProbeWithHealthAsync(AlwaysNotFound, targets, health: health, quarantineAfter: 3);
+        health.Store.Values.Single().IsQuarantined.Should().BeTrue();
+
+        var (writer, after) = await RunProbeWithHealthAsync(
+            _ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"ok\":true}") },
+            targets, health: health, quarantineAfter: 3);
+
+        after.Store.Values.Single().IsQuarantined.Should().BeFalse();
+        after.Store.Values.Single().ConsecutiveFailures.Should().Be(0);
+        writer.Submissions.Should().ContainSingle("recording resumes as soon as the URL answers");
+    }
+
+    [Fact]
+    public async Task OneSuccess_ResetsTheFailureStreak()
+    {
+        // Intermittent failures must never accumulate into a quarantine: only an unbroken run of
+        // failures is evidence that the URL itself is wrong.
+        var health = new InMemoryProbeHealth();
+        var targets = OneTarget();
+
+        await RunProbeWithHealthAsync(AlwaysNotFound, targets, health: health, quarantineAfter: 3);
+        await RunProbeWithHealthAsync(AlwaysNotFound, targets, health: health, quarantineAfter: 3);
+        await RunProbeWithHealthAsync(
+            _ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"ok\":true}") },
+            targets, health: health, quarantineAfter: 3);
+        await RunProbeWithHealthAsync(AlwaysNotFound, targets, health: health, quarantineAfter: 3);
+
+        var entry = health.Store.Values.Single();
+        entry.IsQuarantined.Should().BeFalse();
+        entry.ConsecutiveFailures.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task QuarantineTimestamp_DoesNotMoveOnLaterFailures()
+    {
+        // It records when the target stopped being trusted, so it stays useful for triage.
+        var health = new InMemoryProbeHealth();
+        var targets = OneTarget();
+
+        for (var pass = 1; pass <= 3; pass++)
+            await RunProbeWithHealthAsync(AlwaysNotFound, targets, health: health, quarantineAfter: 3);
+        var stamped = health.Store.Values.Single().QuarantinedAt;
+
+        await RunProbeWithHealthAsync(AlwaysNotFound, targets, health: health, quarantineAfter: 3);
+
+        health.Store.Values.Single().QuarantinedAt.Should().Be(stamped);
     }
 }
