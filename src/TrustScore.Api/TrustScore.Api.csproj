@@ -14,6 +14,8 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="TrustScore.Tests" />
+    <!-- The candidate checker runs the probe's own ValidateBody, so it cannot drift from it. -->
+    <InternalsVisibleTo Include="ProbeCandidates" />
   </ItemGroup>
 
   <ItemGroup>

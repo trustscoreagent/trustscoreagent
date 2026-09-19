@@ -1,4 +1,4 @@
-
+﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.31903.59
@@ -8,6 +8,10 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TrustScore.Core", "src\TrustScore.Core\TrustScore.Core.csproj", "{B2C3D4E5-F6A7-8901-BCDE-F12345678901}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TrustScore.Tests", "src\TrustScore.Tests\TrustScore.Tests.csproj", "{C3D4E5F6-A7B8-9012-CDEF-123456789012}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tools", "tools", "{600850C8-AA07-4912-BC9E-FC426E1826DC}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ProbeCandidates", "tools\ProbeCandidates\ProbeCandidates.csproj", "{158F4A3E-F9E8-4AB7-B6D6-70C5CC48EBAF}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -27,5 +31,12 @@ Global
 		{C3D4E5F6-A7B8-9012-CDEF-123456789012}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{C3D4E5F6-A7B8-9012-CDEF-123456789012}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{C3D4E5F6-A7B8-9012-CDEF-123456789012}.Release|Any CPU.Build.0 = Release|Any CPU
+		{158F4A3E-F9E8-4AB7-B6D6-70C5CC48EBAF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{158F4A3E-F9E8-4AB7-B6D6-70C5CC48EBAF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{158F4A3E-F9E8-4AB7-B6D6-70C5CC48EBAF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{158F4A3E-F9E8-4AB7-B6D6-70C5CC48EBAF}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{158F4A3E-F9E8-4AB7-B6D6-70C5CC48EBAF} = {600850C8-AA07-4912-BC9E-FC426E1826DC}
 	EndGlobalSection
 EndGlobal

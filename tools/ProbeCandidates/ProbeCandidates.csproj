@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>ProbeCandidates</RootNamespace>
+    <AssemblyName>ProbeCandidates</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- References the API so the check runs the probe's own ValidateBody and
+         ServiceIdentifier.Normalize. A second implementation would drift, and a checker that
+         disagrees with the prober is worse than no checker. -->
+    <ProjectReference Include="../../src/TrustScore.Api/TrustScore.Api.csproj" />
+  </ItemGroup>
+
+</Project>

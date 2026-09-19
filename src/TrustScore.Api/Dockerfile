@@ -1,12 +1,16 @@
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /src
 
-# Copy solution and project files first (layer caching)
-COPY TrustScore.sln ./
+# Copy project files first (layer caching), then restore just what the image needs.
+#
+# Restoring the solution instead would pull in every project it lists, including ones that have
+# no business in a runtime image and whose csproj is deliberately not copied here. That coupling
+# broke the build the moment a tool project was added to the solution: the image does not ship
+# it, so it should not have to know it exists. Restoring the API walks its own reference chain
+# (Core) and nothing else.
 COPY src/TrustScore.Api/TrustScore.Api.csproj src/TrustScore.Api/
 COPY src/TrustScore.Core/TrustScore.Core.csproj src/TrustScore.Core/
-COPY src/TrustScore.Tests/TrustScore.Tests.csproj src/TrustScore.Tests/
-RUN dotnet restore
+RUN dotnet restore src/TrustScore.Api/TrustScore.Api.csproj
 
 # Copy everything and build
 COPY . .
