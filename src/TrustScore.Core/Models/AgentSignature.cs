@@ -49,8 +49,16 @@ public enum AgentSignatureStatus
     /// <summary>Timestamp outside the freshness window (too old, or too far in the future).</summary>
     TimestampExpired,
 
-    /// <summary>Nonce already used (replay), or the nonce store was unavailable (fail closed).</summary>
+    /// <summary>Nonce already used: this exact request was seen before.</summary>
     NonceAlreadyUsed,
+
+    /// <summary>
+    /// The signature is cryptographically valid, but the nonce store is down, so a replay cannot
+    /// be ruled out. Not a rejection: the rating is kept and counted as unsigned, which is exactly
+    /// what a replayed copy would be worth anyway. Rejecting instead would turn a Redis outage into
+    /// an outage of every signing client.
+    /// </summary>
+    ReplayCheckUnavailable,
 }
 
 /// <summary>
@@ -65,7 +73,10 @@ public sealed record AgentSignatureResult(AgentSignatureStatus Status)
     /// True when the caller tried to sign and failed. Distinct from <see cref="AgentSignatureStatus.Missing"/>:
     /// an unsigned request degrades gracefully, a bad signature must not.
     /// </summary>
-    public bool IsRejected => Status is not (AgentSignatureStatus.Valid or AgentSignatureStatus.Missing);
+    public bool IsRejected => Status is not (
+        AgentSignatureStatus.Valid
+        or AgentSignatureStatus.Missing
+        or AgentSignatureStatus.ReplayCheckUnavailable);
 
     public static readonly AgentSignatureResult Missing = new(AgentSignatureStatus.Missing);
     public static readonly AgentSignatureResult Valid = new(AgentSignatureStatus.Valid);

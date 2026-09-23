@@ -151,12 +151,22 @@ public sealed class AgentSignatureVerifier : IAgentSignatureVerifier
 
         // 5. Claim the nonce only AFTER the signature verifies, so a transient failure never burns
         // an honest agent's nonce. Scoped by DID and namespaced apart from receipt nonces, so one
-        // agent cannot consume another's nonce and the two schemes cannot collide. Fail closed if
-        // the store is unavailable: rejecting beats permitting a replay.
+        // agent cannot consume another's nonce and the two schemes cannot collide.
         var nonceKey = $"agent-nonce:{headers.AgentDid}:{headers.Nonce}";
         if (!await _cache.SetIfNotExistsAsync(nonceKey, "used", NonceTtl))
         {
-            _logger.LogWarning("Agent nonce replay or cache unavailable for {AgentDid}", headers.AgentDid);
+            // The store answers "not claimed" both for a replay and when it is unreachable. Those
+            // are different facts and must not share a status: reporting an outage as a replay
+            // tells an honest client it did something wrong, and rejecting it turns a Redis
+            // outage into an outage of every signing client.
+            if (!await _cache.IsAvailableAsync())
+            {
+                _logger.LogWarning(
+                    "Nonce store unavailable: accepting the rating from {AgentDid} as unsigned", headers.AgentDid);
+                return AgentSignatureResult.Failed(AgentSignatureStatus.ReplayCheckUnavailable);
+            }
+
+            _logger.LogWarning("Agent nonce replay for {AgentDid}", headers.AgentDid);
             return AgentSignatureResult.Failed(AgentSignatureStatus.NonceAlreadyUsed);
         }
 

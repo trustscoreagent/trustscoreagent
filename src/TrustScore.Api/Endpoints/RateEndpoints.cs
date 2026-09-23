@@ -216,6 +216,11 @@ public static class RateEndpoints
                 accepted = true,
                 rating_weight = receiptVerified ? "verified" : "unverified",
                 agent_identity = signatureResult.IsVerified ? "signed" : "unsigned",
+                // Said out loud rather than left for the client to infer: its signature was fine,
+                // it just could not be counted as signed this time.
+                agent_identity_note = signatureResult.Status == AgentSignatureStatus.ReplayCheckUnavailable
+                    ? "signature valid but counted as unsigned: replay protection is temporarily unavailable"
+                    : null,
                 new_score = score.Score,
             });
         })
