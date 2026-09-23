@@ -119,7 +119,7 @@ public sealed class AgentSignatureVerifier : IAgentSignatureVerifier
         byte[] signatureBytes;
         try
         {
-            signatureBytes = Base64UrlDecodeBytes(headers.Signature);
+            signatureBytes = Base64Url.Decode(headers.Signature);
         }
         catch (FormatException)
         {
@@ -173,14 +173,4 @@ public sealed class AgentSignatureVerifier : IAgentSignatureVerifier
         return AgentSignatureResult.Valid;
     }
 
-    private static byte[] Base64UrlDecodeBytes(string input)
-    {
-        var padded = input.Replace('-', '+').Replace('_', '/');
-        switch (padded.Length % 4)
-        {
-            case 2: padded += "=="; break;
-            case 3: padded += "="; break;
-        }
-        return Convert.FromBase64String(padded);
-    }
 }

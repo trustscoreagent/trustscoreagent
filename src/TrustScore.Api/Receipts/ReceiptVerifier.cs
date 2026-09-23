@@ -36,7 +36,7 @@ public sealed class ReceiptVerifier : IReceiptVerifier
         ReceiptPayload payload;
         try
         {
-            var payloadJson = Base64UrlDecode(parts[1]);
+            var payloadJson = Encoding.UTF8.GetString(Base64Url.Decode(parts[1]));
             payload = JsonSerializer.Deserialize<ReceiptPayload>(payloadJson, JsonOptions)
                 ?? throw new JsonException("Null payload");
         }
@@ -86,7 +86,7 @@ public sealed class ReceiptVerifier : IReceiptVerifier
             var publicKey = PublicKey.Import(algorithm, publicKeyBytes, KeyBlobFormat.RawPublicKey);
 
             var signedData = Encoding.UTF8.GetBytes($"{parts[0]}.{parts[1]}");
-            var signature = Base64UrlDecodeBytes(parts[2]);
+            var signature = Base64Url.Decode(parts[2]);
 
             var isValid = algorithm.Verify(publicKey, signedData, signature);
 
@@ -133,27 +133,7 @@ public sealed class ReceiptVerifier : IReceiptVerifier
         return ReceiptVerificationResult.Verified(payload);
     }
 
-    private static string Base64UrlDecode(string input)
-    {
-        var padded = input.Replace('-', '+').Replace('_', '/');
-        switch (padded.Length % 4)
-        {
-            case 2: padded += "=="; break;
-            case 3: padded += "="; break;
-        }
-        return Encoding.UTF8.GetString(Convert.FromBase64String(padded));
-    }
 
-    private static byte[] Base64UrlDecodeBytes(string input)
-    {
-        var padded = input.Replace('-', '+').Replace('_', '/');
-        switch (padded.Length % 4)
-        {
-            case 2: padded += "=="; break;
-            case 3: padded += "="; break;
-        }
-        return Convert.FromBase64String(padded);
-    }
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {

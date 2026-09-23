@@ -41,6 +41,27 @@ internal static class Ed25519KeyCodec
 }
 
 /// <summary>
+/// base64url (RFC 4648 §5) as used by JWTs, JWKs and agent signatures: '-' and '_' in place of
+/// '+' and '/', padding optional. One implementation, so every place that decodes it rejects the
+/// same malformed inputs the same way.
+/// </summary>
+internal static class Base64Url
+{
+    /// <summary>Decodes base64url, with or without padding.</summary>
+    /// <exception cref="FormatException">The input is not valid base64url.</exception>
+    public static byte[] Decode(string input)
+    {
+        var padded = input.Replace('-', '+').Replace('_', '/');
+        switch (padded.Length % 4)
+        {
+            case 2: padded += "=="; break;
+            case 3: padded += "="; break;
+        }
+        return Convert.FromBase64String(padded);
+    }
+}
+
+/// <summary>
 /// Minimal Base58 decoder for multibase-encoded public keys.
 /// </summary>
 internal static class Base58
