@@ -271,7 +271,7 @@ const AGENT_IDENTITY = loadAgentIdentity();
 const AGENT_DID = AGENT_IDENTITY.did;
 
 /**
- * Signs a request the way the registry verifies it: seven newline-joined fields, with the body
+ * Signs a request the way the registry verifies it: eight newline-joined fields, with the body
  * bound by its SHA-256. The exact `body` string passed here must be the one sent on the wire,
  * otherwise the hashes differ and the server returns 401.
  */
