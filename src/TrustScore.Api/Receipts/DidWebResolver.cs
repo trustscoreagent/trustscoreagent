@@ -154,7 +154,7 @@ public sealed class DidWebResolver : IDidResolver
                 && jwk.TryGetProperty("crv", out var crv) && crv.GetString() == "Ed25519"
                 && jwk.TryGetProperty("x", out var x) && x.GetString() is { } xStr)
             {
-                try { return NormalizeEd25519(Base64UrlDecode(xStr)); }
+                try { return NormalizeEd25519(Base64Url.Decode(xStr)); }
                 catch (FormatException) { }
             }
         }
@@ -174,16 +174,6 @@ public sealed class DidWebResolver : IDidResolver
 
     private static byte[]? NormalizeEd25519(byte[] keyBytes) => Ed25519KeyCodec.Normalize(keyBytes);
 
-    private static byte[] Base64UrlDecode(string input)
-    {
-        var padded = input.Replace('-', '+').Replace('_', '/');
-        switch (padded.Length % 4)
-        {
-            case 2: padded += "=="; break;
-            case 3: padded += "="; break;
-        }
-        return Convert.FromBase64String(padded);
-    }
 
     /// <summary>
     /// Reads up to <paramref name="maxBytes"/> from the stream. Returns null if the stream
