@@ -52,6 +52,19 @@ public class SeedProberRunTests
         }
     }
 
+    /// <summary>A health table that is down: reads, writes, or both throw.</summary>
+    private sealed class BrokenProbeHealth : IProbeHealthRepository
+    {
+        public bool FailReads { get; init; }
+        public InMemoryProbeHealth Inner { get; } = new();
+
+        public Task<IReadOnlyDictionary<string, ProbeTargetHealth>> GetAllAsync() =>
+            FailReads ? throw new InvalidOperationException("table unavailable") : Inner.GetAllAsync();
+
+        public Task UpsertAsync(ProbeTargetHealth health) =>
+            throw new InvalidOperationException("table unavailable");
+    }
+
     private sealed class FixedTrustAgentRepository : IAgentRepository
     {
         private readonly double _trust;
@@ -74,8 +87,20 @@ public class SeedProberRunTests
         int quarantineAfter = 12,
         TimeSpan? quarantineAfterDuration = null)
     {
-        var writer = new CapturingRatingWriter();
         var store = health ?? new InMemoryProbeHealth();
+        var writer = await RunProbeAgainstAsync(respond, targets, store, agentTrust, quarantineAfter, quarantineAfterDuration);
+        return (writer, store);
+    }
+
+    private static async Task<CapturingRatingWriter> RunProbeAgainstAsync(
+        Func<HttpRequestMessage, HttpResponseMessage> respond,
+        List<SeedProbeTarget> targets,
+        IProbeHealthRepository store,
+        double agentTrust = 0.8,
+        int quarantineAfter = 12,
+        TimeSpan? quarantineAfterDuration = null)
+    {
+        var writer = new CapturingRatingWriter();
         var prober = new SeedProber(
             new StubHttpClientFactory(new StubHttpMessageHandler(respond)),
             new BetaReputationSystem(),
@@ -95,7 +120,7 @@ public class SeedProberRunTests
             NullLogger<SeedProber>.Instance);
 
         await prober.RunAsync();
-        return (writer, store);
+        return writer;
     }
 
     [Fact]
@@ -374,5 +399,38 @@ public class SeedProberRunTests
             .AfterFailure(503, t0.AddDays(5), 3, TimeSpan.FromDays(3));
 
         h.IsQuarantined.Should().BeFalse();
+    }
+
+    // --- health bookkeeping failures must not cost real measurements ---
+
+    private static readonly Func<HttpRequestMessage, HttpResponseMessage> OkOrDead =
+        request => request.RequestUri!.Host == "probe-dead.example.com"
+            ? new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
+            : new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"ok\":true}") };
+
+    private static List<SeedProbeTarget> OkAndDead() => new()
+    {
+        new() { Service = "probe-ok.example.com", Url = "https://probe-ok.example.com/v1" },
+        new() { Service = "probe-dead.example.com", Url = "https://probe-dead.example.com/v1" },
+    };
+
+    [Fact]
+    public async Task UnreadableHealth_StillPublishesSuccesses_AndHoldsBackFailures()
+    {
+        // Without the health table a failing target might be a quarantined one, so its failure is
+        // held back; a success is safe to publish either way.
+        var writer = await RunProbeAgainstAsync(OkOrDead, OkAndDead(), new BrokenProbeHealth { FailReads = true });
+
+        writer.Submissions.Should().ContainSingle()
+            .Which.ServiceId.Should().Be("probe-ok.example.com");
+    }
+
+    [Fact]
+    public async Task UnwritableHealth_DoesNotLoseTheRating()
+    {
+        var writer = await RunProbeAgainstAsync(OkOrDead, OkAndDead(), new BrokenProbeHealth());
+
+        writer.Submissions.Select(s => s.ServiceId)
+            .Should().BeEquivalentTo(new[] { "probe-ok.example.com", "probe-dead.example.com" });
     }
 }
