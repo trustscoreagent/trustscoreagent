@@ -98,7 +98,8 @@ provable once the next anchor (every 6 hours) includes it; before that the endpo
 
 ```bash
 curl "https://api.trustscoreagent.com/v1/agent/trust?did=did:web:my-agent.example.com"
-# -> { "agent": "…", "trust_score": 0.5, "interpretation": "MODERATE" }
+# -> { "agent": "…", "trust_score": 0.5, "interpretation": "MODERATE",
+#      "unsigned_trust_score": 0.5, "unsigned_interpretation": "MODERATE" }
 ```
 
 New agents start at `0.5`; EigenTrust recomputes every 6 hours based on how consistent an
