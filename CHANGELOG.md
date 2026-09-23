@@ -39,6 +39,17 @@ All notable changes to TrustScoreAgent will be documented in this file.
 ### Fixed
 - A correctly signed request whose URL differed only in case was rejected with `401`, because the
   raw request path went into the signed payload and routing is case-insensitive
+- Rotating `did:key` minted fresh rating quota: signed ratings now also spend a per-IP bucket
+- A Redis outage rejected every signed rating as a replay; a valid signature is now accepted and
+  counted as unsigned while the nonce store is down
+- `/v1/agent/trust` returned a stale pre-split value for agents that never signed; it now reports
+  both identities (`trust_score`, `unsigned_trust_score`) (migration 011)
+- Probe quarantine is decided by how long a target has been failing (3 days), not by a pass count
+  that changed meaning with the schedule (migration 012), and a `probe_target_health` error no
+  longer aborts the probe pass or drops a measurement
+- MCP server 0.2.2: without a usable key it keeps a stable fallback DID in
+  `~/.trustscoreagent/agent-id` instead of a new one per restart, and several instances starting
+  at once no longer race to write different keys
 
 ### Known limitations
 - The Merkle leaf commits to `(id, service_did, created_at)` only, so the audit log proves a
