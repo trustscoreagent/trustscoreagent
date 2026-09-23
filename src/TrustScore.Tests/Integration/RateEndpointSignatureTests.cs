@@ -227,8 +227,36 @@ public class RateEndpointSignatureTests : IClassFixture<WebApplicationFactory<Pr
 
         await client.SendAsync(Request(AgentSigner.Sign(_agentKey, BodyBytes)));
 
-        limiter.RatingKeys.Should().ContainSingle();
-        limiter.RatingKeys[0].Should().Be($"agent:{did}:api.example.com");
+        limiter.RatingKeys.Should().Contain($"agent:{did}:api.example.com");
+    }
+
+    [Fact]
+    public async Task RotatingSigningKeys_DoesNotMintFreshQuota()
+    {
+        // A did:key costs nothing to create. If only the per-agent bucket applied, signing each
+        // request with a new key would hand out a new allowance every time, which is the same
+        // hole the unsigned path had before it was bucketed by caller.
+        var (client, _, limiter) = CreateClient();
+
+        using var first = Key.Create(SignatureAlgorithm.Ed25519);
+        using var second = Key.Create(SignatureAlgorithm.Ed25519);
+        await client.SendAsync(Request(AgentSigner.Sign(first, BodyBytes)));
+        await client.SendAsync(Request(AgentSigner.Sign(second, BodyBytes)));
+
+        var callerBuckets = limiter.RatingKeys.Where(k => k.StartsWith("ip-signed:")).ToList();
+        callerBuckets.Should().HaveCount(2);
+        callerBuckets.Distinct().Should().ContainSingle("both keys spend the same caller bucket");
+    }
+
+    [Fact]
+    public async Task SignedRating_IsRejected_OnceTheCallerBucketIsSpent()
+    {
+        var (client, _, limiter) = CreateClient();
+        limiter.ExhaustPrefix = "ip-signed:";
+
+        var response = await client.SendAsync(Request(AgentSigner.Sign(_agentKey, BodyBytes)));
+
+        response.StatusCode.Should().Be((HttpStatusCode)429);
     }
 
     [Fact]
@@ -281,10 +309,16 @@ internal sealed class CapturingRateLimiter : IRateLimiter
     /// <summary>Keys checked by /v1/rate, excluding the per-IP global middleware bucket.</summary>
     public List<string> RatingKeys { get; } = new();
 
+    /// <summary>Buckets with this prefix report as already exhausted.</summary>
+    public string? ExhaustPrefix { get; set; }
+
     public Task<RateLimitResult> CheckAsync(string key, int maxRequests, TimeSpan window)
     {
         if (!key.StartsWith("global:", StringComparison.Ordinal))
             RatingKeys.Add(key);
+
+        if (ExhaustPrefix is not null && key.StartsWith(ExhaustPrefix, StringComparison.Ordinal))
+            return Task.FromResult(new RateLimitResult(false, maxRequests + 1, maxRequests));
 
         _counts.TryGetValue(key, out var count);
         count++;

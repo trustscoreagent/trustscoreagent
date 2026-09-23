@@ -10,6 +10,13 @@ public static class RateEndpoints
     private const int MaxRatingsPerHour = 10;
 
     /// <summary>
+    /// Signed ratings per caller IP per service per hour, across every key used from that IP.
+    /// Ten times the per-agent limit: room for a handful of honest agents behind one NAT, not for
+    /// a fresh keypair per request.
+    /// </summary>
+    private const int MaxSignedRatingsPerCallerPerHour = 100;
+
+    /// <summary>
     /// The canonical route, and the exact string clients sign. Routing is case-insensitive, so the
     /// raw request path is whatever spelling the caller (or a proxy) used; signing that instead
     /// would reject a valid signature sent to <c>/V1/Rate</c>. Binding to this constant still ties
@@ -105,20 +112,33 @@ public static class RateEndpoints
             // lock a real agent out for an hour by sending junk ratings in its name. Unsigned callers
             // are bucketed by IP instead, so they can only spend their own quota, and rotating the
             // claimed DID no longer mints a fresh allowance.
-            var (rateLimitKey, rateLimitScope) = signatureResult.IsVerified
-                ? ($"agent:{agentDid}:{serviceId}", "agent")
-                : ($"ip:{httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown"}:{serviceId}", "caller");
+            //
+            // A proven DID is still free to mint, though: a caller that signs every request with a
+            // fresh key would get a fresh per-agent bucket each time. So signed requests are also
+            // counted per caller, with a ceiling generous enough for several honest agents sharing
+            // an egress IP but low enough that key rotation stops being a way around the limit.
+            var clientIp = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+            var buckets = signatureResult.IsVerified
+                ? new[]
+                {
+                    ($"ip-signed:{clientIp}:{serviceId}", MaxSignedRatingsPerCallerPerHour, "caller"),
+                    ($"agent:{agentDid}:{serviceId}", MaxRatingsPerHour, "agent"),
+                }
+                : new[] { ($"ip:{clientIp}:{serviceId}", MaxRatingsPerHour, "caller") };
 
-            var rateLimitResult = await rateLimiter.CheckAsync(rateLimitKey, MaxRatingsPerHour, TimeSpan.FromHours(1));
-            if (!rateLimitResult.Allowed)
-                return Results.Json(
-                    new
-                    {
-                        error = "rate_limited",
-                        message = $"Maximum {MaxRatingsPerHour} ratings per {rateLimitScope} per service per hour",
-                        remaining = rateLimitResult.Remaining,
-                    },
-                    statusCode: 429);
+            foreach (var (key, limit, scope) in buckets)
+            {
+                var rateLimitResult = await rateLimiter.CheckAsync(key, limit, TimeSpan.FromHours(1));
+                if (!rateLimitResult.Allowed)
+                    return Results.Json(
+                        new
+                        {
+                            error = "rate_limited",
+                            message = $"Maximum {limit} ratings per {scope} per service per hour",
+                            remaining = rateLimitResult.Remaining,
+                        },
+                        statusCode: 429);
+            }
 
             // Verify receipt if provided. Per spec §5, an unverified rating still counts, but at a
             // reduced base weight (0.3); a verified receipt grants full weight (1.0). The base
