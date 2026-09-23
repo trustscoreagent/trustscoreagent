@@ -68,7 +68,21 @@ public sealed class SeedProber
             TrustIdentity.For(_options.AgentDid, signatureVerified: false));
         var client = _httpClientFactory.CreateClient(HttpClientName);
 
-        var health = await _healthRepo.GetAllAsync();
+        // Health is bookkeeping around the measurement, not the measurement itself, so failing to
+        // read it must not cancel the whole pass. Without it we cannot tell a quarantined target
+        // from a healthy one, so the pass publishes only successes (which would lift a quarantine
+        // anyway) and holds back failures, which are exactly what quarantine exists to suppress.
+        IReadOnlyDictionary<string, ProbeTargetHealth>? health;
+        try
+        {
+            health = await _healthRepo.GetAllAsync();
+        }
+        catch (Exception ex)
+        {
+            health = null;
+            _logger.LogWarning(ex,
+                "SeedProbe: target health unavailable; publishing successes only and holding back failures this pass");
+        }
 
         int recorded = 0, errors = 0, suppressed = 0;
         var targets = _options.Targets
@@ -88,39 +102,37 @@ public sealed class SeedProber
                 {
                     var (statusCode, latencyMs, schemaValid) = await ProbeAsync(client, target);
                     var now = DateTimeOffset.UtcNow;
-                    var before = health.GetValueOrDefault(serviceId) ?? ProbeTargetHealth.Unseen(serviceId);
 
                     // Anything that is not a usable response counts against the target, including
                     // 4xx: a probe URL that has moved answers 404 forever, which is exactly the
                     // case this guards against.
                     var usable = statusCode is >= 200 and < 300;
-                    var after = usable
-                        ? before.AfterSuccess(statusCode, now)
-                        : before.AfterFailure(statusCode, now, _options.QuarantineAfterConsecutiveFailures);
 
-                    await _healthRepo.UpsertAsync(after);
-
-                    if (after.IsQuarantined)
+                    if (health is null)
                     {
-                        // Held back rather than published. After this many consecutive failures the
-                        // likeliest explanation is our URL, not the service, and publishing it would
-                        // accuse a third party of an outage on the strength of our own stale config.
-                        Interlocked.Increment(ref suppressed);
-                        if (!before.IsQuarantined)
+                        if (!usable)
                         {
-                            _logger.LogWarning(
-                                "SeedProbe {Service}: quarantined after {Failures} consecutive failures " +
-                                "(last HTTP {Status}). The probe URL has most likely moved. Ratings are " +
-                                "suppressed for this target until it answers again: {Url}",
-                                serviceId, after.ConsecutiveFailures, statusCode, target.Url);
+                            Interlocked.Increment(ref suppressed);
+                            return;
                         }
-                        return;
+                        // Health is not written back either: starting from an assumed-clean state
+                        // would wipe a real failure streak.
                     }
-
-                    if (before.IsQuarantined)
+                    else
                     {
-                        _logger.LogInformation(
-                            "SeedProbe {Service}: answering again, leaving quarantine", serviceId);
+                        var before = health.GetValueOrDefault(serviceId) ?? ProbeTargetHealth.Unseen(serviceId);
+                        var after = usable
+                            ? before.AfterSuccess(statusCode, now)
+                            : before.AfterFailure(statusCode, now,
+                                _options.QuarantineAfterConsecutiveFailures, _options.QuarantineAfter);
+
+                        await TrySaveHealthAsync(after);
+
+                        if (!ShouldPublish(before, after, statusCode, target.Url))
+                        {
+                            Interlocked.Increment(ref suppressed);
+                            return;
+                        }
                     }
 
                     var rating = new Rating
@@ -155,6 +167,49 @@ public sealed class SeedProber
         _logger.LogInformation(
             "SeedProbe complete: {Recorded} recorded, {Suppressed} suppressed (quarantined), {Errors} errors",
             recorded, suppressed, errors);
+    }
+
+    /// <summary>
+    /// Whether this probe result should become a rating, logging quarantine transitions. A failed
+    /// health write has no say here: the decision is made from the state computed in memory, so a
+    /// hiccup in the bookkeeping never costs a real measurement.
+    /// </summary>
+    private bool ShouldPublish(ProbeTargetHealth before, ProbeTargetHealth after, int statusCode, string url)
+    {
+        if (after.IsQuarantined)
+        {
+            // Held back rather than published. After this long failing, the likeliest explanation
+            // is our URL, not the service, and publishing it would accuse a third party of an
+            // outage on the strength of our own stale config.
+            if (!before.IsQuarantined)
+            {
+                _logger.LogWarning(
+                    "SeedProbe {Service}: quarantined after failing since {FailingSince} ({Failures} consecutive " +
+                    "failures, last HTTP {Status}). The probe URL has most likely moved. Ratings are " +
+                    "suppressed for this target until it answers again: {Url}",
+                    after.ServiceDid, after.FailingSince, after.ConsecutiveFailures, statusCode, url);
+            }
+            return false;
+        }
+
+        if (before.IsQuarantined)
+        {
+            _logger.LogInformation(
+                "SeedProbe {Service}: answering again, leaving quarantine", after.ServiceDid);
+        }
+        return true;
+    }
+
+    private async Task TrySaveHealthAsync(ProbeTargetHealth health)
+    {
+        try
+        {
+            await _healthRepo.UpsertAsync(health);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "SeedProbe {Service}: could not save target health", health.ServiceDid);
+        }
     }
 
     // Same base weight as any rating without a receipt (spec §5).
@@ -274,11 +329,19 @@ public sealed class SeedProbeOptions
     public int TimeoutSeconds { get; set; } = 10;
 
     /// <summary>
-    /// Consecutive failed probes before a target is treated as a bad URL rather than as evidence
-    /// about the service. At one pass every 6 hours the default is three days, which a real outage
-    /// almost never reaches and a moved endpoint always does.
+    /// How long a target must have been failing, without a single success, before it is treated
+    /// as a bad URL rather than as evidence about the service. Three days is a span a real outage
+    /// almost never reaches and a moved endpoint always does. Expressed as a duration, not a pass
+    /// count, so it means the same thing whatever the probe schedule is.
     /// </summary>
-    public int QuarantineAfterConsecutiveFailures { get; set; } = 12;
+    public TimeSpan QuarantineAfter { get; set; } = TimeSpan.FromDays(3);
+
+    /// <summary>
+    /// Minimum unbroken run of failed probes before quarantine, on top of
+    /// <see cref="QuarantineAfter"/>, so that a couple of failures spread over a long gap between
+    /// passes cannot quarantine a target on their own.
+    /// </summary>
+    public int QuarantineAfterConsecutiveFailures { get; set; } = 3;
     public List<SeedProbeTarget> Targets { get; set; } = new();
 }
 

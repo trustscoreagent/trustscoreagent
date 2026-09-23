@@ -52,6 +52,19 @@ public class SeedProberRunTests
         }
     }
 
+    /// <summary>A health table that is down: reads, writes, or both throw.</summary>
+    private sealed class BrokenProbeHealth : IProbeHealthRepository
+    {
+        public bool FailReads { get; init; }
+        public InMemoryProbeHealth Inner { get; } = new();
+
+        public Task<IReadOnlyDictionary<string, ProbeTargetHealth>> GetAllAsync() =>
+            FailReads ? throw new InvalidOperationException("table unavailable") : Inner.GetAllAsync();
+
+        public Task UpsertAsync(ProbeTargetHealth health) =>
+            throw new InvalidOperationException("table unavailable");
+    }
+
     private sealed class FixedTrustAgentRepository : IAgentRepository
     {
         private readonly double _trust;
@@ -71,10 +84,23 @@ public class SeedProberRunTests
         List<SeedProbeTarget> targets,
         double agentTrust = 0.8,
         InMemoryProbeHealth? health = null,
-        int quarantineAfter = 12)
+        int quarantineAfter = 12,
+        TimeSpan? quarantineAfterDuration = null)
+    {
+        var store = health ?? new InMemoryProbeHealth();
+        var writer = await RunProbeAgainstAsync(respond, targets, store, agentTrust, quarantineAfter, quarantineAfterDuration);
+        return (writer, store);
+    }
+
+    private static async Task<CapturingRatingWriter> RunProbeAgainstAsync(
+        Func<HttpRequestMessage, HttpResponseMessage> respond,
+        List<SeedProbeTarget> targets,
+        IProbeHealthRepository store,
+        double agentTrust = 0.8,
+        int quarantineAfter = 12,
+        TimeSpan? quarantineAfterDuration = null)
     {
         var writer = new CapturingRatingWriter();
-        var store = health ?? new InMemoryProbeHealth();
         var prober = new SeedProber(
             new StubHttpClientFactory(new StubHttpMessageHandler(respond)),
             new BetaReputationSystem(),
@@ -88,11 +114,13 @@ public class SeedProberRunTests
                 TimeoutSeconds = TimeoutSeconds,
                 Targets = targets,
                 QuarantineAfterConsecutiveFailures = quarantineAfter,
+                // Zero by default so these tests exercise the count; the duration rule has its own.
+                QuarantineAfter = quarantineAfterDuration ?? TimeSpan.Zero,
             }),
             NullLogger<SeedProber>.Instance);
 
         await prober.RunAsync();
-        return (writer, store);
+        return writer;
     }
 
     [Fact]
@@ -308,5 +336,101 @@ public class SeedProberRunTests
         await RunProbeWithHealthAsync(AlwaysNotFound, targets, health: health, quarantineAfter: 3);
 
         health.Store.Values.Single().QuarantinedAt.Should().Be(stamped);
+    }
+
+    [Fact]
+    public async Task FailuresInQuickSuccession_DoNotQuarantine_BeforeTheDurationElapses()
+    {
+        // The regression: with a pass-count threshold, running the job more often shrank the
+        // quarantine window, so an ordinary few-hour outage got hidden. Many fast passes must not
+        // add up to "days of failing".
+        var health = new InMemoryProbeHealth();
+        var targets = OneTarget();
+
+        for (var pass = 1; pass <= 20; pass++)
+            await RunProbeWithHealthAsync(AlwaysNotFound, targets, health: health,
+                quarantineAfter: 3, quarantineAfterDuration: TimeSpan.FromDays(3));
+
+        var entry = health.Store.Values.Single();
+        entry.ConsecutiveFailures.Should().Be(20);
+        entry.IsQuarantined.Should().BeFalse("the target has been failing for seconds, not days");
+    }
+
+    [Fact]
+    public async Task StreakOlderThanTheDuration_Quarantines()
+    {
+        var health = new InMemoryProbeHealth();
+        var targets = OneTarget();
+        var host = targets[0].Service;
+        health.Store[host] = ProbeTargetHealth.Unseen(host) with
+        {
+            ConsecutiveFailures = 11,
+            FailingSince = DateTimeOffset.UtcNow.AddDays(-4),
+            LastProbedAt = DateTimeOffset.UtcNow.AddHours(-6),
+        };
+
+        var (writer, _) = await RunProbeWithHealthAsync(AlwaysNotFound, targets, health: health,
+            quarantineAfter: 3, quarantineAfterDuration: TimeSpan.FromDays(3));
+
+        health.Store[host].IsQuarantined.Should().BeTrue();
+        writer.Submissions.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void FailingSince_IsSetOnTheFirstFailure_AndClearedBySuccess()
+    {
+        var t0 = DateTimeOffset.UtcNow;
+        var h = ProbeTargetHealth.Unseen("svc.example.com")
+            .AfterFailure(503, t0, 3, TimeSpan.FromDays(3))
+            .AfterFailure(503, t0.AddHours(6), 3, TimeSpan.FromDays(3));
+
+        h.FailingSince.Should().Be(t0, "the streak started at the first failure");
+        h.AfterSuccess(200, t0.AddHours(12)).FailingSince.Should().BeNull();
+    }
+
+    [Fact]
+    public void TwoFailuresFarApart_AreNotEnough()
+    {
+        // A paused scheduler can leave days between two passes. The minimum count keeps two
+        // isolated failures from reading as a streak of days.
+        var t0 = DateTimeOffset.UtcNow;
+        var h = ProbeTargetHealth.Unseen("svc.example.com")
+            .AfterFailure(503, t0, 3, TimeSpan.FromDays(3))
+            .AfterFailure(503, t0.AddDays(5), 3, TimeSpan.FromDays(3));
+
+        h.IsQuarantined.Should().BeFalse();
+    }
+
+    // --- health bookkeeping failures must not cost real measurements ---
+
+    private static readonly Func<HttpRequestMessage, HttpResponseMessage> OkOrDead =
+        request => request.RequestUri!.Host == "probe-dead.example.com"
+            ? new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
+            : new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"ok\":true}") };
+
+    private static List<SeedProbeTarget> OkAndDead() => new()
+    {
+        new() { Service = "probe-ok.example.com", Url = "https://probe-ok.example.com/v1" },
+        new() { Service = "probe-dead.example.com", Url = "https://probe-dead.example.com/v1" },
+    };
+
+    [Fact]
+    public async Task UnreadableHealth_StillPublishesSuccesses_AndHoldsBackFailures()
+    {
+        // Without the health table a failing target might be a quarantined one, so its failure is
+        // held back; a success is safe to publish either way.
+        var writer = await RunProbeAgainstAsync(OkOrDead, OkAndDead(), new BrokenProbeHealth { FailReads = true });
+
+        writer.Submissions.Should().ContainSingle()
+            .Which.ServiceId.Should().Be("probe-ok.example.com");
+    }
+
+    [Fact]
+    public async Task UnwritableHealth_DoesNotLoseTheRating()
+    {
+        var writer = await RunProbeAgainstAsync(OkOrDead, OkAndDead(), new BrokenProbeHealth());
+
+        writer.Submissions.Select(s => s.ServiceId)
+            .Should().BeEquivalentTo(new[] { "probe-ok.example.com", "probe-dead.example.com" });
     }
 }

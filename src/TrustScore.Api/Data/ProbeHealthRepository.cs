@@ -22,7 +22,8 @@ public sealed class ProbeHealthRepository : IProbeHealthRepository
                    consecutive_failures AS ConsecutiveFailures,
                    quarantined_at       AS QuarantinedAt,
                    last_status_code     AS LastStatusCode,
-                   last_probed_at       AS LastProbedAt
+                   last_probed_at       AS LastProbedAt,
+                   failing_since        AS FailingSince
             FROM probe_target_health
             """);
 
@@ -35,13 +36,14 @@ public sealed class ProbeHealthRepository : IProbeHealthRepository
         await conn.ExecuteAsync(
             """
             INSERT INTO probe_target_health
-                (service_did, consecutive_failures, quarantined_at, last_status_code, last_probed_at)
-            VALUES (@ServiceDid, @ConsecutiveFailures, @QuarantinedAt, @LastStatusCode, @LastProbedAt)
+                (service_did, consecutive_failures, quarantined_at, last_status_code, last_probed_at, failing_since)
+            VALUES (@ServiceDid, @ConsecutiveFailures, @QuarantinedAt, @LastStatusCode, @LastProbedAt, @FailingSince)
             ON CONFLICT (service_did) DO UPDATE SET
                 consecutive_failures = EXCLUDED.consecutive_failures,
                 quarantined_at       = EXCLUDED.quarantined_at,
                 last_status_code     = EXCLUDED.last_status_code,
-                last_probed_at       = EXCLUDED.last_probed_at
+                last_probed_at       = EXCLUDED.last_probed_at,
+                failing_since        = EXCLUDED.failing_since
             """,
             health);
     }

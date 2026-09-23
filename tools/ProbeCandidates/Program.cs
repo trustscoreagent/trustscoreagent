@@ -75,7 +75,14 @@ foreach (var candidate in candidates)
         // target. Both of the first run's rejections turned out to be the local network: the
         // registry's own probe, on a different network, measures both services as healthy. So
         // ask the registry before telling anyone to delete a target.
-        var secondOpinion = await SecondOpinionAsync(http, normalized);
+        //
+        // Only for failures a vantage point can cause, though. The registry scores the *service*,
+        // not this URL, so a healthy score says nothing about a 404 (moved path), a 401/403 (needs
+        // a key) or a redirect: those are exactly the broken targets this tool exists to catch,
+        // and they would otherwise be waved through whenever the service itself is fine.
+        var secondOpinion = FailedOnlyForLocalReasons(passes)
+            ? await SecondOpinionAsync(http, normalized)
+            : null;
         if (secondOpinion is not null)
         {
             var note = $"failed from here ({verdict.Reason}), but the registry measures it " +
@@ -191,6 +198,15 @@ Verdict Judge(Candidate candidate, string normalized, List<ProbeResult> passes)
         notes.Add($"slow: {slowest}ms against a {Constants.ProbeTimeoutSeconds}s timeout");
 
     return new Verdict(null, notes);
+}
+
+// True when every failed pass failed in a way this machine's network could explain: no response
+// at all (DNS, refused, timeout), or a 429 aimed at this address. Any real HTTP answer, or a body
+// that fails the conformity check, is the target speaking, and no second opinion overrides it.
+static bool FailedOnlyForLocalReasons(List<ProbeResult> passes)
+{
+    var failed = passes.Where(p => p.Error is not null || p.StatusCode is < 200 or >= 300).ToList();
+    return failed.Count > 0 && failed.All(p => p.Error is not null || p.StatusCode == 429);
 }
 
 // Asks the public registry what it has measured for a service. Returns null when it has no

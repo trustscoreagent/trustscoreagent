@@ -2,7 +2,9 @@
 # ============================================================================
 # TrustScoreAgent — Cloud Scheduler + Cloud Run Job Setup
 # ============================================================================
-# Creates an hourly job that runs EigenTrust + Merkle anchoring.
+# Creates the batch job (seed probe + EigenTrust + Merkle anchoring), run every 6 hours.
+# The job is still named "-hourly" because renaming a Cloud Run job means recreating it; the
+# name is historical, the schedule below is the truth.
 # Prerequisites: GCP setup done (setup-gcp.sh), API deployed on Cloud Run.
 #
 # Usage:
@@ -25,7 +27,7 @@ gcloud config set project "$PROJECT_ID" >/dev/null 2>&1 || true
 
 echo "=== TrustScoreAgent Scheduler Setup ==="
 
-# Run the SAME image the production API currently serves, so the hourly job runs identical code.
+# Run the SAME image the production API currently serves, so the batch job runs identical code.
 # The deploy pipeline tags images by commit SHA (there is no :latest tag), so resolve it live.
 IMAGE=$(gcloud run services describe "$API_SERVICE" \
   --region "$REGION" --project "$PROJECT_ID" \
@@ -70,7 +72,7 @@ gcloud run jobs update "$JOB_NAME" \
 # 3. Create the dedicated scheduler identity and let it run ONLY this job.
 echo "[3/4] Creating scheduler service account..."
 gcloud iam service-accounts create "$SCHEDULER_SA_NAME" \
-  --display-name="Cloud Scheduler — hourly job invoker" \
+  --display-name="Cloud Scheduler batch job invoker" \
   --quiet 2>/dev/null || echo "  (already exists)"
 
 gcloud run jobs add-iam-policy-binding "$JOB_NAME" \
@@ -79,11 +81,14 @@ gcloud run jobs add-iam-policy-binding "$JOB_NAME" \
   --role="roles/run.invoker" \
   --quiet > /dev/null
 
-# 4. Create Cloud Scheduler trigger (every hour at minute 0)
+# 4. Create Cloud Scheduler trigger (every 6 hours at minute 0).
+# Keep this in step with production: the probe quarantine, the anchoring delay quoted in the
+# docs and the job's Cloud SQL cost all assume it. The trigger is only created, never updated,
+# so re-running this script leaves an existing schedule alone.
 echo "[4/4] Creating Cloud Scheduler trigger..."
 gcloud scheduler jobs create http "$JOB_NAME-trigger" \
   --location "$REGION" \
-  --schedule "0 * * * *" \
+  --schedule "0 */6 * * *" \
   --uri "https://${REGION}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${PROJECT_ID}/jobs/${JOB_NAME}:run" \
   --http-method POST \
   --oauth-service-account-email "$SCHEDULER_SA_EMAIL" \
@@ -94,7 +99,7 @@ echo ""
 echo "=== Setup Complete ==="
 echo ""
 echo "Job: $JOB_NAME (runs EigenTrust + Merkle anchoring)"
-echo "Schedule: every hour at minute 0"
+echo "Schedule: every 6 hours at minute 0"
 echo ""
 echo "Manual test:"
 echo "  gcloud run jobs execute $JOB_NAME --region $REGION"

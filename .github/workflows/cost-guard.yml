@@ -53,13 +53,17 @@ jobs:
         id: check
         run: |
           # An unset annotation means scale-to-zero, which is the wanted state, so an empty
-          # value reads as 0 rather than as a failure to look it up.
+          # value reads as 0. A failed lookup is a different thing and must not read as 0 too:
+          # that would report "all clear" (and close the issue) precisely when the guard cannot
+          # see anything. The describe call is left to fail the step instead.
           offenders=""
           for svc in trustscoreagent-api trustscoreagent-api-staging; do
-            min=$(gcloud run services describe "$svc" \
+            if ! min=$(gcloud run services describe "$svc" \
               --region "$GCP_REGION" \
-              --format "value(spec.template.metadata.annotations['autoscaling.knative.dev/minScale'])" \
-              2>/dev/null || echo "")
+              --format "value(spec.template.metadata.annotations['autoscaling.knative.dev/minScale'])"); then
+              echo "::error::Could not read min-instances for $svc"
+              exit 1
+            fi
             min=${min:-0}
             echo "$svc: min-instances=$min"
             if [ "$min" != "0" ]; then
