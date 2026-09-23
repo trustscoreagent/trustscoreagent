@@ -122,7 +122,7 @@ unverifiable receipt is downgraded, not punished; only a replayed nonce is rejec
 ## Audit trail
 
 Every accepted rating is hashed into an append-only **Merkle tree**. The root is anchored
-periodically (hourly), and `GET /v1/audit/proof/{rating_id}` returns an inclusion proof
+periodically (every 6 hours), and `GET /v1/audit/proof/{rating_id}` returns an inclusion proof
 that verifies against the anchored root from `GET /v1/audit/root`. On-chain anchoring to
 Base L2 is Phase 2.
 

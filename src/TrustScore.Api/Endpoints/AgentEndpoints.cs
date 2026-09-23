@@ -94,7 +94,7 @@ public static class AgentEndpoints
         .Produces(200)
         .Produces(401)
         .WithSummary("Trigger EigenTrust recalculation (admin)")
-        .WithDescription("Recalculates trust scores for all agents based on rating consistency. In production, this runs automatically every hour via Cloud Scheduler.");
+        .WithDescription("Recalculates trust scores for all agents based on rating consistency. In production, this runs automatically every 6 hours via Cloud Scheduler.");
     }
 
     private static string Interpret(double score) =>

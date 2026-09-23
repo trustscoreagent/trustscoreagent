@@ -92,7 +92,7 @@ curl "https://api.trustscoreagent.com/v1/audit/proof/<rating_id>"
 ```
 
 The proof verifies against the anchored root without trusting the operator. (A rating is
-provable once the next hourly anchor includes it; before that the endpoint returns 404.)
+provable once the next anchor (every 6 hours) includes it; before that the endpoint returns 404.)
 
 ## 6. Check an agent's trust score
 
@@ -101,7 +101,7 @@ curl "https://api.trustscoreagent.com/v1/agent/trust?did=did:web:my-agent.exampl
 # -> { "agent": "…", "trust_score": 0.5, "interpretation": "MODERATE" }
 ```
 
-New agents start at `0.5`; EigenTrust recomputes hourly based on how consistent an
+New agents start at `0.5`; EigenTrust recomputes every 6 hours based on how consistent an
 agent's ratings are with the consensus.
 
 ## 7. Use it from an LLM agent (MCP)

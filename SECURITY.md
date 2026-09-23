@@ -55,7 +55,7 @@ TrustScoreAgent is in **Phase 1 (early)**. Be aware of the current trust model:
   (shrinking the weight of the victim's own honest ratings), or conversely name a reputable
   agent to borrow its standing as a weight multiplier. Unsigned ratings still feed service
   consensus; they simply cannot spend or damage a reputation they only claim.
-  Sybil resistance combines this with rate limiting and the hourly EigenTrust recompute
+  Sybil resistance combines this with rate limiting and the periodic EigenTrust recompute
   (inconsistent raters converge toward low trust), and ratings backed by a verified service
   **receipt** remain the strongest signal.
 - **Baseline scores come from an operated probe.** A single transparent probe agent
