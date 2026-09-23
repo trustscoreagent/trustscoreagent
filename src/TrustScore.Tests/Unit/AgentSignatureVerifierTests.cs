@@ -324,6 +324,52 @@ public class AgentSignatureVerifierTests
         result.IsVerified.Should().BeTrue();
     }
 
+    // --- nonce store outage ---
+
+    private sealed class UnreachableCache : TrustScore.Core.Interfaces.ICacheService
+    {
+        public Task<string?> GetAsync(string key) => Task.FromResult<string?>(null);
+        public Task SetAsync(string key, string value, TimeSpan expiry) => Task.CompletedTask;
+        public Task<bool> SetIfNotExistsAsync(string key, string value, TimeSpan expiry) => Task.FromResult(false);
+        public Task RemoveAsync(string key) => Task.CompletedTask;
+        public Task<bool> IsAvailableAsync() => Task.FromResult(false);
+    }
+
+    [Fact]
+    public async Task NonceStoreOutage_IsNotReportedAsAReplay()
+    {
+        // With Redis down the claim fails for a reason that has nothing to do with the client.
+        // Rejecting would take every signing client down with the cache, and calling it a replay
+        // would blame an honest caller.
+        var verifier = new AgentSignatureVerifier(
+            new UnreachableCache(),
+            new ConfigurationBuilder().Build(),
+            NullLogger<AgentSignatureVerifier>.Instance);
+
+        var result = await verifier.VerifyAsync(Sign(), Audience, Method, Path, Body);
+
+        result.Status.Should().Be(AgentSignatureStatus.ReplayCheckUnavailable);
+        result.IsRejected.Should().BeFalse("the rating is kept, counted as unsigned");
+        result.IsVerified.Should().BeFalse("without replay protection it must not count as signed");
+    }
+
+    [Fact]
+    public async Task ForgedSignature_IsStillRejected_DuringAnOutage()
+    {
+        // The outage relaxes replay protection only. A signature that does not verify never
+        // reaches the nonce store, so it is rejected exactly as before.
+        var verifier = new AgentSignatureVerifier(
+            new UnreachableCache(),
+            new ConfigurationBuilder().Build(),
+            NullLogger<AgentSignatureVerifier>.Instance);
+        using var attackerKey = Key.Create(SignatureAlgorithm.Ed25519);
+
+        var result = await verifier.VerifyAsync(
+            Sign(signingKey: attackerKey, agentDid: AgentDid), Audience, Method, Path, Body);
+
+        result.Status.Should().Be(AgentSignatureStatus.InvalidSignature);
+    }
+
     // --- canonical payload ---
 
     [Fact]

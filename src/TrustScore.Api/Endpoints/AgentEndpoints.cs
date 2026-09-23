@@ -28,22 +28,31 @@ public static class AgentEndpoints
             if (agentId.Length > 500)
                 return Results.BadRequest(new { error = "invalid_agent", message = "agent identifier too long (max 500 characters)" });
 
-            var trustScore = await agentRepo.GetTrustScoreAsync(agentId);
+            // An agent accrues trust under two identities: its DID for ratings it signed, and a
+            // namespaced one for ratings merely filed under its DID. Report both, because an agent
+            // that has never signed has all of its history in the second, and returning only the
+            // first would show it the neutral default forever. Accept either spelling as input.
+            var baseDid = agentId.StartsWith(TrustIdentity.UnsignedPrefix, StringComparison.Ordinal)
+                ? agentId[TrustIdentity.UnsignedPrefix.Length..]
+                : agentId;
+
+            var signedScore = await agentRepo.GetTrustScoreAsync(TrustIdentity.For(baseDid, signatureVerified: true));
+            var unsignedScore = await agentRepo.GetTrustScoreAsync(TrustIdentity.For(baseDid, signatureVerified: false));
 
             return Results.Ok(new
             {
-                agent = agentId,
-                trust_score = trustScore,
-                interpretation = trustScore >= 0.8 ? "HIGH" :
-                                trustScore >= 0.5 ? "MODERATE" :
-                                trustScore >= 0.2 ? "LOW" : "VERY_LOW",
+                agent = baseDid,
+                trust_score = signedScore,
+                interpretation = Interpret(signedScore),
+                unsigned_trust_score = unsignedScore,
+                unsigned_interpretation = Interpret(unsignedScore),
             });
         })
         .WithName("GetAgentTrust")
         .WithTags("Agent")
         .Produces(200)
         .WithSummary("Get your agent's trust score")
-        .WithDescription("Returns the EigenTrust-computed trust score for an agent. Agents with high trust have more influence on service ratings.");
+        .WithDescription("Returns the EigenTrust-computed trust of an agent under both identities it can rate with: trust_score for ratings it signed with the key behind its did:key, and unsigned_trust_score for ratings filed under its DID without a signature. The two are kept apart so nobody can raise or damage an agent's standing by rating in its name. An agent that has never signed has all of its history in unsigned_trust_score.");
 
         // Trigger EigenTrust recalculation (will be replaced by Cloud Run Job in production)
         app.MapPost("/v1/admin/eigentrust", async (
@@ -87,4 +96,9 @@ public static class AgentEndpoints
         .WithSummary("Trigger EigenTrust recalculation (admin)")
         .WithDescription("Recalculates trust scores for all agents based on rating consistency. In production, this runs automatically every hour via Cloud Scheduler.");
     }
+
+    private static string Interpret(double score) =>
+        score >= 0.8 ? "HIGH" :
+        score >= 0.5 ? "MODERATE" :
+        score >= 0.2 ? "LOW" : "VERY_LOW";
 }
