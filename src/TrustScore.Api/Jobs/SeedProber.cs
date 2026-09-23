@@ -96,7 +96,8 @@ public sealed class SeedProber
                     var usable = statusCode is >= 200 and < 300;
                     var after = usable
                         ? before.AfterSuccess(statusCode, now)
-                        : before.AfterFailure(statusCode, now, _options.QuarantineAfterConsecutiveFailures);
+                        : before.AfterFailure(statusCode, now,
+                            _options.QuarantineAfterConsecutiveFailures, _options.QuarantineAfter);
 
                     await _healthRepo.UpsertAsync(after);
 
@@ -274,11 +275,19 @@ public sealed class SeedProbeOptions
     public int TimeoutSeconds { get; set; } = 10;
 
     /// <summary>
-    /// Consecutive failed probes before a target is treated as a bad URL rather than as evidence
-    /// about the service. At one pass every 6 hours the default is three days, which a real outage
-    /// almost never reaches and a moved endpoint always does.
+    /// How long a target must have been failing, without a single success, before it is treated
+    /// as a bad URL rather than as evidence about the service. Three days is a span a real outage
+    /// almost never reaches and a moved endpoint always does. Expressed as a duration, not a pass
+    /// count, so it means the same thing whatever the probe schedule is.
     /// </summary>
-    public int QuarantineAfterConsecutiveFailures { get; set; } = 12;
+    public TimeSpan QuarantineAfter { get; set; } = TimeSpan.FromDays(3);
+
+    /// <summary>
+    /// Minimum unbroken run of failed probes before quarantine, on top of
+    /// <see cref="QuarantineAfter"/>, so that a couple of failures spread over a long gap between
+    /// passes cannot quarantine a target on their own.
+    /// </summary>
+    public int QuarantineAfterConsecutiveFailures { get; set; } = 3;
     public List<SeedProbeTarget> Targets { get; set; } = new();
 }
 

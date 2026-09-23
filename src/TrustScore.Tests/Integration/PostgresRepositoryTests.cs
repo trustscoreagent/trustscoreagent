@@ -255,4 +255,22 @@ public class PostgresRepositoryTests : PostgresDatabaseTest
 
         count.Should().Be(1);
     }
+
+    [PostgresFact]
+    public async Task ProbeHealth_RoundTripsEveryField_IncludingTheFailureStreakStart()
+    {
+        // Dapper binds a positional record by constructor, so a column added to the table but not
+        // to the SELECT (or in the wrong order) fails only against a real database.
+        var repo = new ProbeHealthRepository(Db);
+        var since = new DateTimeOffset(2026, 9, 1, 6, 0, 0, TimeSpan.Zero);
+        var failing = new ProbeTargetHealth(
+            "probe-roundtrip.test", 4, null, 404, since.AddHours(18), since);
+
+        await repo.UpsertAsync(failing);
+        (await repo.GetAllAsync())["probe-roundtrip.test"].Should().Be(failing);
+
+        var healed = failing.AfterSuccess(200, since.AddDays(1));
+        await repo.UpsertAsync(healed);
+        (await repo.GetAllAsync())["probe-roundtrip.test"].FailingSince.Should().BeNull();
+    }
 }

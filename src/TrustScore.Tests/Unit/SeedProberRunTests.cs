@@ -71,7 +71,8 @@ public class SeedProberRunTests
         List<SeedProbeTarget> targets,
         double agentTrust = 0.8,
         InMemoryProbeHealth? health = null,
-        int quarantineAfter = 12)
+        int quarantineAfter = 12,
+        TimeSpan? quarantineAfterDuration = null)
     {
         var writer = new CapturingRatingWriter();
         var store = health ?? new InMemoryProbeHealth();
@@ -88,6 +89,8 @@ public class SeedProberRunTests
                 TimeoutSeconds = TimeoutSeconds,
                 Targets = targets,
                 QuarantineAfterConsecutiveFailures = quarantineAfter,
+                // Zero by default so these tests exercise the count; the duration rule has its own.
+                QuarantineAfter = quarantineAfterDuration ?? TimeSpan.Zero,
             }),
             NullLogger<SeedProber>.Instance);
 
@@ -308,5 +311,68 @@ public class SeedProberRunTests
         await RunProbeWithHealthAsync(AlwaysNotFound, targets, health: health, quarantineAfter: 3);
 
         health.Store.Values.Single().QuarantinedAt.Should().Be(stamped);
+    }
+
+    [Fact]
+    public async Task FailuresInQuickSuccession_DoNotQuarantine_BeforeTheDurationElapses()
+    {
+        // The regression: with a pass-count threshold, running the job more often shrank the
+        // quarantine window, so an ordinary few-hour outage got hidden. Many fast passes must not
+        // add up to "days of failing".
+        var health = new InMemoryProbeHealth();
+        var targets = OneTarget();
+
+        for (var pass = 1; pass <= 20; pass++)
+            await RunProbeWithHealthAsync(AlwaysNotFound, targets, health: health,
+                quarantineAfter: 3, quarantineAfterDuration: TimeSpan.FromDays(3));
+
+        var entry = health.Store.Values.Single();
+        entry.ConsecutiveFailures.Should().Be(20);
+        entry.IsQuarantined.Should().BeFalse("the target has been failing for seconds, not days");
+    }
+
+    [Fact]
+    public async Task StreakOlderThanTheDuration_Quarantines()
+    {
+        var health = new InMemoryProbeHealth();
+        var targets = OneTarget();
+        var host = targets[0].Service;
+        health.Store[host] = ProbeTargetHealth.Unseen(host) with
+        {
+            ConsecutiveFailures = 11,
+            FailingSince = DateTimeOffset.UtcNow.AddDays(-4),
+            LastProbedAt = DateTimeOffset.UtcNow.AddHours(-6),
+        };
+
+        var (writer, _) = await RunProbeWithHealthAsync(AlwaysNotFound, targets, health: health,
+            quarantineAfter: 3, quarantineAfterDuration: TimeSpan.FromDays(3));
+
+        health.Store[host].IsQuarantined.Should().BeTrue();
+        writer.Submissions.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void FailingSince_IsSetOnTheFirstFailure_AndClearedBySuccess()
+    {
+        var t0 = DateTimeOffset.UtcNow;
+        var h = ProbeTargetHealth.Unseen("svc.example.com")
+            .AfterFailure(503, t0, 3, TimeSpan.FromDays(3))
+            .AfterFailure(503, t0.AddHours(6), 3, TimeSpan.FromDays(3));
+
+        h.FailingSince.Should().Be(t0, "the streak started at the first failure");
+        h.AfterSuccess(200, t0.AddHours(12)).FailingSince.Should().BeNull();
+    }
+
+    [Fact]
+    public void TwoFailuresFarApart_AreNotEnough()
+    {
+        // A paused scheduler can leave days between two passes. The minimum count keeps two
+        // isolated failures from reading as a streak of days.
+        var t0 = DateTimeOffset.UtcNow;
+        var h = ProbeTargetHealth.Unseen("svc.example.com")
+            .AfterFailure(503, t0, 3, TimeSpan.FromDays(3))
+            .AfterFailure(503, t0.AddDays(5), 3, TimeSpan.FromDays(3));
+
+        h.IsQuarantined.Should().BeFalse();
     }
 }
