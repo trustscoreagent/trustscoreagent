@@ -211,10 +211,19 @@ GET /v1/agent/trust?did=did:key:z6Mk...
 **Response 200**
 
 ```json
-{ "agent": "did:web:my-agent.example.com", "trust_score": 0.78, "interpretation": "MODERATE" }
+{
+  "agent": "did:web:my-agent.example.com",
+  "trust_score": 0.78,
+  "interpretation": "MODERATE",
+  "unsigned_trust_score": 0.34,
+  "unsigned_interpretation": "LOW"
+}
 ```
 
-New agents start at `0.5` (neutral). The score is recomputed hourly by EigenTrust
+`trust_score` is the signed identity; `unsigned_trust_score` is what the unsigned ratings naming
+this DID have earned, reported apart so an agent that has not started signing still sees a live
+value. Passing `unsigned:<did>` as `did` returns the same response. New agents start at `0.5`
+(neutral). The score is recomputed hourly by EigenTrust
 based on how consistent the agent's ratings are with the consensus.
 
 ---
