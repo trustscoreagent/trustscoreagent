@@ -142,50 +142,114 @@ interface AgentIdentity {
   privateKey: KeyObject | null;
 }
 
+const AGENT_ID_FILE = join(CONFIG_DIR, "agent-id");
+
+function isErrno(error: unknown, code: string): boolean {
+  return (error as NodeJS.ErrnoException | null)?.code === code;
+}
+
+// Loads the persisted signing key, creating it on first run. Returns null when no usable key can
+// be had, in which case ratings go out unsigned.
+//
+// Several MCP clients often start their own copy of this server at the same moment. The file is
+// therefore created exclusively ("wx"): whichever process wins writes the key, and every other
+// one reads the winner's key back instead of overwriting it with its own. A plain existsSync
+// check followed by a write would let two processes each keep a different key, and one of them
+// would sign with an identity that no longer exists on disk.
+function loadOrCreateKey(): KeyObject | null {
+  try {
+    return createPrivateKey(readFileSync(KEY_FILE, "utf-8"));
+  } catch (error) {
+    if (!isErrno(error, "ENOENT")) {
+      console.error(
+        `TrustScoreAgent: could not read the agent key at ${KEY_FILE}; ratings will be sent unsigned.`,
+      );
+      return null;
+    }
+  }
+
+  const generated = generateKeyPairSync("ed25519");
+  try {
+    mkdirSync(CONFIG_DIR, { recursive: true });
+    // 0600: the key is this agent's identity, so it should not be world-readable.
+    writeFileSync(
+      KEY_FILE,
+      generated.privateKey.export({ format: "pem", type: "pkcs8" }) as string,
+      { encoding: "utf-8", mode: 0o600, flag: "wx" },
+    );
+  } catch (error) {
+    if (isErrno(error, "EEXIST")) {
+      // Another instance created it first: adopt its key so both sign as the same agent.
+      try {
+        return createPrivateKey(readFileSync(KEY_FILE, "utf-8"));
+      } catch {
+        console.error(
+          `TrustScoreAgent: could not read the agent key at ${KEY_FILE}; ratings will be sent unsigned.`,
+        );
+        return null;
+      }
+    }
+    // An ephemeral key would produce a different identity on every restart, which is worse than
+    // being unsigned: it would look like a swarm of one-off agents.
+    console.error(
+      `TrustScoreAgent: could not persist an agent key to ${KEY_FILE}; ratings will be sent unsigned.`,
+    );
+    return null;
+  }
+
+  // Installations from before signing existed identified themselves with a did:web that no key
+  // backs. Say plainly that the identity changes, since its reputation history does not carry
+  // over.
+  if (existsSync(AGENT_ID_FILE)) {
+    console.error(
+      "TrustScoreAgent: generated a signing key. This installation now uses a new did:key " +
+        "identity, so its previous reputation history does not carry over.",
+    );
+  }
+  return generated.privateKey;
+}
+
+// The identity used when there is no key to sign with. It must still be stable: a DID that changes
+// on every restart spreads one installation across many one-off agents, none of which ever builds
+// a history. So it is read from ~/.trustscoreagent/agent-id (which is also where installations
+// from before signing kept theirs), and created there, exclusively, if missing. Only when nothing
+// can be persisted at all does it fall back to a per-process DID, and it says so.
+function loadOrCreateUnsignedDid(): string {
+  const read = (): string | null => {
+    try {
+      const did = readFileSync(AGENT_ID_FILE, "utf-8").trim();
+      return did.startsWith("did:") ? did : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const existing = read();
+  if (existing) return existing;
+
+  const created = `did:web:mcp.trustscoreagent.com:mcp-${randomUUID().slice(0, 8)}`;
+  try {
+    mkdirSync(CONFIG_DIR, { recursive: true });
+    writeFileSync(AGENT_ID_FILE, created + "\n", { encoding: "utf-8", flag: "wx" });
+    return created;
+  } catch (error) {
+    if (isErrno(error, "EEXIST")) {
+      const winner = read();
+      if (winner) return winner;
+    }
+    console.error(
+      `TrustScoreAgent: could not persist an agent id to ${AGENT_ID_FILE}; this process uses a ` +
+        "temporary identity that will not survive a restart.",
+    );
+    return created;
+  }
+}
+
 // The agent's identity is an Ed25519 keypair persisted in ~/.trustscoreagent/agent-key.pem.
 // Ratings are signed with it so the registry can attribute them to this installation instead of
 // taking the DID header on faith. Unsigned ratings are still accepted, at reduced weight.
 function loadAgentIdentity(): AgentIdentity {
-  let privateKey: KeyObject | null = null;
-
-  if (existsSync(KEY_FILE)) {
-    try {
-      privateKey = createPrivateKey(readFileSync(KEY_FILE, "utf-8"));
-    } catch {
-      console.error(
-        `TrustScoreAgent: could not read the agent key at ${KEY_FILE}; ratings will be sent unsigned.`,
-      );
-    }
-  } else {
-    const generated = generateKeyPairSync("ed25519");
-    try {
-      mkdirSync(CONFIG_DIR, { recursive: true });
-      // 0600: the key is this agent's identity, so it should not be world-readable.
-      writeFileSync(
-        KEY_FILE,
-        generated.privateKey.export({ format: "pem", type: "pkcs8" }) as string,
-        { encoding: "utf-8", mode: 0o600 },
-      );
-      privateKey = generated.privateKey;
-
-      // Installations from before signing existed identified themselves with a did:web that no
-      // key backs. Say plainly that the identity changes, since its reputation history does not
-      // carry over.
-      if (existsSync(join(CONFIG_DIR, "agent-id"))) {
-        console.error(
-          "TrustScoreAgent: generated a signing key. This installation now uses a new did:key " +
-            "identity, so its previous reputation history does not carry over.",
-        );
-      }
-    } catch {
-      // An ephemeral key would produce a different identity on every restart, which is worse than
-      // being unsigned: it would look like a swarm of one-off agents.
-      console.error(
-        `TrustScoreAgent: could not persist an agent key to ${KEY_FILE}; ratings will be sent unsigned.`,
-      );
-    }
-  }
-
+  const privateKey = loadOrCreateKey();
   const derivedDid = privateKey ? deriveDidKey(createPublicKey(privateKey)) : null;
   const override = process.env.TRUSTSCORE_AGENT_DID;
 
@@ -200,15 +264,14 @@ function loadAgentIdentity(): AgentIdentity {
 
   if (derivedDid) return { did: derivedDid, privateKey };
 
-  // No key and no override: fall back to a stable pseudonymous DID rather than failing outright.
-  return { did: `did:web:mcp.trustscoreagent.com:mcp-${randomUUID().slice(0, 8)}`, privateKey: null };
+  return { did: loadOrCreateUnsignedDid(), privateKey: null };
 }
 
 const AGENT_IDENTITY = loadAgentIdentity();
 const AGENT_DID = AGENT_IDENTITY.did;
 
 /**
- * Signs a request the way the registry verifies it: seven newline-joined fields, with the body
+ * Signs a request the way the registry verifies it: eight newline-joined fields, with the body
  * bound by its SHA-256. The exact `body` string passed here must be the one sent on the wire,
  * otherwise the hashes differ and the server returns 401.
  */
