@@ -128,8 +128,34 @@ public static class HourlyJob
         logger.LogInformation("Merkle: computed v{Version} root {Root} from {Count} leaves (cutoff {Cutoff:o})",
             (int)AnchorTreeVersion, rootHex, leaves.Count, cutoff);
 
-        // Store anchor in database
         using var conn = db.CreateConnection();
+
+        // Append-only check: the previous v2 anchor must be a prefix of this one. A failure means a
+        // rating it covered was deleted, reordered, or (for a v1 leaf) edited since. The anchor is
+        // still stored, because it records the log as it now is; the error is what flags the break.
+        var previous = await LoadLatestV2AnchorAsync(conn);
+        var consistency = CheckExtendsPrevious(
+            leaves.Select(l => l.AnchoredHash()).ToList(), previous?.LeafCount, previous?.MerkleRoot);
+        switch (consistency)
+        {
+            case AnchorConsistency.Consistent:
+                logger.LogInformation("Merkle: extends the previous anchor ({Previous} -> {Count} leaves)",
+                    previous!.LeafCount, leaves.Count);
+                break;
+            case AnchorConsistency.Inconsistent:
+                logger.LogError(
+                    "Merkle consistency: the first {Previous} leaves no longer hash to the previous anchor's root " +
+                    "{Root}. A rating it covered was deleted, reordered or altered since it was anchored.",
+                    previous!.LeafCount, previous.MerkleRoot);
+                break;
+            case AnchorConsistency.Shrunk:
+                logger.LogError(
+                    "Merkle consistency: {Count} leaves now, fewer than the {Previous} the previous anchor covered. " +
+                    "Anchored ratings were deleted.", leaves.Count, previous!.LeafCount);
+                break;
+        }
+
+        // Store anchor in database
         await conn.ExecuteAsync(
             """
             INSERT INTO merkle_anchors
@@ -152,5 +178,37 @@ public static class HourlyJob
         // var txHash = await blockchainService.AnchorRootAsync(rootHex);
         // await conn.ExecuteAsync("UPDATE merkle_anchors SET blockchain='base', transaction_hash=@Tx WHERE merkle_root=@Root",
         //     new { Tx = txHash, Root = rootHex });
+    }
+
+    // Positional: Dapper binds it by constructor, so column order and exact types matter.
+    internal sealed record PreviousAnchor(string MerkleRoot, int LeafCount);
+
+    internal static Task<PreviousAnchor?> LoadLatestV2AnchorAsync(System.Data.IDbConnection conn) =>
+        conn.QuerySingleOrDefaultAsync<PreviousAnchor>(
+            """
+            SELECT merkle_root AS MerkleRoot, leaf_count AS LeafCount
+            FROM merkle_anchors
+            WHERE tree_version = 2
+            ORDER BY anchored_at DESC, id DESC
+            LIMIT 1
+            """);
+
+    internal enum AnchorConsistency { NoPreviousV2, Consistent, Inconsistent, Shrunk }
+
+    /// <summary>
+    /// Whether the new leaf list extends the previous v2 anchor: its first <c>previousCount</c>
+    /// leaves must hash to <c>previousRoot</c>. This is the same fact a published consistency proof
+    /// establishes, checked directly, since the job holds every leaf anyway.
+    /// </summary>
+    internal static AnchorConsistency CheckExtendsPrevious(
+        IReadOnlyList<byte[]> leafHashes, int? previousCount, string? previousRoot)
+    {
+        if (previousCount is not { } count || previousRoot is null)
+            return AnchorConsistency.NoPreviousV2;
+        if (leafHashes.Count < count)
+            return AnchorConsistency.Shrunk;
+        return MerkleConsistency.Extends(leafHashes, count, Convert.FromHexString(previousRoot))
+            ? AnchorConsistency.Consistent
+            : AnchorConsistency.Inconsistent;
     }
 }
