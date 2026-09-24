@@ -5,7 +5,7 @@ namespace TrustScore.Api.Data;
 
 public sealed class RedisCacheService : ICacheService
 {
-    private readonly IConnectionMultiplexer _redis;
+    private readonly RedisKeyspace _redis;
     private readonly ILogger<RedisCacheService> _logger;
 
     // Throttle outage warnings so a sustained Redis failure logs roughly once per interval
@@ -13,7 +13,7 @@ public sealed class RedisCacheService : ICacheService
     private static readonly TimeSpan WarnInterval = TimeSpan.FromSeconds(30);
     private long _lastWarnTicks;
 
-    public RedisCacheService(IConnectionMultiplexer redis, ILogger<RedisCacheService> logger)
+    public RedisCacheService(RedisKeyspace redis, ILogger<RedisCacheService> logger)
     {
         _redis = redis;
         _logger = logger;
@@ -33,7 +33,7 @@ public sealed class RedisCacheService : ICacheService
     {
         try
         {
-            var db = _redis.GetDatabase();
+            var db = _redis.Database();
             var value = await db.StringGetAsync(key);
             return value.HasValue ? (string?)value : null;
         }
@@ -48,7 +48,7 @@ public sealed class RedisCacheService : ICacheService
     {
         try
         {
-            var db = _redis.GetDatabase();
+            var db = _redis.Database();
             await db.StringSetAsync(key, value, expiry);
         }
         catch (Exception ex)
@@ -62,7 +62,7 @@ public sealed class RedisCacheService : ICacheService
     {
         try
         {
-            var db = _redis.GetDatabase();
+            var db = _redis.Database();
             return await db.StringSetAsync(key, value, expiry, when: When.NotExists);
         }
         catch (Exception ex)
@@ -78,7 +78,7 @@ public sealed class RedisCacheService : ICacheService
     {
         try
         {
-            var db = _redis.GetDatabase();
+            var db = _redis.Database();
             await db.KeyDeleteAsync(key);
         }
         catch (Exception ex)
@@ -92,7 +92,7 @@ public sealed class RedisCacheService : ICacheService
     {
         try
         {
-            var db = _redis.GetDatabase();
+            var db = _redis.Database();
             await db.PingAsync();
             return true;
         }
