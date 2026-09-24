@@ -724,6 +724,12 @@ internal class FakeAuditService : IAuditService
 
     public Task<InclusionProofResult?> GetInclusionProofAsync(Guid ratingId)
         => Task.FromResult<InclusionProofResult?>(null);
+
+    public Task<IReadOnlyList<MerkleAnchor>> GetAnchorsAsync(int limit, int? beforeId)
+        => Task.FromResult<IReadOnlyList<MerkleAnchor>>(Array.Empty<MerkleAnchor>());
+
+    public Task<ConsistencyProofResult> GetConsistencyProofAsync(int fromId, int toId)
+        => Task.FromResult(new ConsistencyProofResult { Status = ConsistencyProofStatus.AnchorNotFound });
 }
 
 #endregion

@@ -5,7 +5,11 @@
 // Node 18+, so that checking the registry does not require trusting the registry's own code.
 //
 //   node verify-proof.mjs <rating_id> [--api https://api.trustscoreagent.com]
+//   node verify-proof.mjs --history [count] [--api ...]
 //   node verify-proof.mjs --self-test
+//
+// --history checks that each of the most recent v2 anchors extends the one before it (consistency
+// proofs), i.e. that the log only grew. Compare the roots it prints with any you recorded earlier.
 //
 // For a rating it checks, in order:
 //   1. the proof is about the rating that was asked for;
@@ -93,6 +97,41 @@ function foldProof(version, leaf, proof) {
   return current;
 }
 
+// RFC 9162 §2.1.4.2: is the tree (first, firstRoot) a prefix of (second, secondRoot)?
+function verifyConsistency(first, second, firstRoot, secondRoot, proofHex) {
+  if (first < 1 || first > second) return false;
+  let path = proofHex.map((h) => Buffer.from(h, "hex"));
+  if (first === second) return path.length === 0 && firstRoot.equals(secondRoot);
+  if (path.length === 0) return false;
+  if ((first & (first - 1)) === 0) path = [firstRoot, ...path];
+  let fn = first - 1;
+  let sn = second - 1;
+  while (fn & 1) {
+    fn >>= 1;
+    sn >>= 1;
+  }
+  let fr = path[0];
+  let sr = path[0];
+  for (const c of path.slice(1)) {
+    if (sn === 0) return false;
+    if (fn & 1 || fn === sn) {
+      fr = nodeHash(2, c, fr);
+      sr = nodeHash(2, c, sr);
+      if (!(fn & 1)) {
+        while (!(fn & 1) && fn !== 0) {
+          fn >>= 1;
+          sn >>= 1;
+        }
+      }
+    } else {
+      sr = nodeHash(2, sr, c);
+    }
+    fn >>= 1;
+    sn >>= 1;
+  }
+  return sn === 0 && fr.equals(firstRoot) && sr.equals(secondRoot);
+}
+
 // Reference tree builder, only used by the self-test: RFC 6962 MTH for v2.
 function rfc6962Root(leaves) {
   if (leaves.length === 1) return leaves[0];
@@ -125,6 +164,22 @@ function selfTest() {
       rfc6962Root([0, 1, 2].map((i) => sha256(Buffer.from(`leaf-${i}`)))).toString("hex"),
       "3fd64e951bb292c4cc9ea78ea50e1115c0b754f0ca8b4a4f4a9610bd2c258877"],
   ];
+  // Consistency 3 -> 7 over SHA256("leaf-0") .. SHA256("leaf-6"), computed independently.
+  const leaves = [0, 1, 2, 3, 4, 5, 6].map((i) => sha256(Buffer.from(`leaf-${i}`)));
+  const proof3to7 = [
+    "649837ddcb7e1967086d7d35aaef7b975c513815d96fc6e70015e93a2bfe0f9a",
+    "9fde56c376760bd399b82eb8569229a2dff19219411ac71154dfeab2cf502454",
+    "c76c1321b98ab0ea04447b38d8daeb85fa04df66731a8f25a60c84a1548d9831",
+    "c28121395ace509462b8b9f255e9811949c00c347032fdf4004e53d1da650cbb",
+  ];
+  const root3 = rfc6962Root(leaves.slice(0, 3));
+  const root7 = rfc6962Root(leaves);
+  checks.push(["consistency 3 -> 7 verifies",
+    String(verifyConsistency(3, 7, root3, root7, proof3to7)), "true"]);
+  const tampered = [...leaves];
+  tampered[1] = sha256(Buffer.from("edited"));
+  checks.push(["consistency rejects an edited prefix",
+    String(verifyConsistency(3, 7, root3, rfc6962Root(tampered), proof3to7)), "false"]);
   let ok = true;
   for (const [name, got, want] of checks) {
     const pass = got === want;
@@ -184,15 +239,54 @@ async function verify(ratingId, api) {
   return true;
 }
 
+async function verifyHistory(count, api) {
+  // Oldest first, v2 only: v1 anchors predate consistency proofs and cannot have one.
+  const { anchors } = await getJson(`${api}/v1/audit/anchors?limit=${count}`);
+  const chain = anchors.filter((a) => a.tree_version === 2).reverse();
+  if (chain.length < 2) {
+    console.log(`only ${chain.length} v2 anchor(s) so far: nothing to compare yet`);
+    return true;
+  }
+  let ok = true;
+  for (let i = 1; i < chain.length; i++) {
+    const [a, b] = [chain[i - 1], chain[i]];
+    const label = `#${a.id} (${a.leaf_count}) -> #${b.id} (${b.leaf_count})`;
+    const res = await fetch(`${api}/v1/audit/consistency?from=${a.id}&to=${b.id}`);
+    const body = await res.json();
+    if (!res.ok) {
+      console.log(`FAIL ${label}: HTTP ${res.status} ${body.error ?? ""} ${body.message ?? ""}`);
+      ok = false;
+      continue;
+    }
+    // Roots and sizes from the anchor list, never from the proof response.
+    const good = verifyConsistency(a.leaf_count, b.leaf_count,
+      Buffer.from(a.merkle_root, "hex"), Buffer.from(b.merkle_root, "hex"), body.proof);
+    console.log(`${good ? "ok  " : "FAIL"} ${label}`);
+    ok &&= good;
+  }
+  const last = chain[chain.length - 1];
+  console.log(`latest root ${last.merkle_root} (${last.leaf_count} leaves, ${last.anchored_at})`);
+  return ok;
+}
+
 const args = process.argv.slice(2);
 if (args[0] === "--self-test") {
   process.exit(selfTest() ? 0 : 1);
 }
 const apiIndex = args.indexOf("--api");
 const api = (apiIndex >= 0 ? args[apiIndex + 1] : "https://api.trustscoreagent.com").replace(/\/+$/, "");
+if (args[0] === "--history") {
+  const n = Number.parseInt(args[1], 10);
+  try {
+    process.exit((await verifyHistory(Number.isInteger(n) ? Math.min(n, 100) : 20, api)) ? 0 : 1);
+  } catch (e) {
+    console.error(`error: ${e.message}`);
+    process.exit(1);
+  }
+}
 const ratingId = args.find((a, i) => !a.startsWith("--") && i !== apiIndex + 1);
 if (!ratingId) {
-  console.error("usage: node verify-proof.mjs <rating_id> [--api <base url>] | --self-test");
+  console.error("usage: node verify-proof.mjs <rating_id> | --history [count] | --self-test  [--api <base url>]");
   process.exit(2);
 }
 try {
