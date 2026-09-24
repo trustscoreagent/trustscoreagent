@@ -83,7 +83,9 @@ public class ScoreEndpointTests : IClassFixture<WebApplicationFactory<Program>>
         body1.Should().NotBe(body2);
     }
 
-    internal static HttpClient CreateTestClient(WebApplicationFactory<Program> factory)
+    // `overrides` runs after the fakes are registered, so a test can swap one of them.
+    internal static HttpClient CreateTestClient(
+        WebApplicationFactory<Program> factory, Action<IServiceCollection>? overrides = null)
     {
         return factory.WithWebHostBuilder(builder =>
         {
@@ -113,6 +115,8 @@ public class ScoreEndpointTests : IClassFixture<WebApplicationFactory<Program>>
                 // Add a dummy so DI doesn't fail if anything still resolves it
                 services.AddSingleton<IConnectionMultiplexer>(sp =>
                     ConnectionMultiplexer.Connect("localhost:1")); // Won't actually connect
+
+                overrides?.Invoke(services);
             });
         }).CreateClient();
     }

@@ -103,6 +103,38 @@ public sealed record RatingLeaf(
         return string.Join('\n', fields);
     }
 
+    /// <summary>
+    /// The committed fields, spelled exactly as the leaf hashes them, for publishing next to a proof.
+    /// A verifier rebuilds the preimage from these alone: for v1,
+    /// <c>"{id}:{service}:{created_at}"</c>; for v2, <see cref="CanonicalV2"/>. Numbers and booleans
+    /// are JSON-typed; the weight is a string because its six-decimal spelling is what is hashed.
+    /// </summary>
+    public IReadOnlyDictionary<string, object?> Committed() => LeafVersion switch
+    {
+        1 => new Dictionary<string, object?>
+        {
+            ["id"] = Id.ToString("D"),
+            ["service"] = ServiceDid,
+            ["created_at"] = V1Timestamp,
+        },
+        2 => new Dictionary<string, object?>
+        {
+            ["id"] = Id.ToString("D"),
+            ["service"] = ServiceDid,
+            ["created_at"] = V2Timestamp,
+            ["status_code"] = StatusCode,
+            ["latency_ms"] = LatencyMs,
+            ["response_size_bytes"] = ResponseSizeBytes,
+            ["schema_valid"] = SchemaValid,
+            ["quality_score"] = QualityScore,
+            ["has_receipt"] = HasReceipt,
+            ["receipt_verified"] = ReceiptVerified,
+            ["signature_verified"] = SignatureVerified,
+            ["weight"] = NormalizeWeight(Weight).ToString("F" + WeightDecimals, CultureInfo.InvariantCulture),
+        },
+        _ => throw new InvalidOperationException($"Unknown leaf version {LeafVersion}"),
+    };
+
     /// <summary>The leaf hash for this rating under its own <see cref="LeafVersion"/>.</summary>
     public byte[] Hash() => LeafVersion switch
     {

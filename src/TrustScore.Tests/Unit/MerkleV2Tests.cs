@@ -86,6 +86,12 @@ public class MerkleV2Tests
     }
 
     [Fact]
+    public void V2Root_MatchesTheIndependentlyComputedGoldenRoot()
+        // SHA256(0x01 || SHA256(0x01 || l0 || l1) || l2), computed with Python hashlib.
+        => Tree(MerkleTreeVersion.V2, 3).RootHex.Should().Be(
+            "3fd64e951bb292c4cc9ea78ea50e1115c0b754f0ca8b4a4f4a9610bd2c258877");
+
+    [Fact]
     public void V2Nodes_AreDomainSeparatedFromThePlainConcatenation()
     {
         var tree = Tree(MerkleTreeVersion.V2, 2);
@@ -121,7 +127,7 @@ public class RatingLeafTests
         SignatureVerified: true,
         Weight: 0.3);
 
-    // Golden vector: the Node verifier in docs/ checks against the same values. Changing either
+    // Golden vector: tools/verify-proof checks against the same values. Changing either
     // string is a protocol change, not a refactor.
     private const string SampleCanonical =
         "trustscore-leaf-v2\n3f2b8c1e-5d4a-4b7e-9c2f-0a1b2c3d4e5f\napi.example.com\n" +
@@ -130,6 +136,13 @@ public class RatingLeafTests
     [Fact]
     public void CanonicalV2_IsExactlyTheSpecifiedString()
         => Sample.CanonicalV2().Should().Be(SampleCanonical);
+
+    // Computed independently (Python hashlib), and pinned in tools/verify-proof as well.
+    private const string SampleHash = "1c6614309f5d94d31ad7a328181c9a3a38b632655fc7395b613c5a285b712a65";
+
+    [Fact]
+    public void V2Hash_MatchesTheIndependentlyComputedGoldenHash()
+        => Sample.HashHex().Should().Be(SampleHash);
 
     [Fact]
     public void V2Hash_IsSha256OfZeroPrefixedCanonical()
@@ -195,6 +208,22 @@ public class RatingLeafTests
     public void NewlineInAField_IsRefused()
         => FluentActions.Invoking(() => (Sample with { ServiceDid = "a\nb" }).CanonicalV2())
             .Should().Throw<ArgumentException>();
+
+    [Fact]
+    public void Committed_SpellsFieldsExactlyAsHashed()
+    {
+        var c = Sample.Committed();
+        c["created_at"].Should().Be("2026-09-24T16:02:55.123456Z");
+        c["weight"].Should().Be("0.300000");
+        c["response_size_bytes"].Should().Be(2048);
+        c.Keys.Should().HaveCount(12);
+
+        var v1 = (Sample with { LeafVersion = 1 }).Committed();
+        v1.Keys.Should().Equal("id", "service", "created_at");
+        System.Text.Encoding.UTF8.GetBytes($"{v1["id"]}:{v1["service"]}:{v1["created_at"]}")
+            .Should().Equal(System.Text.Encoding.UTF8.GetBytes(
+                $"{Sample.Id}:{Sample.ServiceDid}:{Sample.CreatedAt:O}"));
+    }
 
     [Fact]
     public void UnknownVersion_IsRefused()
