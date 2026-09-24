@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Text;
 using FluentAssertions;
@@ -26,20 +27,27 @@ public class SeedProberRunTests
     // still collect latency points; see the M11 test below.)
     private const int TimeoutSeconds = 3;
 
+    // The prober submits from concurrent probes, so the fakes must be thread-safe: an unguarded
+    // List.Add occasionally drops an item and the test fails at random.
     private sealed class CapturingRatingWriter : IRatingWriter
     {
-        public List<(string ServiceId, RatingDelta Delta, Rating Rating)> Submissions { get; } = new();
+        private readonly List<(string ServiceId, RatingDelta Delta, Rating Rating)> _submissions = new();
+
+        public List<(string ServiceId, RatingDelta Delta, Rating Rating)> Submissions
+        {
+            get { lock (_submissions) return _submissions.ToList(); }
+        }
 
         public Task SubmitAsync(string serviceId, RatingDelta delta, Rating rating)
         {
-            Submissions.Add((serviceId, delta, rating));
+            lock (_submissions) _submissions.Add((serviceId, delta, rating));
             return Task.CompletedTask;
         }
     }
 
     private sealed class InMemoryProbeHealth : IProbeHealthRepository
     {
-        public Dictionary<string, ProbeTargetHealth> Store { get; } = new();
+        public ConcurrentDictionary<string, ProbeTargetHealth> Store { get; } = new();
 
         public Task<IReadOnlyDictionary<string, ProbeTargetHealth>> GetAllAsync() =>
             Task.FromResult<IReadOnlyDictionary<string, ProbeTargetHealth>>(
