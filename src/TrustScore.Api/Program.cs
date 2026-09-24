@@ -51,6 +51,7 @@ builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
     options.AbortOnConnectFail = false;
     return ConnectionMultiplexer.Connect(options);
 });
+builder.Services.AddSingleton<RedisKeyspace>();
 builder.Services.AddSingleton<ICacheService, RedisCacheService>();
 builder.Services.AddSingleton<IRateLimiter, RedisRateLimiter>();
 

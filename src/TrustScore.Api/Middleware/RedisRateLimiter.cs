@@ -1,3 +1,4 @@
+using TrustScore.Api.Data;
 using System.Collections.Concurrent;
 using StackExchange.Redis;
 using TrustScore.Core.Interfaces;
@@ -6,7 +7,7 @@ namespace TrustScore.Api.Middleware;
 
 public sealed class RedisRateLimiter : IRateLimiter
 {
-    private readonly IConnectionMultiplexer _redis;
+    private readonly RedisKeyspace _redis;
     private readonly ILogger<RedisRateLimiter> _logger;
 
     // Per-instance fallback used only while Redis is unreachable, so an outage does not leave the
@@ -14,7 +15,7 @@ public sealed class RedisRateLimiter : IRateLimiter
     // window per running instance instead of relying on Redis being up.
     private readonly ConcurrentDictionary<string, InMemoryWindow> _fallback = new();
 
-    public RedisRateLimiter(IConnectionMultiplexer redis, ILogger<RedisRateLimiter> logger)
+    public RedisRateLimiter(RedisKeyspace redis, ILogger<RedisRateLimiter> logger)
     {
         _redis = redis;
         _logger = logger;
@@ -36,7 +37,7 @@ public sealed class RedisRateLimiter : IRateLimiter
     {
         try
         {
-            var db = _redis.GetDatabase();
+            var db = _redis.Database();
             var redisKey = $"ratelimit:{key}";
 
             var count = (long)await db.ScriptEvaluateAsync(
