@@ -21,6 +21,11 @@ All notable changes to TrustScoreAgent will be documented in this file.
 - Migrations 006 to 010
 
 ### Changed
+- **Consistency proofs.** `GET /v1/audit/consistency?from=&to=` proves a later v2 anchor extends
+  an earlier one (RFC 6962 / RFC 9162), `GET /v1/audit/anchors` lists the root history, the
+  anchoring job logs a `Merkle consistency` error if a new anchor does not extend the previous one,
+  and `tools/verify-proof --history` checks the chain. Erasure clears the agent DID and comment
+  instead of deleting a rating, which would break the chain
 - **Merkle v2.** New ratings get a leaf that commits to what they reported (metrics, quality
   score, receipt and signature verification, weight), not just to their id, service and time; new
   anchors use an RFC 6962-style tree with leaf/node domain separation and no odd-node duplication.
@@ -63,8 +68,8 @@ All notable changes to TrustScoreAgent will be documented in this file.
 ### Known limitations
 - Ratings written before Merkle v2 keep a leaf that commits to `(id, service_did, created_at)`
   only: for those, the audit log proves a rating existed, not what it claimed
-- Roots are not yet published on chain, so the log protects against edits after a root was
-  observed, not against the operator rewriting history before anyone recorded a root
+- Roots are not yet published on chain: consistency proofs show each root extends the ones before
+  it, but a root nobody recorded could have been replaced before anyone looked
 - Signing is not mandatory, and key possession proves identity rather than uniqueness, so it
   stops impersonation but is not Sybil resistance on its own
 

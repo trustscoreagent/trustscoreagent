@@ -251,6 +251,19 @@ root. Returns `404` if the rating is not yet included in an anchor. Leaf and tre
 verification steps: [MERKLE-SPEC.md](./MERKLE-SPEC.md); an independent verifier:
 `node tools/verify-proof/verify-proof.mjs <rating_id>`.
 
+```
+GET /v1/audit/anchors?limit=20&before=<id>
+```
+Anchored roots, newest first, each with its `leaf_count` and `tree_version`. `next_before` pages
+further back. Record them: they are what consistency proofs are checked against.
+
+```
+GET /v1/audit/consistency?from=<older id>&to=<newer id>
+```
+RFC 6962 consistency proof that anchor `from` is a prefix of anchor `to` (both v2): the log only
+grew between them. `409 not_consistent` if it did not, `422` for a v1 anchor or `from` larger than
+`to`. `node tools/verify-proof/verify-proof.mjs --history` checks the recent chain.
+
 ---
 
 ## Premium endpoints

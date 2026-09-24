@@ -19,9 +19,8 @@ rating with that id, service and timestamp is in the log, not what it reported.
 What a proof does not establish, whatever the version:
 
 - **When** the root was fixed. Until on-chain anchoring is active (see below), roots are published
-  by the registry itself, so the guarantee is against silent edits after publication, observable
-  by anyone who kept an earlier root, not against the operator rewriting history before anyone
-  looked.
+  by the registry itself. Consistency proofs (below) show every later root extends the ones you
+  recorded, but a root nobody recorded could have been replaced before anyone looked.
 - **Who** rated. The agent DID is not committed (see [Privacy](#privacy)).
 - That the rating is **honest**. The log records what was submitted and how it was weighted.
 
@@ -164,11 +163,71 @@ node tools/verify-proof/verify-proof.mjs <rating_id>
 node tools/verify-proof/verify-proof.mjs --self-test
 ```
 
+## Consistency between anchors
+
+An inclusion proof shows a rating is in one tree. It says nothing about whether that tree agrees
+with the ones published before it: an operator could drop or rewrite an anchored rating and
+publish a fresh, internally valid tree. A **consistency proof** closes that gap. It shows the tree
+of an earlier anchor (size `m`, root `r1`) is a prefix of a later one (size `n`, root `r2`): between
+the two, the log only grew.
+
+Because a v2 root is the RFC 6962 Merkle Tree Hash, the proof is the standard one: generated as
+`PROOF(m, D[n])` in [RFC 6962 §2.1.2](https://www.rfc-editor.org/rfc/rfc6962#section-2.1.2) and
+verified with the algorithm of [RFC 9162 §2.1.4.2](https://www.rfc-editor.org/rfc/rfc9162#section-2.1.4.2),
+with `node(l, r) = SHA256(0x01 || l || r)`.
+
+- Only between **v2 anchors**. A v1 tree hashes and pads differently, so the chain starts at the
+  first v2 anchor.
+- The sizes are **inputs** to verification, not something it checks in every case (RFC 9162
+  behaves the same). Take each root together with its `leaf_count` from `GET /v1/audit/anchors`,
+  ideally from your own earlier record of it, never from the proof response.
+- A rating inserted after an anchor with a `created_at` inside that anchor's range would also
+  break consistency. The anchoring cutoff lies five minutes in the past, longer than any write,
+  so an honest registry never does this.
+
+```
+GET /v1/audit/anchors?limit=20&before=<id>
+GET /v1/audit/consistency?from=<older anchor id>&to=<newer anchor id>
+```
+
+```json
+{
+  "from": { "id": 41, "merkle_root": "…", "leaf_count": 11230, "tree_version": 2, … },
+  "to":   { "id": 42, "merkle_root": "…", "leaf_count": 11279, "tree_version": 2, … },
+  "tree_version": 2,
+  "proof": [ "…", "…" ]
+}
+```
+
+`409 not_consistent` means the registry itself found that the later tree does not extend the
+earlier one. `422` means one of the anchors is v1, or `from` is larger than `to`.
+
+The anchoring job runs the same check on every new v2 anchor against the previous one and logs a
+`Merkle consistency` error when it fails.
+
+Golden vector: over the leaves `SHA256("leaf-0")` .. `SHA256("leaf-6")`, the proof from size 3 to
+size 7 is
+
+```
+649837ddcb7e1967086d7d35aaef7b975c513815d96fc6e70015e93a2bfe0f9a
+9fde56c376760bd399b82eb8569229a2dff19219411ac71154dfeab2cf502454
+c76c1321b98ab0ea04447b38d8daeb85fa04df66731a8f25a60c84a1548d9831
+c28121395ace509462b8b9f255e9811949c00c347032fdf4004e53d1da650cbb
+```
+
+between the roots `3fd64e95…58877` (size 3) and `47249849…756e3` (size 7).
+
+```
+node tools/verify-proof/verify-proof.mjs --history 20
+```
+
 ## Privacy
 
 The agent DID and the free-text comment are not committed. Both can be personal data and must
-remain erasable, and nothing in a published hash tree can be erased. Deleting an agent's data
-removes the row; the leaf stays in the tree but no longer links to anyone.
+remain erasable, and nothing in a published hash tree can be erased. Erasure therefore clears
+those two columns and keeps the rating: its leaf is unchanged and no longer links to anyone.
+Deleting the row instead would remove an anchored leaf, which every later consistency proof
+would expose as history being rewritten.
 
 ## Anchoring cadence and on-chain publication
 
@@ -180,5 +239,3 @@ cents a month) is planned but not active: `blockchain`, `transaction_hash` and `
 `/v1/audit/root` are `null` until it is. Until then, anyone who wants protection against history
 being rewritten should record roots themselves over time.
 
-Consistency proofs between two anchors (showing the later tree extends the earlier one) are not
-implemented yet.
