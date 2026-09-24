@@ -21,6 +21,12 @@ All notable changes to TrustScoreAgent will be documented in this file.
 - Migrations 006 to 010
 
 ### Changed
+- **Merkle v2.** New ratings get a leaf that commits to what they reported (metrics, quality
+  score, receipt and signature verification, weight), not just to their id, service and time; new
+  anchors use an RFC 6962-style tree with leaf/node domain separation and no odd-node duplication.
+  Existing ratings keep their v1 leaf and stay provable. `GET /v1/audit/proof` now returns the
+  committed fields and versions, `POST /v1/rate` returns the `rating_id` to ask for it, and
+  `tools/verify-proof` verifies a proof independently (migration 013, `docs/MERKLE-SPEC.md`)
 - The machine-readable surfaces (MCP tool descriptions, `llms.txt`, the A2A agent card, OpenAPI
   descriptions) now explain *why* checking and reporting are rational for an agent, instead of
   only describing mechanics. `submit_rating` previously asked for altruism ("this helps other
@@ -55,9 +61,10 @@ All notable changes to TrustScoreAgent will be documented in this file.
   at once no longer race to write different keys
 
 ### Known limitations
-- The Merkle leaf commits to `(id, service_did, created_at)` only, so the audit log proves a
-  rating existed, not what it claimed. Neither `receipt_verified` nor `signature_verified` is in
-  the commitment.
+- Ratings written before Merkle v2 keep a leaf that commits to `(id, service_did, created_at)`
+  only: for those, the audit log proves a rating existed, not what it claimed
+- Roots are not yet published on chain, so the log protects against edits after a root was
+  observed, not against the operator rewriting history before anyone recorded a root
 - Signing is not mandatory, and key possession proves identity rather than uniqueness, so it
   stops impersonation but is not Sybil resistance on its own
 

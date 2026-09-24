@@ -245,9 +245,11 @@ Returns the latest anchored Merkle root (and, in Phase 2, its on-chain reference
 ```
 GET /v1/audit/proof/{rating_id}
 ```
-Returns a Merkle inclusion proof for a rating, verifiable against the anchored root.
-Returns `404` if the rating is not yet included in an anchor. See [receipts &
-audit](./receipts.md#audit-trail).
+Returns a Merkle inclusion proof for a rating (the `rating_id` from `POST /v1/rate`), with the
+fields its leaf commits to (`committed`), the leaf and tree versions, and the path to the anchored
+root. Returns `404` if the rating is not yet included in an anchor. Leaf and tree formats and the
+verification steps: [MERKLE-SPEC.md](./MERKLE-SPEC.md); an independent verifier:
+`node tools/verify-proof/verify-proof.mjs <rating_id>`.
 
 ---
 
