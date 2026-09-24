@@ -116,6 +116,7 @@ public class HourlyJobEndToEndTests : PostgresDatabaseTest
         anchor.Should().NotBeNull();
         anchor!.LeafCount.Should().Be(anchored.Length);
         anchor.CutoffAt.Should().NotBeNull();
+        anchor.TreeVersion.Should().Be(2, "new anchors are built as v2");
 
         // The audit guarantee: every anchored rating has a proof that verifies against the root.
         foreach (var rating in anchored)
@@ -125,10 +126,13 @@ public class HourlyJobEndToEndTests : PostgresDatabaseTest
             proof!.MerkleRoot.Should().Be(anchor.MerkleRoot);
             proof.TotalLeaves.Should().Be(anchored.Length);
 
+            proof.TreeVersion.Should().Be(MerkleTreeVersion.V2);
+            proof.Leaf.HashHex().Should().Be(proof.LeafHash, "the returned fields recompute the anchored leaf");
             var verified = MerkleTree.VerifyProof(
                 Convert.FromHexString(proof.LeafHash),
                 proof.Proof.Select(p => new ProofNode(Convert.FromHexString(p.Hash), p.IsRight)).ToList(),
-                Convert.FromHexString(anchor.MerkleRoot));
+                Convert.FromHexString(anchor.MerkleRoot),
+                proof.TreeVersion);
             verified.Should().BeTrue($"the inclusion proof of {rating.Id} must reconstruct the anchored root");
         }
 

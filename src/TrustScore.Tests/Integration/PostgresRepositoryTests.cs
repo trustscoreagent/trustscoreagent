@@ -132,18 +132,47 @@ public class PostgresRepositoryTests : PostgresDatabaseTest
         var svc = await services.GetByDidAsync("txn-write.test/api");
         svc!.RatingsCount.Should().Be(1);
 
-        var leaf = await ratings.GetLeafInfoAsync(rating.Id);
-        leaf.Should().NotBeNull();
-        var recomputed = Convert.ToHexString(
-            MerkleTree.ComputeLeafHash(leaf!.Id, leaf.ServiceDid, leaf.CreatedAt)).ToLowerInvariant();
-        leaf.MerkleLeafHash.Should().Be(recomputed,
+        // Re-read through the anchoring query: every committed field, and the v2 leaf recomputed
+        // from them, must match what was hashed at insertion (types, µs timestamp, 6-dp weight).
+        var stored = (await ratings.GetLeavesUpToAsync(DateTimeOffset.UtcNow.AddMinutes(1)))
+            .Single(l => l.Id == rating.Id);
+        stored.LeafVersion.Should().Be(2);
+        stored.IsIntact().Should().BeTrue(
             "the stored leaf hash must match a hash recomputed from the re-read row");
+    }
+
+    [PostgresFact]
+    public async Task LegacyV1Row_ReadsBackAsV1_AndStaysIntact()
+    {
+        // Rows written before v2 carry the default leaf_version 1 and a v1 hash.
+        var services = Services();
+        var ratings = Ratings();
+        var engine = new BetaReputationSystem();
+        var rating = MakeRating("legacy-leaf.test/api", createdAt: new DateTimeOffset(2026, 9, 1, 12, 0, 0, TimeSpan.Zero));
+        await services.ApplyRatingAtomicAsync(rating.ServiceDid, engine.ComputeDelta(rating));
+        var v1Hash = Convert.ToHexString(
+            MerkleTree.ComputeLeafHash(rating.Id, rating.ServiceDid, rating.CreatedAt)).ToLowerInvariant();
+        using (var conn = Db.CreateConnection())
+        {
+            await conn.ExecuteAsync(
+                """
+                INSERT INTO ratings (id, service_did, agent_did, status_code, latency_ms, weight, created_at, merkle_leaf_hash)
+                VALUES (@Id, @ServiceDid, 'did:web:legacy.test', 200, 100, 0.3, @CreatedAt, @Hash)
+                """,
+                new { rating.Id, rating.ServiceDid, rating.CreatedAt, Hash = v1Hash });
+        }
+
+        var stored = (await ratings.GetLeavesUpToAsync(rating.CreatedAt)).Single(l => l.Id == rating.Id);
+
+        stored.LeafVersion.Should().Be(1);
+        stored.MerkleLeafHash.Should().Be(v1Hash);
+        stored.IsIntact().Should().BeTrue();
     }
 
     // --- Anchored leaf set: cutoff filter and deterministic order (H2) ---
 
     [PostgresFact]
-    public async Task GetLeafHashesUpTo_FiltersByCutoff_InDeterministicOrder()
+    public async Task GetLeavesUpTo_FiltersByCutoff_InDeterministicOrder()
     {
         var services = Services();
         var ratings = Ratings();
@@ -159,13 +188,13 @@ public class PostgresRepositoryTests : PostgresDatabaseTest
         foreach (var r in new[] { old2, fresh, old3, old1 })
             await writer.SubmitAsync(r.ServiceDid, engine.ComputeDelta(r), r);
 
-        var anchored = await ratings.GetLeafHashesUpToAsync(now.AddMinutes(-5));
+        var anchored = await ratings.GetLeavesUpToAsync(now.AddMinutes(-5));
 
         anchored.Select(l => l.Id).Should().Equal(old1.Id, old2.Id, old3.Id);
         anchored.Should().BeInAscendingOrder(l => l.CreatedAt);
 
         // The set is reproducible: a second read returns the identical sequence.
-        var again = await ratings.GetLeafHashesUpToAsync(now.AddMinutes(-5));
+        var again = await ratings.GetLeavesUpToAsync(now.AddMinutes(-5));
         again.Select(l => l.Id).Should().Equal(anchored.Select(l => l.Id));
     }
 
