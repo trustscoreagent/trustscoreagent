@@ -250,7 +250,7 @@ public sealed class SeedProber
             sw.Stop();
 
             var latency = ClampLatency(sw.ElapsedMilliseconds);
-            var schemaValid = ValidateBody(body, target.ExpectField);
+            var schemaValid = ValidateBody(body, target.ExpectField, target.ExpectText);
             return ((int)response.StatusCode, latency, schemaValid);
         }
         catch (Exception)
@@ -269,13 +269,21 @@ public sealed class SeedProber
 
     /// <summary>
     /// Conformity check. With an <c>ExpectField</c> dot-path, the body must be JSON containing it
-    /// (descending into the first element of an array root). Without one, a non-empty body counts
-    /// (covers plain-text endpoints); a JSON array root must be non-empty.
+    /// (descending into the first element of an array root). With an <c>ExpectText</c>, the body
+    /// must contain that exact text, which is how a non-JSON response (XML, Atom, plain text) is
+    /// held to something better than "not empty". When both are set, both must hold. Without
+    /// either, a non-empty body counts; a JSON array root must be non-empty.
     /// </summary>
-    internal static bool ValidateBody(string body, string? expectField)
+    internal static bool ValidateBody(string body, string? expectField, string? expectText = null)
     {
         if (string.IsNullOrWhiteSpace(body))
             return false;
+
+        if (!string.IsNullOrEmpty(expectText) && !body.Contains(expectText, StringComparison.Ordinal))
+            return false;
+
+        if (!string.IsNullOrEmpty(expectText) && string.IsNullOrWhiteSpace(expectField))
+            return true;
 
         if (string.IsNullOrWhiteSpace(expectField))
         {
@@ -355,4 +363,11 @@ public sealed class SeedProbeTarget
 
     /// <summary>Optional JSON dot-path that must be present for the response to count as conformant.</summary>
     public string? ExpectField { get; set; }
+
+    /// <summary>
+    /// Optional exact text the body must contain, for targets that do not answer JSON. Pick
+    /// something that only appears when the response carries real content (an element that
+    /// wraps a result, say), not something every error page also has.
+    /// </summary>
+    public string? ExpectText { get; set; }
 }
