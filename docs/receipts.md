@@ -126,6 +126,7 @@ periodically (every 6 hours), and `GET /v1/audit/proof/{rating_id}` returns an i
 that verifies against the anchored root from `GET /v1/audit/root`. On-chain anchoring to
 Base L2 is Phase 2.
 
-To verify a proof: start from `leaf_hash`; for each proof node, if `is_right` then
-`hash(current || node.hash)`, else `hash(node.hash || current)`. The result must equal
-`merkle_root`.
+Ratings stored since Merkle v2 commit to what they reported (metrics, receipt and signature
+verification, weight), so a proof shows the rating is in the log unchanged. The exact leaf and
+tree formats, and how to verify a proof, are in [MERKLE-SPEC.md](./MERKLE-SPEC.md);
+`node tools/verify-proof/verify-proof.mjs <rating_id>` does it with no dependencies.

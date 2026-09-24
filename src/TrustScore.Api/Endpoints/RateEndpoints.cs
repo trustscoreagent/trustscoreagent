@@ -214,6 +214,9 @@ public static class RateEndpoints
             return Results.Ok(new
             {
                 accepted = true,
+                // What GET /v1/audit/proof/{rating_id} takes. Without it a rater has no way to check
+                // that the rating it submitted is in the audit log, as submitted.
+                rating_id = rating.Id,
                 rating_weight = receiptVerified ? "verified" : "unverified",
                 agent_identity = signatureResult.IsVerified ? "signed" : "unsigned",
                 // Said out loud rather than left for the client to infer: its signature was fine,

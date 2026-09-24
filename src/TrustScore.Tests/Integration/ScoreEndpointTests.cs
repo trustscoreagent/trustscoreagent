@@ -83,7 +83,9 @@ public class ScoreEndpointTests : IClassFixture<WebApplicationFactory<Program>>
         body1.Should().NotBe(body2);
     }
 
-    internal static HttpClient CreateTestClient(WebApplicationFactory<Program> factory)
+    // `overrides` runs after the fakes are registered, so a test can swap one of them.
+    internal static HttpClient CreateTestClient(
+        WebApplicationFactory<Program> factory, Action<IServiceCollection>? overrides = null)
     {
         return factory.WithWebHostBuilder(builder =>
         {
@@ -113,6 +115,8 @@ public class ScoreEndpointTests : IClassFixture<WebApplicationFactory<Program>>
                 // Add a dummy so DI doesn't fail if anything still resolves it
                 services.AddSingleton<IConnectionMultiplexer>(sp =>
                     ConnectionMultiplexer.Connect("localhost:1")); // Won't actually connect
+
+                overrides?.Invoke(services);
             });
         }).CreateClient();
     }
@@ -155,6 +159,25 @@ public class RateEndpointTests : IClassFixture<WebApplicationFactory<Program>>
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.Content.ReadAsStringAsync();
         body.Should().Contain("\"accepted\":true");
+    }
+
+    [Fact]
+    public async Task Rate_ReturnsTheRatingId_ToFetchItsAuditProof()
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, "/v1/rate")
+        {
+            Content = JsonContent.Create(new
+            {
+                service = "rating-id.example.com",
+                metrics = new { status_code = 200, latency_ms = 150 },
+            })
+        };
+        request.Headers.Add("X-Agent-DID", "did:web:test-agent.example.com");
+
+        var response = await _client.SendAsync(request);
+
+        var json = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+        Guid.TryParse(json.GetProperty("rating_id").GetString(), out _).Should().BeTrue();
     }
 
     [Fact]
