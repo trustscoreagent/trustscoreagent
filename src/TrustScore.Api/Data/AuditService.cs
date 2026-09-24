@@ -18,27 +18,76 @@ public sealed class AuditService : IAuditService
         _memoryCache = memoryCache;
     }
 
-    private sealed record MerkleSnapshot(MerkleTree Tree, IReadOnlyList<StoredLeaf> Leaves, IReadOnlyDictionary<Guid, int> Index);
+    private sealed record MerkleSnapshot(
+        MerkleTree Tree, IReadOnlyList<StoredLeaf> Leaves, IReadOnlyList<byte[]> LeafHashes,
+        IReadOnlyDictionary<Guid, int> Index);
+
+    private const string AnchorColumns =
+        "id AS Id, merkle_root AS MerkleRoot, leaf_count AS LeafCount, anchored_at AS AnchoredAt, " +
+        "cutoff_at AS CutoffAt, tree_version::int AS TreeVersion, blockchain AS Blockchain, " +
+        "contract_address AS ContractAddress, transaction_hash AS TransactionHash, block_number AS BlockNumber";
 
     public async Task<MerkleAnchor?> GetLatestAnchorAsync()
     {
         using var conn = _db.CreateConnection();
         return await conn.QuerySingleOrDefaultAsync<MerkleAnchor>(
-            """
-            SELECT id AS Id,
-                   merkle_root AS MerkleRoot,
-                   leaf_count AS LeafCount,
-                   anchored_at AS AnchoredAt,
-                   cutoff_at AS CutoffAt,
-                   tree_version::int AS TreeVersion,
-                   blockchain AS Blockchain,
-                   contract_address AS ContractAddress,
-                   transaction_hash AS TransactionHash,
-                   block_number AS BlockNumber
+            $"SELECT {AnchorColumns} FROM merkle_anchors ORDER BY anchored_at DESC, id DESC LIMIT 1");
+    }
+
+    public async Task<IReadOnlyList<MerkleAnchor>> GetAnchorsAsync(int limit, int? beforeId)
+    {
+        using var conn = _db.CreateConnection();
+        var rows = await conn.QueryAsync<MerkleAnchor>(
+            $"""
+            SELECT {AnchorColumns}
             FROM merkle_anchors
-            ORDER BY anchored_at DESC, id DESC
-            LIMIT 1
-            """);
+            WHERE @BeforeId::int IS NULL OR id < @BeforeId
+            ORDER BY id DESC
+            LIMIT @Limit
+            """,
+            new { Limit = limit, BeforeId = beforeId });
+        return rows.ToList();
+    }
+
+    private async Task<MerkleAnchor?> GetAnchorAsync(int id)
+    {
+        using var conn = _db.CreateConnection();
+        return await conn.QuerySingleOrDefaultAsync<MerkleAnchor>(
+            $"SELECT {AnchorColumns} FROM merkle_anchors WHERE id = @Id", new { Id = id });
+    }
+
+    public async Task<ConsistencyProofResult> GetConsistencyProofAsync(int fromId, int toId)
+    {
+        var from = await GetAnchorAsync(fromId);
+        var to = await GetAnchorAsync(toId);
+        if (from is null || to is null)
+            return new ConsistencyProofResult { Status = ConsistencyProofStatus.AnchorNotFound, From = from, To = to };
+
+        return await BuildConsistencyProofAsync(from, to);
+    }
+
+    // Separate from the lookups so it can be tested without a database, like the inclusion proof.
+    internal async Task<ConsistencyProofResult> BuildConsistencyProofAsync(MerkleAnchor from, MerkleAnchor to)
+    {
+        ConsistencyProofResult Result(ConsistencyProofStatus status, IReadOnlyList<string>? proof = null) =>
+            new() { Status = status, From = from, To = to, Proof = proof ?? Array.Empty<string>() };
+
+        if (from.TreeVersion != 2 || to.TreeVersion != 2 || from.LeafCount < 1 || from.LeafCount > to.LeafCount)
+            return Result(ConsistencyProofStatus.Unsupported);
+
+        var snapshot = await GetOrBuildSnapshotAsync(to);
+        if (snapshot is null
+            || !string.Equals(snapshot.Tree.RootHex, to.MerkleRoot, StringComparison.OrdinalIgnoreCase))
+            return Result(ConsistencyProofStatus.SnapshotUnavailable);
+
+        // Refuse to hand out a proof for a break rather than one that fails to verify: say so.
+        if (!MerkleConsistency.Extends(snapshot.LeafHashes, from.LeafCount, Convert.FromHexString(from.MerkleRoot)))
+            return Result(ConsistencyProofStatus.NotConsistent);
+
+        var proof = MerkleConsistency.Prove(snapshot.LeafHashes, from.LeafCount)
+            .Select(h => Convert.ToHexString(h).ToLowerInvariant())
+            .ToList();
+        return Result(ConsistencyProofStatus.Ok, proof);
     }
 
     public async Task<InclusionProofResult?> GetInclusionProofAsync(Guid ratingId)
@@ -117,13 +166,16 @@ public sealed class AuditService : IAuditService
 
             // Built exactly as the anchoring job built it (see StoredLeaf.AnchoredHash).
             var tree = new MerkleTree((MerkleTreeVersion)anchor.TreeVersion);
+            var hashes = new List<byte[]>(leaves.Count);
             var index = new Dictionary<Guid, int>(leaves.Count);
             for (int i = 0; i < leaves.Count; i++)
             {
-                tree.AddLeafHash(leaves[i].AnchoredHash());
+                var hash = leaves[i].AnchoredHash();
+                hashes.Add(hash);
+                tree.AddLeafHash(hash);
                 index[leaves[i].Id] = i;
             }
-            return new MerkleSnapshot(tree, leaves, index);
+            return new MerkleSnapshot(tree, leaves, hashes, index);
         });
     }
 }

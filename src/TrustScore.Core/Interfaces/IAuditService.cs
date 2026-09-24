@@ -14,6 +14,40 @@ public interface IAuditService
     /// Rebuilds the Merkle tree from all leaf hashes and returns the proof.
     /// </summary>
     Task<InclusionProofResult?> GetInclusionProofAsync(Guid ratingId);
+
+    /// <summary>Anchors, newest first, optionally only those older than <paramref name="beforeId"/>.</summary>
+    Task<IReadOnlyList<MerkleAnchor>> GetAnchorsAsync(int limit, int? beforeId);
+
+    /// <summary>
+    /// Proof that anchor <paramref name="fromId"/>'s tree is a prefix of anchor
+    /// <paramref name="toId"/>'s. Both must be v2 trees.
+    /// </summary>
+    Task<ConsistencyProofResult> GetConsistencyProofAsync(int fromId, int toId);
+}
+
+public enum ConsistencyProofStatus
+{
+    Ok,
+
+    /// <summary>One of the anchors does not exist.</summary>
+    AnchorNotFound,
+
+    /// <summary>A v1 anchor, or a "from" anchor larger than the "to" one: no proof can exist.</summary>
+    Unsupported,
+
+    /// <summary>The later tree does not extend the earlier one: covered ratings changed.</summary>
+    NotConsistent,
+
+    /// <summary>The later anchor's leaves could not be reproduced, so no proof can be built now.</summary>
+    SnapshotUnavailable,
+}
+
+public sealed class ConsistencyProofResult
+{
+    public ConsistencyProofStatus Status { get; init; }
+    public MerkleAnchor? From { get; init; }
+    public MerkleAnchor? To { get; init; }
+    public IReadOnlyList<string> Proof { get; init; } = Array.Empty<string>();
 }
 
 public sealed class InclusionProofResult

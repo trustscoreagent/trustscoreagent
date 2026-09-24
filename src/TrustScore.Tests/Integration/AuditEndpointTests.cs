@@ -67,6 +67,10 @@ public class AuditEndpointTests : IClassFixture<WebApplicationFactory<Program>>
         public Task<MerkleAnchor?> GetLatestAnchorAsync() => Task.FromResult<MerkleAnchor?>(null);
         public Task<InclusionProofResult?> GetInclusionProofAsync(Guid ratingId) =>
             Task.FromResult<InclusionProofResult?>(proof);
+        public Task<IReadOnlyList<MerkleAnchor>> GetAnchorsAsync(int limit, int? beforeId) =>
+            Task.FromResult<IReadOnlyList<MerkleAnchor>>(Array.Empty<MerkleAnchor>());
+        public Task<ConsistencyProofResult> GetConsistencyProofAsync(int fromId, int toId) =>
+            Task.FromResult(new ConsistencyProofResult { Status = ConsistencyProofStatus.AnchorNotFound });
     }
 
     [Fact]
@@ -119,5 +123,63 @@ public class AuditEndpointTests : IClassFixture<WebApplicationFactory<Program>>
         var rebuilt = SHA256.HashData(new byte[] { 0 }.Concat(Encoding.UTF8.GetBytes(canonical)).ToArray());
 
         Convert.ToHexString(rebuilt).ToLowerInvariant().Should().Be(json.GetProperty("leaf_hash").GetString());
+    }
+
+    private sealed class ConsistencyAuditService(ConsistencyProofResult result, IReadOnlyList<MerkleAnchor> anchors) : IAuditService
+    {
+        public Task<MerkleAnchor?> GetLatestAnchorAsync() => Task.FromResult<MerkleAnchor?>(null);
+        public Task<InclusionProofResult?> GetInclusionProofAsync(Guid ratingId) => Task.FromResult<InclusionProofResult?>(null);
+        public Task<IReadOnlyList<MerkleAnchor>> GetAnchorsAsync(int limit, int? beforeId) =>
+            Task.FromResult<IReadOnlyList<MerkleAnchor>>(anchors.Where(a => beforeId is null || a.Id < beforeId).Take(limit).ToList());
+        public Task<ConsistencyProofResult> GetConsistencyProofAsync(int fromId, int toId) => Task.FromResult(result);
+    }
+
+    private static readonly MerkleAnchor A1 = new() { Id = 1, MerkleRoot = "aa", LeafCount = 3, TreeVersion = 2 };
+    private static readonly MerkleAnchor A2 = new() { Id = 2, MerkleRoot = "bb", LeafCount = 5, TreeVersion = 2 };
+
+    private HttpClient ConsistencyClient(ConsistencyProofStatus status, params string[] proof) =>
+        ScoreEndpointTests.CreateTestClient(_factory, s =>
+        {
+            s.RemoveAll<IAuditService>();
+            s.AddSingleton<IAuditService>(new ConsistencyAuditService(
+                new ConsistencyProofResult { Status = status, From = A1, To = A2, Proof = proof },
+                new[] { A2, A1 }));
+        });
+
+    [Fact]
+    public async Task Consistency_WithoutAnchorIds_Returns400()
+        => (await _client.GetAsync("/v1/audit/consistency?from=1")).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+    [Theory]
+    [InlineData(ConsistencyProofStatus.AnchorNotFound, HttpStatusCode.NotFound)]
+    [InlineData(ConsistencyProofStatus.Unsupported, HttpStatusCode.UnprocessableEntity)]
+    [InlineData(ConsistencyProofStatus.NotConsistent, HttpStatusCode.Conflict)]
+    [InlineData(ConsistencyProofStatus.SnapshotUnavailable, HttpStatusCode.ServiceUnavailable)]
+    public async Task Consistency_MapsEveryFailureToItsOwnStatus(ConsistencyProofStatus status, HttpStatusCode expected)
+        => (await ConsistencyClient(status).GetAsync("/v1/audit/consistency?from=1&to=2")).StatusCode.Should().Be(expected);
+
+    [Fact]
+    public async Task Consistency_Ok_ReturnsBothAnchorsAndTheProof()
+    {
+        var json = JsonDocument.Parse(await ConsistencyClient(ConsistencyProofStatus.Ok, "c1", "c2")
+            .GetStringAsync("/v1/audit/consistency?from=1&to=2")).RootElement;
+
+        json.GetProperty("from").GetProperty("leaf_count").GetInt32().Should().Be(3);
+        json.GetProperty("to").GetProperty("merkle_root").GetString().Should().Be("bb");
+        json.GetProperty("proof").EnumerateArray().Select(e => e.GetString()).Should().Equal("c1", "c2");
+    }
+
+    [Fact]
+    public async Task Anchors_ArePaged_NewestFirst()
+    {
+        var client = ConsistencyClient(ConsistencyProofStatus.Ok);
+
+        var page1 = JsonDocument.Parse(await client.GetStringAsync("/v1/audit/anchors?limit=1")).RootElement;
+        page1.GetProperty("anchors")[0].GetProperty("id").GetInt32().Should().Be(2);
+        page1.GetProperty("anchors")[0].GetProperty("tree_version").GetInt32().Should().Be(2);
+        var next = page1.GetProperty("next_before").GetInt32();
+
+        var page2 = JsonDocument.Parse(await client.GetStringAsync($"/v1/audit/anchors?limit=1&before={next}")).RootElement;
+        page2.GetProperty("anchors")[0].GetProperty("id").GetInt32().Should().Be(1);
     }
 }

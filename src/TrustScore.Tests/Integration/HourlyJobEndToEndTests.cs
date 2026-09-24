@@ -91,6 +91,57 @@ public class HourlyJobEndToEndTests : PostgresDatabaseTest
     }
 
     [PostgresFact]
+    public async Task ConsistencyProof_BetweenTwoRealAnchors_Verifies_AndABackdatedInsertBreaksIt()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var ratings = Enumerable.Range(0, 5)
+            .Select(i => MakeRating("svc-cons.test/api", $"did:web:agent-{i}.test", now.AddMinutes(-20 + i)))
+            .ToArray();
+        await InsertRatingsAsync(ratings);
+
+        var ratingRepo = new RatingRepository(Db);
+        var audit = new AuditService(Db, ratingRepo, new MemoryCache(new MemoryCacheOptions()));
+
+        // An earlier anchor over the first three ratings, as a previous job run would have stored.
+        var firstCutoff = ratings[2].CreatedAt;
+        var firstLeaves = await ratingRepo.GetLeavesUpToAsync(firstCutoff);
+        var firstTree = new MerkleTree(MerkleTreeVersion.V2);
+        foreach (var leaf in firstLeaves) firstTree.AddLeafHash(leaf.AnchoredHash());
+        using (var conn = Db.CreateConnection())
+        {
+            await conn.ExecuteAsync(
+                """
+                INSERT INTO merkle_anchors (merkle_root, leaf_count, cutoff_at, tree_version, anchored_at)
+                VALUES (@Root, 3, @Cutoff, 2, NOW() - INTERVAL '1 hour')
+                """,
+                new { Root = firstTree.RootHex, Cutoff = firstCutoff });
+        }
+
+        // The job anchors all five (SeedProber is not registered, so that step alone fails).
+        using var provider = BuildJobServices(registerSeedProber: false);
+        await HourlyJob.RunAsync(provider);
+
+        var anchors = await audit.GetAnchorsAsync(10, null);
+        anchors.Should().HaveCount(2);
+        var (to, from) = (anchors[0], anchors[1]);
+        from.LeafCount.Should().Be(3);
+        to.LeafCount.Should().Be(5);
+        to.TreeVersion.Should().Be(2);
+        (await audit.GetAnchorsAsync(10, to.Id)).Select(a => a.Id).Should().Equal(from.Id);
+
+        var result = await audit.GetConsistencyProofAsync(from.Id, to.Id);
+        result.Status.Should().Be(ConsistencyProofStatus.Ok);
+        MerkleConsistency.Verify(3, 5, Convert.FromHexString(from.MerkleRoot), Convert.FromHexString(to.MerkleRoot),
+            result.Proof.Select(Convert.FromHexString).ToList()).Should().BeTrue();
+
+        // A rating slipped in with a timestamp inside the earlier anchor's range changes history.
+        await InsertRatingsAsync(MakeRating("svc-cons.test/api", "did:web:late.test", ratings[0].CreatedAt.AddSeconds(30)));
+        await HourlyJob.RunAsync(provider);
+        var latest = (await audit.GetAnchorsAsync(1, null)).Single();
+        (await audit.GetConsistencyProofAsync(from.Id, latest.Id)).Status.Should().Be(ConsistencyProofStatus.NotConsistent);
+    }
+
+    [PostgresFact]
     public async Task FullPipeline_AnchorsPreCutoffRatings_AndEveryProofVerifiesAgainstThePublishedRoot()
     {
         var now = DateTimeOffset.UtcNow;

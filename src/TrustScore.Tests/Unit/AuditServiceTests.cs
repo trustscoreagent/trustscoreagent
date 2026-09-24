@@ -204,6 +204,69 @@ public class AuditServiceTests
         (await service.BuildInclusionProofAsync(mislabelled, Info(leaves[1]), leaves[1].Id)).Should().BeNull();
     }
 
+    // --- consistency between anchors ---
+
+    private static MerkleAnchor AnchorAt(int id, IReadOnlyList<StoredLeaf> leaves, MerkleTreeVersion version) => new()
+    {
+        Id = id,
+        MerkleRoot = AnchoredRoot(leaves, version),
+        LeafCount = leaves.Count,
+        CutoffAt = leaves[^1].CreatedAt,
+        TreeVersion = (int)version,
+    };
+
+    [Fact]
+    public async Task Consistency_BetweenTwoV2Anchors_Verifies()
+    {
+        var all = BuildLeaves(11, v1Count: 4);
+        var from = AnchorAt(1, all.Take(6).ToList(), MerkleTreeVersion.V2);
+        var to = AnchorAt(2, all, MerkleTreeVersion.V2);
+        var service = NewService(new StubRatingRepo(all));
+
+        var result = await service.BuildConsistencyProofAsync(from, to);
+
+        result.Status.Should().Be(ConsistencyProofStatus.Ok);
+        MerkleConsistency.Verify(6, 11, Convert.FromHexString(from.MerkleRoot), Convert.FromHexString(to.MerkleRoot),
+            result.Proof.Select(Convert.FromHexString).ToList()).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Consistency_ReportsABreak_InsteadOfAProofThatFails()
+    {
+        // The earlier anchor covered a rating that has since been deleted.
+        var all = BuildLeaves(11);
+        var from = AnchorAt(1, all.Take(6).ToList(), MerkleTreeVersion.V2);
+        var afterDeletion = all.Where((_, i) => i != 2).ToList();
+        var to = AnchorAt(2, afterDeletion, MerkleTreeVersion.V2);
+        var service = NewService(new StubRatingRepo(afterDeletion));
+
+        (await service.BuildConsistencyProofAsync(from, to)).Status.Should().Be(ConsistencyProofStatus.NotConsistent);
+    }
+
+    [Fact]
+    public async Task Consistency_WithAV1Anchor_IsUnsupported()
+    {
+        var all = BuildLeaves(8);
+        var service = NewService(new StubRatingRepo(all));
+        var v1 = AnchorAt(1, all.Take(4).ToList(), MerkleTreeVersion.V1);
+        var v2 = AnchorAt(2, all, MerkleTreeVersion.V2);
+
+        (await service.BuildConsistencyProofAsync(v1, v2)).Status.Should().Be(ConsistencyProofStatus.Unsupported);
+        (await service.BuildConsistencyProofAsync(v2, AnchorAt(3, all.Take(4).ToList(), MerkleTreeVersion.V2)))
+            .Status.Should().Be(ConsistencyProofStatus.Unsupported, "from must not be larger than to");
+    }
+
+    [Fact]
+    public async Task Consistency_WhenTheLaterSnapshotDoesNotReproduce_SaysSo()
+    {
+        var all = BuildLeaves(8);
+        var from = AnchorAt(1, all.Take(4).ToList(), MerkleTreeVersion.V2);
+        var to = new MerkleAnchor { Id = 2, MerkleRoot = new string('b', 64), LeafCount = 8, CutoffAt = all[^1].CreatedAt, TreeVersion = 2 };
+        var service = NewService(new StubRatingRepo(all));
+
+        (await service.BuildConsistencyProofAsync(from, to)).Status.Should().Be(ConsistencyProofStatus.SnapshotUnavailable);
+    }
+
     private sealed class StubRatingRepo : IRatingRepository
     {
         private readonly IReadOnlyList<StoredLeaf> _leaves;
