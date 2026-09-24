@@ -65,6 +65,9 @@ jobs:
         env:
           DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
+          # Staging has its own database (trustscore_staging, same Cloud SQL instance) and its
+          # own Redis key prefix. It used to share both with production, so every migration
+          # merged to main ran against production data before the production deploy gate.
           gcloud run deploy $SERVICE_NAME \
             --image "${IMAGE_NAME}:${DEPLOY_SHA}" \
             --region $GCP_REGION \
@@ -75,9 +78,6 @@ jobs:
             --concurrency 200 \
             --cpu 1 \
             --memory 512Mi \
-            # Staging has its own database (trustscore_staging, same Cloud SQL instance) and its
-            # own Redis key prefix. It used to share both with production, so every migration
-            # merged to main ran against production data before the production deploy gate.
             --set-env-vars "ASPNETCORE_ENVIRONMENT=Staging,Redis__KeyPrefix=staging:" \
             --set-secrets "ConnectionStrings__PostgreSQL=db-connection-string-staging:latest,ConnectionStrings__Redis=redis-connection-string:latest,AdminApiKey=admin-api-key:latest" \
             --add-cloudsql-instances "${{ secrets.GCP_PROJECT_ID }}:europe-west1:trustscoreagent-db" \
