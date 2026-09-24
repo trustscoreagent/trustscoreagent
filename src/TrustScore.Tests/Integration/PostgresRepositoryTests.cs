@@ -302,4 +302,22 @@ public class PostgresRepositoryTests : PostgresDatabaseTest
         await repo.UpsertAsync(healed);
         (await repo.GetAllAsync())["probe-roundtrip.test"].FailingSince.Should().BeNull();
     }
+
+    [PostgresFact]
+    public async Task LatestV2Anchor_IgnoresV1Anchors_AndMapsThroughDapper()
+    {
+        using var conn = Db.CreateConnection();
+        (await TrustScore.Api.Jobs.HourlyJob.LoadLatestV2AnchorAsync(conn)).Should().BeNull();
+
+        await conn.ExecuteAsync(
+            """
+            INSERT INTO merkle_anchors (merkle_root, leaf_count, tree_version, anchored_at)
+            VALUES ('aa', 10, 2, NOW() - INTERVAL '2 hours'),
+                   ('bb', 12, 2, NOW() - INTERVAL '1 hour'),
+                   ('cc', 13, 1, NOW())
+            """);
+
+        var latest = await TrustScore.Api.Jobs.HourlyJob.LoadLatestV2AnchorAsync(conn);
+        latest.Should().Be(new TrustScore.Api.Jobs.HourlyJob.PreviousAnchor("bb", 12));
+    }
 }
