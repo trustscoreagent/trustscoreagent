@@ -75,4 +75,30 @@ public class SeedProberTests
     [Fact]
     public void ExpectField_DescendingIntoNonObject_IsNotValid()
         => SeedProber.ValidateBody("{\"rates\":5}", "rates.USD").Should().BeFalse();
+
+    // --- ExpectText: conformity for responses that are not JSON ---
+
+    private const string AtomFeed =
+        "<?xml version='1.0'?><feed xmlns=\"http://www.w3.org/2005/Atom\"><entry><title>x</title></entry></feed>";
+
+    [Fact]
+    public void ExpectText_Present_IsValid()
+        => SeedProber.ValidateBody(AtomFeed, null, "<entry>").Should().BeTrue();
+
+    [Fact]
+    public void ExpectText_Missing_IsNotValid()
+        => SeedProber.ValidateBody("<feed></feed>", null, "<entry>").Should().BeFalse(
+            "an empty feed answers 200 but carries no result");
+
+    [Fact]
+    public void ExpectText_IsCaseSensitive()
+        => SeedProber.ValidateBody("<ENTRY/>", null, "<entry>").Should().BeFalse();
+
+    [Fact]
+    public void ExpectTextAndField_BothMustHold()
+    {
+        SeedProber.ValidateBody("{\"status\":\"ok\"}", "status", "ok").Should().BeTrue();
+        SeedProber.ValidateBody("{\"status\":\"down\"}", "status", "ok").Should().BeFalse();
+        SeedProber.ValidateBody("{\"state\":\"ok\"}", "status", "ok").Should().BeFalse();
+    }
 }

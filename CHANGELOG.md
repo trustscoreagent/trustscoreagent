@@ -47,6 +47,9 @@ All notable changes to TrustScoreAgent will be documented in this file.
 - Probe quarantine is decided by how long a target has been failing (3 days), not by a pass count
   that changed meaning with the schedule (migration 012), and a `probe_target_health` error no
   longer aborts the probe pass or drops a measurement
+- Three probe targets had no conformity check, so conformity always read valid: `date.nager.at`
+  and `api.github.com` now check a JSON field (and no longer use a year-pinned URL or a
+  plain-text endpoint), and arXiv, which answers Atom XML, uses the new `ExpectText` check
 - MCP server 0.2.2: without a usable key it keeps a stable fallback DID in
   `~/.trustscoreagent/agent-id` instead of a new one per restart, and several instances starting
   at once no longer race to write different keys

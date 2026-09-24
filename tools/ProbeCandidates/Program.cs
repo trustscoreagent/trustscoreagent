@@ -171,14 +171,17 @@ Verdict Judge(Candidate candidate, string normalized, List<ProbeResult> passes)
 
     // The probe's own conformity check. If it fails here it fails on every pass in production,
     // quietly holding the service's conformity dimension at zero.
-    if (!SeedProber.ValidateBody(first_.Body, candidate.ExpectField))
+    if (!SeedProber.ValidateBody(first_.Body, candidate.ExpectField, candidate.ExpectText))
     {
+        if (!string.IsNullOrEmpty(candidate.ExpectText)
+            && !first_.Body.Contains(candidate.ExpectText, StringComparison.Ordinal))
+            return new Verdict($"expectText '{candidate.ExpectText}' not found in the response");
         return candidate.ExpectField is null
             ? new Verdict("empty response body")
             : new Verdict($"expectField '{candidate.ExpectField}' not found in the response");
     }
 
-    if (string.IsNullOrWhiteSpace(candidate.ExpectField))
+    if (string.IsNullOrWhiteSpace(candidate.ExpectField) && string.IsNullOrEmpty(candidate.ExpectText))
     {
         // Without a field to look for, ValidateBody accepts any non-empty body, so conformity is
         // reported valid no matter what the service returns. The dimension stops measuring
@@ -268,7 +271,8 @@ static List<Candidate> LoadConfiguredTargets(string appsettingsPath)
         .Select(t => new Candidate(
             t.GetProperty("Service").GetString() ?? "",
             t.GetProperty("Url").GetString() ?? "",
-            t.TryGetProperty("ExpectField", out var f) ? f.GetString() : null))
+            t.TryGetProperty("ExpectField", out var f) ? f.GetString() : null,
+            t.TryGetProperty("ExpectText", out var x) ? x.GetString() : null))
         .ToList();
 }
 
@@ -299,7 +303,8 @@ internal static class Constants
 internal sealed record Candidate(
     [property: JsonPropertyName("Service")] string Service,
     [property: JsonPropertyName("Url")] string Url,
-    [property: JsonPropertyName("ExpectField")] string? ExpectField);
+    [property: JsonPropertyName("ExpectField")] string? ExpectField,
+    [property: JsonPropertyName("ExpectText")] string? ExpectText = null);
 
 internal sealed record Reputation(double Score, int Ratings);
 
