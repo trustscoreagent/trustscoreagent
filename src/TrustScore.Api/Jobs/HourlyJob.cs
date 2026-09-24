@@ -81,6 +81,9 @@ public static class HourlyJob
         logger.LogInformation("EigenTrust: updated trust scores for {Count} agents", scores.Count);
     }
 
+    // Every new anchor is built as v2. Older anchors keep their own version and still reproduce.
+    private const MerkleTreeVersion AnchorTreeVersion = MerkleTreeVersion.V2;
+
     private static async Task RunMerkleAnchor(IServiceProvider services, ILogger logger)
     {
         using var scope = services.CreateScope();
@@ -92,7 +95,7 @@ public static class HourlyJob
         // created_at <= cutoff has committed — making the anchored set stable and reproducible for
         // /v1/audit/proof, regardless of rows still committing with a more recent created_at.
         var cutoff = DateTimeOffset.UtcNow - TimeSpan.FromMinutes(5);
-        var leaves = await ratingRepo.GetLeafHashesUpToAsync(cutoff);
+        var leaves = await ratingRepo.GetLeavesUpToAsync(cutoff);
 
         if (leaves.Count == 0)
         {
@@ -100,23 +103,38 @@ public static class HourlyJob
             return;
         }
 
-        var tree = new MerkleTree();
+        // v2 leaves go in as hashed at insertion, never recomputed: a row edited after the fact must
+        // not be re-committed with its new content. The edit is still worth knowing about, so each
+        // v2 leaf is also recomputed and compared. (v1 leaves are recomputed, as they always were;
+        // see StoredLeaf.AnchoredHash.)
+        var tree = new MerkleTree(AnchorTreeVersion);
+        var altered = new List<Guid>();
         foreach (var leaf in leaves)
         {
-            var hash = MerkleTree.ComputeLeafHash(leaf.Id, leaf.ServiceDid, leaf.CreatedAt);
-            tree.AddLeafHash(hash);
+            tree.AddLeafHash(leaf.AnchoredHash());
+            if (!leaf.IsIntact())
+                altered.Add(leaf.Id);
+        }
+
+        if (altered.Count > 0)
+        {
+            logger.LogError(
+                "Merkle integrity: {Count} rating(s) no longer match the leaf stored at insertion, i.e. " +
+                "they were modified after being written. First ones: {Ids}",
+                altered.Count, string.Join(", ", altered.Take(10)));
         }
 
         var rootHex = tree.RootHex!;
-        logger.LogInformation("Merkle: computed root {Root} from {Count} leaves (cutoff {Cutoff:o})",
-            rootHex, leaves.Count, cutoff);
+        logger.LogInformation("Merkle: computed v{Version} root {Root} from {Count} leaves (cutoff {Cutoff:o})",
+            (int)AnchorTreeVersion, rootHex, leaves.Count, cutoff);
 
         // Store anchor in database
         using var conn = db.CreateConnection();
         await conn.ExecuteAsync(
             """
-            INSERT INTO merkle_anchors (merkle_root, leaf_count, first_rating_id, last_rating_id, cutoff_at, anchored_at)
-            VALUES (@Root, @LeafCount, @FirstId, @LastId, @Cutoff, NOW())
+            INSERT INTO merkle_anchors
+                (merkle_root, leaf_count, first_rating_id, last_rating_id, cutoff_at, tree_version, anchored_at)
+            VALUES (@Root, @LeafCount, @FirstId, @LastId, @Cutoff, @TreeVersion, NOW())
             """,
             new
             {
@@ -125,6 +143,7 @@ public static class HourlyJob
                 FirstId = leaves[0].Id,
                 LastId = leaves[^1].Id,
                 Cutoff = cutoff,
+                TreeVersion = (short)AnchorTreeVersion,
             });
 
         logger.LogInformation("Merkle: anchor stored in database");

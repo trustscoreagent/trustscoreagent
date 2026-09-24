@@ -1,3 +1,5 @@
+using TrustScore.Core.Audit;
+
 namespace TrustScore.Core.Interfaces;
 
 public interface IAuditService
@@ -18,6 +20,11 @@ public sealed class InclusionProofResult
 {
     public required string RatingId { get; init; }
     public required string LeafHash { get; init; }
+
+    /// <summary>The rating's committed fields as stored today, for recomputing the leaf independently.</summary>
+    public required RatingLeaf Leaf { get; init; }
+
+    public MerkleTreeVersion TreeVersion { get; init; }
     public required string MerkleRoot { get; init; }
     public required List<ProofNodeDto> Proof { get; init; }
     public int LeafIndex { get; init; }
@@ -35,6 +42,9 @@ public sealed class MerkleAnchor
     // The created_at cutoff the anchored set was taken at. Null for legacy anchors, which fall back
     // to leaf_count-based reproduction.
     public DateTimeOffset? CutoffAt { get; init; }
+
+    /// <summary>The algorithm the root was built with; the proof must be verified under the same one.</summary>
+    public int TreeVersion { get; init; } = 1;
     public string? Blockchain { get; init; }
     public string? ContractAddress { get; init; }
     public string? TransactionHash { get; init; }

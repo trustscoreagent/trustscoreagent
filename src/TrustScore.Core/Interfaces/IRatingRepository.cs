@@ -1,4 +1,5 @@
 using System.Data;
+using TrustScore.Core.Audit;
 using TrustScore.Core.Models;
 
 namespace TrustScore.Core.Interfaces;
@@ -17,13 +18,13 @@ public interface IRatingRepository
     /// order. The cutoff is a stable boundary (rows commit within the grace window before it), so
     /// this reproduces the exact anchored set regardless of later-committing rows.
     /// </summary>
-    Task<IReadOnlyList<RatingLeafInfo>> GetLeafHashesUpToAsync(DateTimeOffset cutoff);
+    Task<IReadOnlyList<StoredLeaf>> GetLeavesUpToAsync(DateTimeOffset cutoff);
 
     /// <summary>
     /// Legacy reproduction for anchors without a cutoff: the first <paramref name="leafCount"/>
     /// leaves in (created_at, id) order.
     /// </summary>
-    Task<IReadOnlyList<RatingLeafInfo>> GetAnchoredLeafHashesAsync(int leafCount);
+    Task<IReadOnlyList<StoredLeaf>> GetFirstLeavesAsync(int leafCount);
     Task<IReadOnlyList<RatingSummary>> GetHistoryAsync(string serviceDid, int months);
 
     /// <summary>Daily aggregates computed in SQL (bounded transfer, no per-rating load).</summary>

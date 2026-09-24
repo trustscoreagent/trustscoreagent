@@ -18,7 +18,7 @@ public sealed class AuditService : IAuditService
         _memoryCache = memoryCache;
     }
 
-    private sealed record MerkleSnapshot(MerkleTree Tree, IReadOnlyDictionary<Guid, int> Index);
+    private sealed record MerkleSnapshot(MerkleTree Tree, IReadOnlyList<StoredLeaf> Leaves, IReadOnlyDictionary<Guid, int> Index);
 
     public async Task<MerkleAnchor?> GetLatestAnchorAsync()
     {
@@ -30,6 +30,7 @@ public sealed class AuditService : IAuditService
                    leaf_count AS LeafCount,
                    anchored_at AS AnchoredAt,
                    cutoff_at AS CutoffAt,
+                   tree_version::int AS TreeVersion,
                    blockchain AS Blockchain,
                    contract_address AS ContractAddress,
                    transaction_hash AS TransactionHash,
@@ -79,12 +80,16 @@ public sealed class AuditService : IAuditService
             return null;
 
         var proof = snapshot.Tree.GetInclusionProof(targetIndex);
-        var leafHash = MerkleTree.ComputeLeafHash(targetLeaf.Id, targetLeaf.ServiceDid, targetLeaf.CreatedAt);
+        var stored = snapshot.Leaves[targetIndex];
 
         return new InclusionProofResult
         {
             RatingId = ratingId.ToString(),
-            LeafHash = Convert.ToHexString(leafHash).ToLowerInvariant(),
+            // The hash that is in the tree. For a v2 leaf that is the one written at insertion, so if
+            // the row has been edited since, recomputing it from Leaf will not match, which is the point.
+            LeafHash = stored.AnchoredHashHex(),
+            Leaf = stored.Leaf,
+            TreeVersion = snapshot.Tree.Version,
             MerkleRoot = anchor.MerkleRoot,
             Proof = proof.Select(p => new ProofNodeDto(p.HashHex, p.IsRight)).ToList(),
             LeafIndex = targetIndex,
@@ -94,7 +99,7 @@ public sealed class AuditService : IAuditService
 
     private async Task<MerkleSnapshot?> GetOrBuildSnapshotAsync(MerkleAnchor anchor)
     {
-        var cacheKey = $"merkle-snapshot:{anchor.MerkleRoot}:{anchor.LeafCount}";
+        var cacheKey = $"merkle-snapshot:v{anchor.TreeVersion}:{anchor.MerkleRoot}:{anchor.LeafCount}";
         return await _memoryCache.GetOrCreateAsync(cacheKey, async entry =>
         {
             entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(2);
@@ -102,23 +107,23 @@ public sealed class AuditService : IAuditService
             // Reproduce the anchored set from its cutoff (stable under concurrent writes); fall back
             // to leaf_count for legacy anchors written before the cutoff column existed.
             var leaves = anchor.CutoffAt is { } cutoff
-                ? await _ratingRepo.GetLeafHashesUpToAsync(cutoff)
-                : await _ratingRepo.GetAnchoredLeafHashesAsync(anchor.LeafCount);
+                ? await _ratingRepo.GetLeavesUpToAsync(cutoff)
+                : await _ratingRepo.GetFirstLeavesAsync(anchor.LeafCount);
             if (leaves.Count == 0)
             {
                 entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(10); // don't pin a null
                 return null;
             }
 
-            var tree = new MerkleTree();
+            // Built exactly as the anchoring job built it (see StoredLeaf.AnchoredHash).
+            var tree = new MerkleTree((MerkleTreeVersion)anchor.TreeVersion);
             var index = new Dictionary<Guid, int>(leaves.Count);
             for (int i = 0; i < leaves.Count; i++)
             {
-                var leaf = leaves[i];
-                tree.AddLeafHash(MerkleTree.ComputeLeafHash(leaf.Id, leaf.ServiceDid, leaf.CreatedAt));
-                index[leaf.Id] = i;
+                tree.AddLeafHash(leaves[i].AnchoredHash());
+                index[leaves[i].Id] = i;
             }
-            return new MerkleSnapshot(tree, index);
+            return new MerkleSnapshot(tree, leaves, index);
         });
     }
 }

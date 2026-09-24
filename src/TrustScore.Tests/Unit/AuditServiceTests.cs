@@ -19,126 +19,208 @@ public class AuditServiceTests
     private static AuditService NewService(IRatingRepository repo) =>
         new(new DbConnectionFactory("Host=unused;Database=unused;"), repo, new MemoryCache(new MemoryCacheOptions()));
 
-    private static List<RatingLeafInfo> BuildLeaves(int count)
+    private static StoredLeaf Store(RatingLeaf leaf) => new(
+        leaf.Id, leaf.ServiceDid, leaf.CreatedAt, leaf.LeafVersion, leaf.StatusCode, leaf.LatencyMs,
+        leaf.ResponseSizeBytes, leaf.SchemaValid, leaf.QualityScore, leaf.HasReceipt,
+        leaf.ReceiptVerified, leaf.SignatureVerified, leaf.Weight, leaf.HashHex());
+
+    // Leaves in (created_at, id) order; the first `v1Count` use the legacy format, as the rows
+    // written before v2 do.
+    private static List<StoredLeaf> BuildLeaves(int count, int v1Count = 0)
     {
         var baseTime = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
-        var leaves = new List<RatingLeafInfo>();
+        var leaves = new List<StoredLeaf>();
         for (int i = 0; i < count; i++)
         {
-            var id = new Guid($"00000000-0000-0000-0000-0000000000{i:D2}");
-            var created = baseTime.AddMinutes(i); // distinct, already in (created_at, id) order
-            var hashHex = Convert.ToHexString(
-                MerkleTree.ComputeLeafHash(id, "api.example.com", created)).ToLowerInvariant();
-            leaves.Add(new RatingLeafInfo(id, "api.example.com", created, hashHex));
+            var leaf = new RatingLeaf(
+                new Guid($"00000000-0000-0000-0000-0000000000{i:D2}"), "api.example.com",
+                baseTime.AddMinutes(i), i < v1Count ? 1 : 2,
+                200, 100 + i, null, true, 4, false, false, i % 2 == 0, 0.3);
+            leaves.Add(Store(leaf));
         }
         return leaves;
     }
 
-    private static string AnchoredRoot(IReadOnlyList<RatingLeafInfo> leaves)
+    private static string AnchoredRoot(IReadOnlyList<StoredLeaf> leaves, MerkleTreeVersion version)
     {
-        var tree = new MerkleTree();
+        var tree = new MerkleTree(version);
         foreach (var leaf in leaves)
-            tree.AddLeafHash(MerkleTree.ComputeLeafHash(leaf.Id, leaf.ServiceDid, leaf.CreatedAt));
+            tree.AddLeafHash(leaf.AnchoredHash());
         return tree.RootHex!;
     }
 
-    [Fact]
-    public async Task Proof_VerifiesAgainstAnchoredRoot()
+    private static MerkleAnchor Anchor(IReadOnlyList<StoredLeaf> leaves, MerkleTreeVersion version) => new()
+    {
+        Id = 1,
+        MerkleRoot = AnchoredRoot(leaves, version),
+        LeafCount = leaves.Count,
+        TreeVersion = (int)version,
+    };
+
+    private static RatingLeafInfo Info(StoredLeaf leaf) =>
+        new(leaf.Id, leaf.ServiceDid, leaf.CreatedAt, leaf.MerkleLeafHash);
+
+    private static bool Verifies(InclusionProofResult result)
+    {
+        var proof = result.Proof.Select(p => new ProofNode(Convert.FromHexString(p.Hash), p.IsRight)).ToList();
+        return MerkleTree.VerifyProof(
+            Convert.FromHexString(result.LeafHash), proof, Convert.FromHexString(result.MerkleRoot), result.TreeVersion);
+    }
+
+    [Theory]
+    [InlineData(MerkleTreeVersion.V1)]
+    [InlineData(MerkleTreeVersion.V2)]
+    public async Task Proof_VerifiesAgainstAnchoredRoot_UnderTheAnchorsVersion(MerkleTreeVersion version)
     {
         var leaves = BuildLeaves(5);
-        var root = AnchoredRoot(leaves);
-        var anchor = new MerkleAnchor { Id = 1, MerkleRoot = root, LeafCount = leaves.Count };
-        var target = leaves[2];
+        var anchor = Anchor(leaves, version);
         var service = NewService(new StubRatingRepo(leaves));
 
-        var result = await service.BuildInclusionProofAsync(anchor, target, target.Id);
+        var result = await service.BuildInclusionProofAsync(anchor, Info(leaves[2]), leaves[2].Id);
 
         result.Should().NotBeNull();
-        result!.MerkleRoot.Should().Be(root);
+        result!.MerkleRoot.Should().Be(anchor.MerkleRoot);
+        result.TreeVersion.Should().Be(version);
         result.LeafIndex.Should().Be(2);
         result.TotalLeaves.Should().Be(5);
+        Verifies(result).Should().BeTrue();
+    }
 
-        // The decisive check: the returned proof must reconstruct the anchored root.
-        var leafHash = Convert.FromHexString(result.LeafHash);
-        var proof = result.Proof.Select(p => new ProofNode(Convert.FromHexString(p.Hash), p.IsRight)).ToList();
-        MerkleTree.VerifyProof(leafHash, proof, Convert.FromHexString(root)).Should().BeTrue();
+    [Fact]
+    public async Task MixedTree_ProvesLegacyAndV2Leaves()
+    {
+        // The first v2 anchor still contains every earlier v1 leaf.
+        var leaves = BuildLeaves(7, v1Count: 4);
+        var anchor = Anchor(leaves, MerkleTreeVersion.V2);
+        var service = NewService(new StubRatingRepo(leaves));
+
+        foreach (var i in new[] { 0, 3, 4, 6 })
+        {
+            var result = await service.BuildInclusionProofAsync(anchor, Info(leaves[i]), leaves[i].Id);
+            Verifies(result!).Should().BeTrue($"leaf {i}");
+            result!.Leaf.LeafVersion.Should().Be(i < 4 ? 1 : 2);
+            result.Leaf.HashHex().Should().Be(result.LeafHash, "the returned fields recompute the leaf");
+        }
+    }
+
+    [Fact]
+    public async Task EditedRow_KeepsItsProof_ButItsFieldsNoLongerMatchTheLeaf()
+    {
+        // Someone rewrites a rating's status after it was anchored. The anchored root still stands
+        // (the tree uses the hash stored at insertion), and the proof exposes the edit instead of
+        // silently certifying the new value.
+        var leaves = BuildLeaves(5);
+        var anchor = Anchor(leaves, MerkleTreeVersion.V2);
+        leaves[2] = leaves[2] with { StatusCode = 503 };
+        var service = NewService(new StubRatingRepo(leaves));
+
+        var result = await service.BuildInclusionProofAsync(anchor, Info(leaves[2]), leaves[2].Id);
+
+        Verifies(result!).Should().BeTrue();
+        result!.Leaf.StatusCode.Should().Be(503);
+        result.Leaf.HashHex().Should().NotBe(result.LeafHash);
+        leaves[2].IsIntact().Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task StaleV1StoredHash_DoesNotChangeTheRoot()
+    {
+        // Migration 004 rewrote service ids of early ratings after their v1 hash was stored. Every
+        // v1 anchor recomputed v1 leaves, so the stored value must not be what goes in the tree.
+        var leaves = BuildLeaves(5, v1Count: 3);
+        var anchor = Anchor(leaves, MerkleTreeVersion.V2);
+        leaves[1] = leaves[1] with { MerkleLeafHash = new string('0', 64) };
+        var service = NewService(new StubRatingRepo(leaves));
+
+        var result = await service.BuildInclusionProofAsync(anchor, Info(leaves[1]), leaves[1].Id);
+
+        Verifies(result!).Should().BeTrue();
+        leaves[1].IsIntact().Should().BeTrue("v1 leaves have no stored hash to be faithful to");
     }
 
     [Fact]
     public async Task Proof_ForRatingNotInAnchoredSet_ReturnsNull()
     {
         var leaves = BuildLeaves(4);
-        var anchor = new MerkleAnchor { Id = 1, MerkleRoot = AnchoredRoot(leaves), LeafCount = leaves.Count };
-
-        // A rating that exists (has a leaf) but is not part of the anchored snapshot.
+        var anchor = Anchor(leaves, MerkleTreeVersion.V2);
         var newer = new RatingLeafInfo(
             new Guid("00000000-0000-0000-0000-0000000000ff"), "api.example.com",
             new DateTimeOffset(2026, 2, 1, 0, 0, 0, TimeSpan.Zero), "deadbeef");
         var service = NewService(new StubRatingRepo(leaves));
 
-        var result = await service.BuildInclusionProofAsync(anchor, newer, newer.Id);
-
-        result.Should().BeNull();
+        (await service.BuildInclusionProofAsync(anchor, newer, newer.Id)).Should().BeNull();
     }
 
     [Fact]
     public async Task Proof_WithCutoff_ReproducesFromCutoffAndExcludesLaterLeaves()
     {
         // 5 leaves exist in the repo, but the anchor was taken at a cutoff covering only the first
-        // 4. The snapshot must reproduce from the cutoff (root over 4 leaves), a pre-cutoff rating
-        // must be provable, and the 5th (post-cutoff) rating must not be — even though it is present
-        // in the table. This is the concurrent-write reproducibility guarantee.
+        // 4. The snapshot must reproduce from the cutoff, a pre-cutoff rating must be provable, and
+        // the post-cutoff one must not be, even though it is present in the table.
         var all = BuildLeaves(5);
         var anchored = all.Take(4).ToList();
-        var cutoff = anchored[^1].CreatedAt; // exactly the 4th leaf's created_at
         var anchor = new MerkleAnchor
         {
             Id = 1,
-            MerkleRoot = AnchoredRoot(anchored),
+            MerkleRoot = AnchoredRoot(anchored, MerkleTreeVersion.V2),
             LeafCount = anchored.Count,
-            CutoffAt = cutoff,
+            CutoffAt = anchored[^1].CreatedAt,
+            TreeVersion = 2,
         };
         var service = NewService(new StubRatingRepo(all));
 
-        var provable = await service.BuildInclusionProofAsync(anchor, anchored[1], anchored[1].Id);
+        var provable = await service.BuildInclusionProofAsync(anchor, Info(anchored[1]), anchored[1].Id);
         provable.Should().NotBeNull();
         provable!.TotalLeaves.Should().Be(4);
 
-        var afterCutoff = all[4];
-        var notProvable = await service.BuildInclusionProofAsync(anchor, afterCutoff, afterCutoff.Id);
-        notProvable.Should().BeNull();
+        (await service.BuildInclusionProofAsync(anchor, Info(all[4]), all[4].Id)).Should().BeNull();
     }
 
     [Fact]
     public async Task Proof_WhenSnapshotRootDoesNotMatchAnchor_ReturnsNull()
     {
         var leaves = BuildLeaves(5);
-        // Anchor claims a different root than the leaves actually produce → drift guard kicks in.
-        var anchor = new MerkleAnchor { Id = 1, MerkleRoot = new string('a', 64), LeafCount = leaves.Count };
-        var target = leaves[1];
+        var anchor = new MerkleAnchor { Id = 1, MerkleRoot = new string('a', 64), LeafCount = leaves.Count, TreeVersion = 2 };
         var service = NewService(new StubRatingRepo(leaves));
 
-        var result = await service.BuildInclusionProofAsync(anchor, target, target.Id);
+        (await service.BuildInclusionProofAsync(anchor, Info(leaves[1]), leaves[1].Id)).Should().BeNull();
+    }
 
-        result.Should().BeNull();
+    [Fact]
+    public async Task Proof_UnderTheWrongVersion_ReturnsNull()
+    {
+        // A v1 root rebuilt as v2 (or the reverse) does not match, so no proof is handed out.
+        var leaves = BuildLeaves(5);
+        var anchor = Anchor(leaves, MerkleTreeVersion.V1);
+        var mislabelled = new MerkleAnchor
+        {
+            Id = 1,
+            MerkleRoot = anchor.MerkleRoot,
+            LeafCount = anchor.LeafCount,
+            TreeVersion = 2,
+        };
+        var service = NewService(new StubRatingRepo(leaves));
+
+        (await service.BuildInclusionProofAsync(mislabelled, Info(leaves[1]), leaves[1].Id)).Should().BeNull();
     }
 
     private sealed class StubRatingRepo : IRatingRepository
     {
-        private readonly IReadOnlyList<RatingLeafInfo> _leaves;
-        public StubRatingRepo(IReadOnlyList<RatingLeafInfo> leaves) => _leaves = leaves;
+        private readonly IReadOnlyList<StoredLeaf> _leaves;
+        public StubRatingRepo(IReadOnlyList<StoredLeaf> leaves) => _leaves = leaves;
 
-        public Task<IReadOnlyList<RatingLeafInfo>> GetAnchoredLeafHashesAsync(int leafCount)
-            => Task.FromResult<IReadOnlyList<RatingLeafInfo>>(_leaves.Take(leafCount).ToList());
+        public Task<IReadOnlyList<StoredLeaf>> GetFirstLeavesAsync(int leafCount)
+            => Task.FromResult<IReadOnlyList<StoredLeaf>>(_leaves.Take(leafCount).ToList());
+
+        public Task<IReadOnlyList<StoredLeaf>> GetLeavesUpToAsync(DateTimeOffset cutoff)
+            => Task.FromResult<IReadOnlyList<StoredLeaf>>(
+                _leaves.Where(l => l.CreatedAt <= cutoff).OrderBy(l => l.CreatedAt).ThenBy(l => l.Id).ToList());
 
         // Unused by BuildInclusionProofAsync.
         public Task InsertAsync(Rating rating) => throw new NotImplementedException();
         public Task InsertAsync(IDbConnection conn, IDbTransaction tx, Rating rating) => throw new NotImplementedException();
         public Task<int> CountRecentAsync(string agentDid, string serviceDid, TimeSpan window) => throw new NotImplementedException();
         public Task<RatingLeafInfo?> GetLeafInfoAsync(Guid ratingId) => throw new NotImplementedException();
-        public Task<IReadOnlyList<RatingLeafInfo>> GetLeafHashesUpToAsync(DateTimeOffset cutoff)
-            => Task.FromResult<IReadOnlyList<RatingLeafInfo>>(
-                _leaves.Where(l => l.CreatedAt <= cutoff).OrderBy(l => l.CreatedAt).ThenBy(l => l.Id).ToList());
         public Task<IReadOnlyList<RatingSummary>> GetHistoryAsync(string serviceDid, int months) => throw new NotImplementedException();
         public Task<IReadOnlyList<DailyHistoryPoint>> GetDailyHistoryAsync(string serviceDid, int months) => throw new NotImplementedException();
         public Task<IReadOnlyList<AgentRatingRecord>> GetAllRatingsForTrustAsync() => throw new NotImplementedException();

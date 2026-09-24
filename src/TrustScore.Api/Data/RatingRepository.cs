@@ -22,11 +22,11 @@ public sealed class RatingRepository : IRatingRepository
         INSERT INTO ratings (id, service_did, agent_did,
             status_code, latency_ms, response_size_bytes, schema_valid,
             quality_score, comment, has_receipt, receipt_verified, signature_verified,
-            weight, created_at, merkle_leaf_hash)
+            weight, created_at, merkle_leaf_hash, leaf_version)
         VALUES (@Id, @ServiceDid, @AgentDid,
             @StatusCode, @LatencyMs, @ResponseSizeBytes, @SchemaValid,
             @QualityScore, @Comment, @HasReceipt, @ReceiptVerified, @SignatureVerified,
-            @Weight, @CreatedAt, @MerkleLeafHash)
+            @Weight, @CreatedAt, @MerkleLeafHash, @LeafVersion)
         """;
 
     // PostgreSQL TIMESTAMPTZ has microsecond resolution, but .NET ticks are 100 ns, so a raw
@@ -36,11 +36,29 @@ public sealed class RatingRepository : IRatingRepository
     private static DateTimeOffset TruncateToMicroseconds(DateTimeOffset value) =>
         new(value.Ticks - value.Ticks % (TimeSpan.TicksPerMillisecond / 1000), value.Offset);
 
+    /// <summary>
+    /// The v2 audit leaf a rating is stored with. The timestamp and weight are normalized first and
+    /// the SAME normalized values are stored, so the anchoring job, reading the row back, rebuilds
+    /// exactly this leaf.
+    /// </summary>
+    internal static RatingLeaf LeafFor(Rating rating) => new(
+        rating.Id,
+        rating.ServiceDid,
+        TruncateToMicroseconds(rating.CreatedAt),
+        RatingLeaf.CurrentVersion,
+        rating.Metrics.StatusCode,
+        rating.Metrics.LatencyMs,
+        rating.Metrics.ResponseSizeBytes,
+        rating.Metrics.SchemaValid,
+        rating.QualityScore,
+        rating.HasReceipt,
+        rating.ReceiptVerified,
+        rating.SignatureVerified,
+        RatingLeaf.NormalizeWeight(rating.Weight));
+
     private static object BuildInsertParams(Rating rating)
     {
-        var createdAt = TruncateToMicroseconds(rating.CreatedAt);
-        var leafHash = Convert.ToHexString(
-            MerkleTree.ComputeLeafHash(rating.Id, rating.ServiceDid, createdAt)).ToLowerInvariant();
+        var leaf = LeafFor(rating);
         return new
         {
             rating.Id,
@@ -55,9 +73,10 @@ public sealed class RatingRepository : IRatingRepository
             rating.HasReceipt,
             rating.ReceiptVerified,
             rating.SignatureVerified,
-            rating.Weight,
-            CreatedAt = createdAt,
-            MerkleLeafHash = leafHash,
+            leaf.Weight,
+            leaf.CreatedAt,
+            MerkleLeafHash = leaf.HashHex(),
+            LeafVersion = (short)leaf.LeafVersion,
         };
     }
 
@@ -89,6 +108,17 @@ public sealed class RatingRepository : IRatingRepository
             });
     }
 
+    // Every field a leaf commits to plus the stored leaf hash, in StoredLeaf's constructor order: Dapper binds a positional
+    // record by constructor, so the order and the exact CLR types matter (SMALLINT is widened to
+    // int here for that reason).
+    private const string LeafColumns =
+        "id AS Id, service_did AS ServiceDid, created_at AS CreatedAt, " +
+        "leaf_version::int AS LeafVersion, status_code AS StatusCode, latency_ms AS LatencyMs, " +
+        "response_size_bytes AS ResponseSizeBytes, schema_valid AS SchemaValid, " +
+        "quality_score::int AS QualityScore, has_receipt AS HasReceipt, " +
+        "receipt_verified AS ReceiptVerified, signature_verified AS SignatureVerified, " +
+        "weight AS Weight, merkle_leaf_hash AS MerkleLeafHash";
+
     public async Task<RatingLeafInfo?> GetLeafInfoAsync(Guid ratingId)
     {
         using var conn = _db.CreateConnection();
@@ -104,18 +134,15 @@ public sealed class RatingRepository : IRatingRepository
             new { Id = ratingId });
     }
 
-    public async Task<IReadOnlyList<RatingLeafInfo>> GetLeafHashesUpToAsync(DateTimeOffset cutoff)
+    public async Task<IReadOnlyList<StoredLeaf>> GetLeavesUpToAsync(DateTimeOffset cutoff)
     {
         using var conn = _db.CreateConnection();
         // Every anchored leaf up to the cutoff, in deterministic (created_at, id) order. The cutoff
         // is far enough in the past that all transactions with created_at <= cutoff have committed,
         // so this set is stable and reproduces the anchored root exactly.
-        var results = await conn.QueryAsync<RatingLeafInfo>(
-            """
-            SELECT id AS Id,
-                   service_did AS ServiceDid,
-                   created_at AS CreatedAt,
-                   merkle_leaf_hash AS MerkleLeafHash
+        var results = await conn.QueryAsync<StoredLeaf>(
+            $"""
+            SELECT {LeafColumns}
             FROM ratings
             WHERE merkle_leaf_hash IS NOT NULL
               AND created_at <= @Cutoff
@@ -125,16 +152,13 @@ public sealed class RatingRepository : IRatingRepository
         return results.ToList().AsReadOnly();
     }
 
-    public async Task<IReadOnlyList<RatingLeafInfo>> GetAnchoredLeafHashesAsync(int leafCount)
+    public async Task<IReadOnlyList<StoredLeaf>> GetFirstLeavesAsync(int leafCount)
     {
         using var conn = _db.CreateConnection();
         // Legacy reproduction for anchors stored before the cutoff column existed.
-        var results = await conn.QueryAsync<RatingLeafInfo>(
-            """
-            SELECT id AS Id,
-                   service_did AS ServiceDid,
-                   created_at AS CreatedAt,
-                   merkle_leaf_hash AS MerkleLeafHash
+        var results = await conn.QueryAsync<StoredLeaf>(
+            $"""
+            SELECT {LeafColumns}
             FROM ratings
             WHERE merkle_leaf_hash IS NOT NULL
             ORDER BY created_at, id

@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using StackExchange.Redis;
+using TrustScore.Core.Audit;
 using TrustScore.Core.Interfaces;
 using TrustScore.Core.Models;
 using Xunit;
@@ -516,24 +517,33 @@ internal class FakeRatingRepository : IRatingRepository
             new RatingLeafInfo(rating.Id, rating.ServiceDid, rating.CreatedAt, "fakehash"));
     }
 
-    public Task<IReadOnlyList<RatingLeafInfo>> GetLeafHashesUpToAsync(DateTimeOffset cutoff)
+    // Stored exactly as the real repository stores them: the v2 leaf and its hash.
+    private static StoredLeaf Stored(Rating r)
+    {
+        var leaf = TrustScore.Api.Data.RatingRepository.LeafFor(r);
+        return new StoredLeaf(leaf.Id, leaf.ServiceDid, leaf.CreatedAt, leaf.LeafVersion, leaf.StatusCode,
+            leaf.LatencyMs, leaf.ResponseSizeBytes, leaf.SchemaValid, leaf.QualityScore, leaf.HasReceipt,
+            leaf.ReceiptVerified, leaf.SignatureVerified, leaf.Weight, leaf.HashHex());
+    }
+
+    public Task<IReadOnlyList<StoredLeaf>> GetLeavesUpToAsync(DateTimeOffset cutoff)
     {
         var result = _ratings
             .Where(r => r.CreatedAt <= cutoff)
             .OrderBy(r => r.CreatedAt).ThenBy(r => r.Id)
-            .Select(r => new RatingLeafInfo(r.Id, r.ServiceDid, r.CreatedAt, "fakehash"))
+            .Select(Stored)
             .ToList().AsReadOnly();
-        return Task.FromResult<IReadOnlyList<RatingLeafInfo>>(result);
+        return Task.FromResult<IReadOnlyList<StoredLeaf>>(result);
     }
 
-    public Task<IReadOnlyList<RatingLeafInfo>> GetAnchoredLeafHashesAsync(int leafCount)
+    public Task<IReadOnlyList<StoredLeaf>> GetFirstLeavesAsync(int leafCount)
     {
         var result = _ratings
             .OrderBy(r => r.CreatedAt).ThenBy(r => r.Id)
             .Take(leafCount)
-            .Select(r => new RatingLeafInfo(r.Id, r.ServiceDid, r.CreatedAt, "fakehash"))
+            .Select(Stored)
             .ToList().AsReadOnly();
-        return Task.FromResult<IReadOnlyList<RatingLeafInfo>>(result);
+        return Task.FromResult<IReadOnlyList<StoredLeaf>>(result);
     }
 
     public Task<IReadOnlyList<AgentRatingRecord>> GetAllRatingsForTrustAsync()
