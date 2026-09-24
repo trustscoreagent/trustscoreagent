@@ -111,11 +111,18 @@ does not verify is rejected with `401`.
 **Response 200**
 
 ```json
-{ "accepted": true, "rating_weight": "verified", "agent_identity": "signed", "new_score": 0.87 }
+{
+  "accepted": true,
+  "rating_id": "3f2b8c1e-5d4a-4b7e-9c2f-0a1b2c3d4e5f",
+  "rating_weight": "verified",
+  "agent_identity": "signed",
+  "new_score": 0.87
+}
 ```
 
 `rating_weight` is `verified` (valid receipt) or `unverified` (no/invalid receipt).
-`agent_identity` is `signed` or `unsigned`.
+`agent_identity` is `signed` or `unsigned`. Keep `rating_id`: it is how you later fetch the
+[audit proof](#audit) that your rating is in the log as you submitted it.
 
 The two are independent: a receipt says the *service* saw the call, a signature says we know
 *who is reporting it*. Weights combine as:

@@ -158,6 +158,25 @@ public class RateEndpointTests : IClassFixture<WebApplicationFactory<Program>>
     }
 
     [Fact]
+    public async Task Rate_ReturnsTheRatingId_ToFetchItsAuditProof()
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, "/v1/rate")
+        {
+            Content = JsonContent.Create(new
+            {
+                service = "rating-id.example.com",
+                metrics = new { status_code = 200, latency_ms = 150 },
+            })
+        };
+        request.Headers.Add("X-Agent-DID", "did:web:test-agent.example.com");
+
+        var response = await _client.SendAsync(request);
+
+        var json = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+        Guid.TryParse(json.GetProperty("rating_id").GetString(), out _).Should().BeTrue();
+    }
+
+    [Fact]
     public async Task Rate_MissingAgentDid_Returns400()
     {
         var request = new HttpRequestMessage(HttpMethod.Post, "/v1/rate")
