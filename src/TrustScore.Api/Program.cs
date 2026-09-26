@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Logging.Console;
+using TrustScore.Api.Logging;
 using DbUp;
 using Microsoft.AspNetCore.HttpOverrides;
 using StackExchange.Redis;
@@ -14,11 +16,13 @@ var builder = WebApplication.CreateBuilder(args);
 // Outside Development, log as JSON. The default console formatter writes log values verbatim, so a
 // newline in user-controlled input (X-Agent-DID, service, a receipt DID) could forge extra log
 // lines; the JSON formatter escapes control characters, closing that log-injection vector, and is
-// also what Cloud Logging parses into structured fields.
+// also what Cloud Logging parses into structured fields. The formatter adds the `severity` field
+// Cloud Logging reads, without which no application error is visible to severity filters or alerts.
 if (!builder.Environment.IsDevelopment())
 {
     builder.Logging.ClearProviders();
-    builder.Logging.AddJsonConsole();
+    builder.Logging.AddConsole(o => o.FormatterName = CloudLoggingJsonFormatter.FormatterName)
+        .AddConsoleFormatter<CloudLoggingJsonFormatter, ConsoleFormatterOptions>();
 }
 
 // Security: limit request body size
@@ -35,7 +39,9 @@ var redisConnectionString = builder.Configuration.GetConnectionString("Redis")
 
 // Database
 builder.Services.AddMemoryCache();
-builder.Services.AddSingleton(new DbConnectionFactory(dbConnectionString));
+builder.Services.AddSingleton(new DbConnectionFactory(
+    dbConnectionString,
+    builder.Configuration.GetValue("Database:MaxPoolSize", DbConnectionFactory.DefaultMaxPoolSize)));
 builder.Services.AddScoped<IServiceRepository, ServiceRepository>();
 builder.Services.AddScoped<IRatingRepository, RatingRepository>();
 builder.Services.AddScoped<IAuditService, AuditService>();

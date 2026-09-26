@@ -74,14 +74,31 @@ jobs:
             --platform managed \
             --allow-unauthenticated \
             --min-instances 0 \
-            --max-instances 5 \
+            --max-instances 2 \
             --concurrency 200 \
             --cpu 1 \
             --memory 512Mi \
-            --set-env-vars "ASPNETCORE_ENVIRONMENT=Staging,Redis__KeyPrefix=staging:" \
+            --set-env-vars "ASPNETCORE_ENVIRONMENT=Staging,Redis__KeyPrefix=staging:,Database__MaxPoolSize=2" \
             --set-secrets "ConnectionStrings__PostgreSQL=db-connection-string-staging:latest,ConnectionStrings__Redis=redis-connection-string:latest,AdminApiKey=admin-api-key:latest" \
             --add-cloudsql-instances "${{ secrets.GCP_PROJECT_ID }}:europe-west1:trustscoreagent-db" \
             --quiet
+
+      # The staging batch job (probe + EigenTrust + anchoring on the staging database) runs by hand
+      # only, but must run the same code as the staging service. It is not created here: see
+      # docs/runbooks/deploy.md. Skipped when it does not exist.
+      - name: Update the staging batch job
+        env:
+          DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          if gcloud run jobs describe trustscoreagent-staging-job --region $GCP_REGION >/dev/null 2>&1; then
+            gcloud run jobs update trustscoreagent-staging-job \
+              --image "${IMAGE_NAME}:${DEPLOY_SHA}" \
+              --region $GCP_REGION \
+              --update-env-vars "Redis__KeyPrefix=staging:,Database__MaxPoolSize=2" \
+              --quiet
+          else
+            echo "No staging job: nothing to update."
+          fi
 
       - name: Get staging URL
         run: |

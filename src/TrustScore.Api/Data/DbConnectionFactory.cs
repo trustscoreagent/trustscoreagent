@@ -18,9 +18,29 @@ public sealed class DbConnectionFactory
         SqlMapper.AddTypeHandler(new DateTimeOffsetHandler());
     }
 
-    public DbConnectionFactory(string connectionString)
+    /// <summary>Pool size used when the connection string does not set one.</summary>
+    public const int DefaultMaxPoolSize = 3;
+
+    /// <param name="maxPoolSize">
+    /// Npgsql defaults to 100 connections per process. Production, staging and both batch jobs share
+    /// one db-f1-micro instance with 25 connections (22 usable), so a traffic spike across a few
+    /// instances would exhaust it and take everything down together. The pool is capped instead;
+    /// a request that finds it full waits for a connection rather than failing. An explicit pool
+    /// size in the connection string wins.
+    /// </param>
+    public DbConnectionFactory(string connectionString, int maxPoolSize = DefaultMaxPoolSize)
     {
-        _connectionString = connectionString;
+        _connectionString = WithPoolCap(connectionString, maxPoolSize);
+    }
+
+    internal static string WithPoolCap(string connectionString, int maxPoolSize)
+    {
+        var builder = new NpgsqlConnectionStringBuilder(connectionString);
+        var explicitlySet = connectionString.Contains("pool size", StringComparison.OrdinalIgnoreCase)
+            || connectionString.Contains("maxpoolsize", StringComparison.OrdinalIgnoreCase);
+        if (!explicitlySet)
+            builder.MaxPoolSize = maxPoolSize;
+        return builder.ConnectionString;
     }
 
     public IDbConnection CreateConnection()
