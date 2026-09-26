@@ -6,13 +6,13 @@
     "url": "https://github.com/trustscoreagent/trustscoreagent",
     "source": "github"
   },
-  "version": "0.1.1",
+  "version": "0.2.2",
   "websiteUrl": "https://trustscoreagent.com",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@trustscoreagent/mcp-server",
-      "version": "0.1.1",
+      "version": "0.2.2",
       "transport": {
         "type": "stdio"
       },
@@ -25,7 +25,7 @@
         },
         {
           "name": "TRUSTSCORE_AGENT_DID",
-          "description": "Optional stable agent DID used when submitting ratings. If omitted, a local anonymous DID is generated and persisted on first use.",
+          "description": "Leave empty (recommended): the server generates an Ed25519 key in ~/.trustscoreagent and signs its ratings with the matching did:key. Setting a DID here overrides that key, so ratings are sent unsigned and count at half weight.",
           "isRequired": false
         }
       ]

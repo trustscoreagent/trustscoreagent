@@ -28,6 +28,13 @@ echo "==> Installing production dependencies into the bundle"
 ( cd "$STAGE" && npm ci --omit=dev )
 
 VERSION="$(node -p "require('./package.json').version")"
+# The bundle ships manifest.json as-is, so a stale manifest version would publish the new code
+# under the old number (this happened: 0.2.x was bundled as 0.1.1). Refuse instead.
+MANIFEST_VERSION="$(node -p "require('./manifest.json').version")"
+if [ "$MANIFEST_VERSION" != "$VERSION" ]; then
+  echo "manifest.json is $MANIFEST_VERSION but package.json is $VERSION: bump manifest.json (and server.json)." >&2
+  exit 1
+fi
 OUT="$ROOT/trustscoreagent-${VERSION}.mcpb"
 
 echo "==> Packing"

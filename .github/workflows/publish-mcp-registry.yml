@@ -27,6 +27,26 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # server.json is edited by hand and once sat at 0.1.1 while npm was at 0.2.2, so the registry
+      # kept advertising a version from before rating signatures. Refuse to publish unless
+      # server.json, package.json and npm agree.
+      - name: Check versions agree
+        working-directory: mcp-server
+        run: |
+          PKG=$(node -p "require('./package.json').version")
+          SRV=$(node -p "require('./server.json').version")
+          SRV_NPM=$(node -p "require('./server.json').packages[0].version")
+          MAN=$(node -p "require('./manifest.json').version")
+          echo "package.json $PKG, server.json $SRV / $SRV_NPM, manifest.json $MAN"
+          if [ "$PKG" != "$SRV" ] || [ "$PKG" != "$SRV_NPM" ] || [ "$PKG" != "$MAN" ]; then
+            echo "::error::Versions disagree: bump server.json and manifest.json to $PKG"
+            exit 1
+          fi
+          if ! npm view "@trustscoreagent/mcp-server@$PKG" version >/dev/null 2>&1; then
+            echo "::error::@trustscoreagent/mcp-server@$PKG is not on npm yet: run npm publish first"
+            exit 1
+          fi
+
       - name: Install mcp-publisher
         run: |
           curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher

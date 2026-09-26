@@ -2,9 +2,9 @@
   "manifest_version": "0.2",
   "name": "trustscoreagent",
   "display_name": "TrustScoreAgent",
-  "version": "0.1.1",
+  "version": "0.2.2",
   "description": "Check the reputation of AI microservices and public APIs from an open trust registry.",
-  "long_description": "TrustScoreAgent is a free, open reputation registry for AI microservices. This MCP server lets an agent check whether an external service is trustworthy *before* calling it, and contribute a rating afterward. It exposes three tools — check_reputation, submit_rating, and list_services — backed by the public API at https://api.trustscoreagent.com (no account or key required). Scores come from Bayesian reputation math plus EigenTrust, and can be strengthened by cryptographic service receipts.",
+  "long_description": "TrustScoreAgent is a free, open reputation registry for AI microservices. This MCP server lets an agent check whether an external service is trustworthy *before* calling it, and contribute a rating afterward. It exposes three tools (check_reputation, submit_rating, list_services) backed by the public API at https://api.trustscoreagent.com, with no account or API key. On first run it generates an Ed25519 key and signs every rating with it, so ratings count at full weight and nobody can rate in its name. Scores come from Bayesian reputation math plus EigenTrust, can be strengthened by cryptographic service receipts, and every rating is committed to a verifiable Merkle audit log.",
   "author": {
     "name": "TrustScoreAgent",
     "url": "https://trustscoreagent.com"
@@ -64,7 +64,7 @@
     "trustscore_agent_did": {
       "type": "string",
       "title": "Agent DID (optional)",
-      "description": "Stable identifier for this agent. Leave empty to auto-generate one on first run.",
+      "description": "Leave empty (recommended): the server generates an Ed25519 key in ~/.trustscoreagent and signs its ratings with the matching did:key. Setting a DID here overrides that key, so ratings are sent unsigned and count at half weight.",
       "required": false
     }
   },
