@@ -5,14 +5,21 @@ name: Deploy landing (Cloudflare Pages)
 # opening auto-config PRs, ran failing branch builds, and once broke the landing
 # with a wrong build output dir). This is a controlled direct-upload deploy.
 #
-# Requires one repo secret: CLOUDFLARE_API_TOKEN — a token with the
-# "Account · Cloudflare Pages · Edit" permission for this account.
+# Requires one repo secret: CLOUDFLARE_API_TOKEN, a token with the
+# "Account > Cloudflare Pages > Edit" permission for this account.
+#
+# llms.txt and the A2A agent card live in public/ (the API serves them too). They are copied into
+# the site at deploy time so the main domain serves the real files: without them, Pages answered
+# /llms.txt and /.well-known/agent.json with the landing's HTML and a 200, which is exactly where
+# agents and crawlers look first.
 
 on:
   push:
     branches: [main]
     paths:
       - "site/**"
+      - "public/llms.txt"
+      - "public/.well-known/**"
       - ".github/workflows/deploy-landing.yml"
   workflow_dispatch:
 
@@ -26,6 +33,12 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Add the discovery files from public/
+        run: |
+          cp public/llms.txt site/llms.txt
+          mkdir -p site/.well-known
+          cp public/.well-known/agent.json site/.well-known/agent.json
+
       - name: Deploy to Cloudflare Pages (production)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -34,3 +47,15 @@ jobs:
           npx --yes wrangler@4 pages deploy site \
             --project-name=trustscoreagent \
             --branch=main
+
+      # Pages falls back to index.html for unknown paths, so a missing file still answers 200.
+      # Check the content type rather than the status.
+      - name: Check the discovery files are served as files
+        run: |
+          sleep 20
+          for pair in "llms.txt text/plain" ".well-known/agent.json application/json"; do
+            set -- $pair
+            TYPE=$(curl -s -o /dev/null -w '%{content_type}' "https://trustscoreagent.com/$1")
+            echo "/$1: $TYPE"
+            case "$TYPE" in "$2"*) ;; *) echo "::error::/$1 is served as $TYPE, expected $2"; exit 1 ;; esac
+          done

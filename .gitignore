@@ -77,3 +77,7 @@ src/src.sln
 # Landing favicon assets must be tracked so Cloudflare Pages deploys them
 !site/favicon-96x96.png
 !site/apple-touch-icon.png
+
+# Copied from public/ by the landing deploy; public/ is the source.
+site/llms.txt
+site/.well-known/agent.json
