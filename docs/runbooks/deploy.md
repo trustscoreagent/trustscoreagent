@@ -42,6 +42,15 @@ gcloud secrets versions access latest --secret db-connection-string \
 The staging deploy reads `db-connection-string-staging` and sets `Redis__KeyPrefix=staging:`,
 so it shares the Redis instance without sharing keys.
 
+Optionally, a staging batch job to fill the staging database with real measurements, run by
+hand (it has no scheduler). The staging deploy keeps its image in step once it exists:
+
+```bash
+IMG=$(gcloud run services describe trustscoreagent-api-staging --region europe-west1   --format 'value(spec.template.spec.containers[0].image)')
+gcloud run jobs create trustscoreagent-staging-job --region europe-west1 --image "$IMG"   --args=--job --max-retries 0 --task-timeout 300s --cpu 1 --memory 512Mi   --set-env-vars "ASPNETCORE_ENVIRONMENT=Staging,Redis__KeyPrefix=staging:,Database__MaxPoolSize=2"   --set-secrets "ConnectionStrings__PostgreSQL=db-connection-string-staging:latest,ConnectionStrings__Redis=redis-connection-string:latest"   --set-cloudsql-instances trustscoreagent:europe-west1:trustscoreagent-db
+gcloud run jobs execute trustscoreagent-staging-job --region europe-west1 --wait
+```
+
 ### 4. Configure GitHub Environments
 
 Go to: https://github.com/trustscoreagent/trustscoreagent/settings/environments

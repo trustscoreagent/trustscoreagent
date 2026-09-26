@@ -131,7 +131,9 @@ jobs:
             # Scale-to-zero to avoid paying for an always-on instance; the 5-min uptime
             # check keeps one instance warm cheaply. Bump --min-instances to 1-2 by hand
             # for a launch/traffic spike, then let the next deploy reset it to 0.
-            --min-instances 0 --max-instances 10 --concurrency 200 --cpu 1 --memory 512Mi
+            # Max 4 instances: with a pool of 3 connections each (DbConnectionFactory), prod,
+            # staging and both jobs stay within the 22 usable connections of the db-f1-micro.
+            --min-instances 0 --max-instances 4 --concurrency 200 --cpu 1 --memory 512Mi
             # The canonical host agents address their signatures to. Without it the audience falls
             # back to the request's Host header, which an attacker relaying a signature captured by
             # another (self-hosted) registry controls, defeating the binding.
