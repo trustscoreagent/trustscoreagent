@@ -1,4 +1,4 @@
-# Smithery configuration — https://smithery.ai/docs
+# Smithery configuration: https://smithery.ai/docs
 startCommand:
   type: stdio
   configSchema:
@@ -11,7 +11,8 @@ startCommand:
       trustscoreAgentDid:
         type: string
         title: Agent DID
-        description: Optional stable identifier for this agent. If omitted, a unique id is generated on first run.
+        description: >-
+          Leave empty (recommended): the server generates an Ed25519 key in ~/.trustscoreagent and signs its ratings with the matching did:key. Setting a DID here overrides that key, so ratings are sent unsigned and count at half weight.
     required: []
   commandFunction: |
     (config) => ({
