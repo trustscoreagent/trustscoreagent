@@ -39,8 +39,18 @@ gcloud secrets versions access latest --secret db-connection-string \
   | gcloud secrets create db-connection-string-staging --replication-policy automatic --data-file=-
 ```
 
-The staging deploy reads `db-connection-string-staging` and sets `Redis__KeyPrefix=staging:`,
-so it shares the Redis instance without sharing keys.
+Then give staging its own database user (owner of `trustscore_staging` only, unable to open the
+production database) and its own admin key. Both are run once, by an operator:
+
+```bash
+./infra/staging-db-user.sh        # needs the Cloud SQL proxy on 127.0.0.1:5439 and psql
+python -c "import secrets;print(secrets.token_urlsafe(32),end='')"   | gcloud secrets create admin-api-key-staging --replication-policy automatic --data-file=-
+```
+
+The staging deploy reads `db-connection-string-staging` and `admin-api-key-staging`, runs as
+`trustscore-staging-runtime` (which can read only those secrets and Redis), and sets
+`Redis__KeyPrefix=staging:`, so it shares the Redis instance without sharing keys. Production runs
+as `trustscore-runtime`. Both accounts are created by `infra/setup-gcp.sh`.
 
 Optionally, a staging batch job to fill the staging database with real measurements, run by
 hand (it has no scheduler). The staging deploy keeps its image in step once it exists:

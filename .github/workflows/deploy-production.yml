@@ -140,6 +140,9 @@ jobs:
             --set-env-vars "ASPNETCORE_ENVIRONMENT=Production,AgentSignature__Audience=api.trustscoreagent.com"
             --set-secrets "ConnectionStrings__PostgreSQL=db-connection-string:latest,ConnectionStrings__Redis=redis-connection-string:latest,AdminApiKey=admin-api-key:latest"
             --add-cloudsql-instances "${{ secrets.GCP_PROJECT_ID }}:europe-west1:trustscoreagent-db"
+            # Dedicated identity: Cloud SQL client plus the production secrets, nothing else. The
+            # default compute account it replaces had Editor on the whole project.
+            --service-account "trustscore-runtime@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com"
             --quiet
           )
           if [ -z "$STABLE_REVISION" ]; then
@@ -202,6 +205,7 @@ jobs:
           # appsettings (e.g. seed-probe URLs). Point it at the just-deployed image.
           gcloud run jobs update "$HOURLY_JOB_NAME" \
             --region "$GCP_REGION" \
+            --service-account "trustscore-runtime@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com" \
             --image "${IMAGE_NAME}:${DEPLOY_SHA}"
           echo "Hourly job image updated to ${DEPLOY_SHA}."
 
