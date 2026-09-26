@@ -1,15 +1,15 @@
 # Framework integrations
 
-Drop-in tools that let agent frameworks use [TrustScoreAgent](https://trustscoreagent.com)
-— the free, open reputation registry for AI microservices. Each integration wraps the
+Drop-in tools that let agent frameworks use [TrustScoreAgent](https://trustscoreagent.com),
+the free, open reputation registry for AI microservices. Each integration wraps the
 public REST API (`https://api.trustscoreagent.com`); **no account or API key is required.**
 
 Every integration exposes the same three tools:
 
 | Tool | When to use |
 |------|-------------|
-| `trustscore_check_reputation` | **Before** calling a service — get its trust score (0–1), confidence, and availability/latency/conformity breakdown. |
-| `trustscore_submit_rating` | **After** calling a service — contribute a rating from your interaction metrics (and an optional receipt). |
+| `trustscore_check_reputation` | **Before** calling a service: get its trust score (0-1), confidence, and availability/latency/conformity breakdown. |
+| `trustscore_submit_rating` | **After** calling a service: contribute a rating from your interaction metrics (and an optional receipt). |
 | `trustscore_list_services` | Discover reliable services, sorted by trust score. |
 
 ## Available integrations
@@ -41,8 +41,8 @@ You can also pass `base_url=` / `agent_did=` directly to `get_trustscoreagent_to
 
 ## Also available
 
-- **MCP server** (Claude, Cursor, Windsurf, …): `npx -y @trustscoreagent/mcp-server` — see [`../mcp-server`](../mcp-server).
+- **MCP server** (Claude, Cursor, Windsurf, …): `npx -y @trustscoreagent/mcp-server`. See [`../mcp-server`](../mcp-server).
 - **Raw REST API**: [`../docs/api.md`](../docs/api.md) and [`../docs/examples.md`](../docs/examples.md).
 
-Contributions adding more frameworks (LlamaIndex, Autogen, …) are welcome — see
+Contributions adding more frameworks (LlamaIndex, Autogen, …) are welcome: see
 [`../CONTRIBUTING.md`](../CONTRIBUTING.md).

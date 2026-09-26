@@ -57,7 +57,7 @@ Every push to `main` deploys to staging once CI has passed on it.
 
 ### Production (manual)
 
-1. Go to Actions → "Deploy Production"
+1. Go to Actions, then "Deploy Production"
 2. Click "Run workflow"
 3. Enter the git ref (commit SHA or `main`)
 4. Approve the deployment when prompted

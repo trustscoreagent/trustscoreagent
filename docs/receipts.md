@@ -1,15 +1,15 @@
-# TrustScoreAgent — Receipt Standard
+# TrustScoreAgent: Receipt Standard
 
 A **receipt** is a JWT signed by a *service*, proving that an agent actually called it.
 Receipts are **optional** but they raise a rating's weight from `0.3` (unverified) to
-`1.0` (verified) — a verified rating has roughly 3× the influence on a score.
+`1.0` (verified). A verified rating has roughly 3× the influence on a score.
 
 This page documents the format and verification rules as implemented today (Phase 1).
 
 ## Why receipts exist
 
 Anyone can POST a rating. Without proof of a real interaction, scores would be trivial
-to manipulate. A receipt — signed by the service the rating is about — cryptographically
+to manipulate. A receipt, signed by the service the rating is about, cryptographically
 ties the rating to a genuine call. Services that emit receipts get more accurate,
 higher-trust scores, which is a direct, measurable advantage when agents compare
 services.

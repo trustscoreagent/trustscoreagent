@@ -55,7 +55,7 @@ Add to `~/.codeium/windsurf/mcp_config.json`:
 }
 ```
 
-Any MCP-compatible client works — the server speaks MCP over stdio. Configs differ only
+Any MCP-compatible client works: the server speaks MCP over stdio. Configs differ only
 in file location; the `command`/`args` are identical.
 
 ### Manual / Development
@@ -109,7 +109,7 @@ List rated services, most-trusted first.
 
 **Parameters:**
 - `sort_by` (optional): `score` (default), `ratings_count`, or `last_rated`
-- `limit` (optional): 1–100 (default 20)
+- `limit` (optional): 1-100 (default 20)
 - `min_score` (optional): only return services at or above this score
 - `min_ratings` (optional): only return services with at least this many ratings
 

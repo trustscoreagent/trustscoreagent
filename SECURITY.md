@@ -6,7 +6,7 @@ Please **do not** open a public issue for security vulnerabilities.
 
 Report privately via one of:
 
-1. **GitHub** → the repository's **Security** tab → **Report a vulnerability**
+1. **GitHub**: the repository's **Security** tab, then **Report a vulnerability**
    (private advisory). This is the preferred channel.
 2. Email **security@trustscoreagent.com** with `[SECURITY]` in the subject.
 
@@ -65,7 +65,7 @@ TrustScoreAgent is in **Phase 1 (early)**. Be aware of the current trust model:
   availability/latency/conformity ratings, without receipts, at 0.3 times the probe's own
   EigenTrust score (the weight of a signed rating without a receipt: its identity is set by
   the registry, not asserted by a caller). These are
-  genuine, Merkle-audited measurements — not fabricated — and community/receipt ratings layer
+  genuine, Merkle-audited measurements (not fabricated), and community/receipt ratings layer
   on top. The probe is clearly identified, never pretends to be multiple agents, and only hits
   public endpoints designed for unauthenticated access.
 - **Blockchain anchoring of the Merkle root is Phase 2.** Until then roots are published by
@@ -74,7 +74,7 @@ TrustScoreAgent is in **Phase 1 (early)**. Be aware of the current trust model:
   anyone who records roots check that the log only grew. A root nobody recorded could still
   have been replaced before anyone looked.
 
-We document these limits deliberately — knowing the trust boundaries is part of using the
+We document these limits deliberately: knowing the trust boundaries is part of using the
 registry responsibly.
 
 ## Supported versions

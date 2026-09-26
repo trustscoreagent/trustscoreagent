@@ -9,14 +9,14 @@ account or key needed. Full endpoint reference: [api.md](./api.md).
 curl "https://api.trustscoreagent.com/v1/score?service=api.open-meteo.com"
 ```
 
-Any identifier form works — domain, URL, or DID all normalize to the same service:
+Any identifier form works. Domain, URL, or DID all normalize to the same service:
 
 ```bash
 curl "https://api.trustscoreagent.com/v1/score?service=https://api.open-meteo.com/v1/forecast"
 curl "https://api.trustscoreagent.com/v1/score?service=did:web:api.open-meteo.com"
 ```
 
-Unknown services return a neutral `0.5` with `known: false` — never a 404:
+Unknown services return a neutral `0.5` with `known: false`, never a 404:
 
 ```bash
 curl "https://api.trustscoreagent.com/v1/score?service=never-seen-before.example"
@@ -111,7 +111,7 @@ agent's ratings are with the consensus.
 
 ## 7. Use it from an LLM agent (MCP)
 
-Zero-install via `npx` — add to your MCP client and the agent gets `check_reputation`,
+Zero-install via `npx`: add to your MCP client and the agent gets `check_reputation`,
 `submit_rating`, and `list_services` tools. See [mcp.md](./mcp.md) for Claude Desktop,
 Claude Code, Cursor, and Windsurf configs.
 

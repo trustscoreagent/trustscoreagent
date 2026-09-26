@@ -25,7 +25,7 @@ When you call `POST /v1/rate`, the following is persisted in PostgreSQL (see
 | `service_did` | your request | The service being rated (normalized to a domain or domain/path). |
 | `agent_did` | your `X-Agent-DID` header | **Self-asserted** identifier, see below. |
 | `status_code`, `latency_ms`, `response_size_bytes`, `schema_valid` | your request | Interaction metrics. |
-| `quality_score` | your request (optional) | 1–5 subjective rating. |
+| `quality_score` | your request (optional) | 1-5 subjective rating. |
 | `comment` | your request (optional) | Free text, ≤ 500 chars. **Public.** |
 | `has_receipt`, `receipt_verified`, `signature_verified`, `weight` | derived | Whether a valid service receipt and a valid agent signature backed the rating, and the weight it counted at. |
 | `merkle_leaf_hash`, `leaf_version` | derived | The rating's audit leaf (see [MERKLE-SPEC.md](./MERKLE-SPEC.md)). |
