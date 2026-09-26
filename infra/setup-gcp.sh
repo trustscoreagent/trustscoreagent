@@ -79,19 +79,25 @@ gcloud sql databases create "$DB_NAME" \
   --instance="$DB_INSTANCE" \
   --quiet 2>/dev/null || echo "  (already exists)"
 
-echo "  Setting database user password..."
-gcloud sql users create "$DB_USER" \
-  --instance="$DB_INSTANCE" \
-  --password="$DB_PASSWORD" \
-  --quiet 2>/dev/null || \
-gcloud sql users set-password "$DB_USER" \
-  --instance="$DB_INSTANCE" \
-  --password="$DB_PASSWORD" \
-  --quiet
-
-# Get the connection name for Cloud Run
+# Re-running this script must not rotate the database password: every other secret derived from
+# it (db-connection-string-staging is a copy with another database) would silently go stale and
+# break staging. So the password is only set when the connection-string secret does not exist.
 DB_CONNECTION_NAME=$(gcloud sql instances describe "$DB_INSTANCE" --format='value(connectionName)')
-DB_CONNECTION_STRING="Host=/cloudsql/${DB_CONNECTION_NAME};Database=${DB_NAME};Username=${DB_USER};Password=${DB_PASSWORD}"
+if gcloud secrets describe db-connection-string >/dev/null 2>&1; then
+  echo "  db-connection-string already exists: leaving the database password unchanged"
+  DB_CONNECTION_STRING=""
+else
+  echo "  Creating the database user..."
+  gcloud sql users create "$DB_USER" \
+    --instance="$DB_INSTANCE" \
+    --password="$DB_PASSWORD" \
+    --quiet 2>/dev/null || \
+  gcloud sql users set-password "$DB_USER" \
+    --instance="$DB_INSTANCE" \
+    --password="$DB_PASSWORD" \
+    --quiet
+  DB_CONNECTION_STRING="Host=/cloudsql/${DB_CONNECTION_NAME};Database=${DB_NAME};Username=${DB_USER};Password=${DB_PASSWORD}"
+fi
 
 # -------------------------------------------------------
 # 5. Redis — external serverless (Upstash), not Memorystore
@@ -117,11 +123,12 @@ echo "[6/9] No VPC connector needed (Cloud SQL via socket, Redis via public egre
 # 7. Store secrets in Secret Manager
 # -------------------------------------------------------
 echo "[7/9] Storing secrets..."
-echo -n "$DB_CONNECTION_STRING" | gcloud secrets create db-connection-string \
-  --data-file=- \
-  --replication-policy=automatic \
-  --quiet 2>/dev/null || \
-echo -n "$DB_CONNECTION_STRING" | gcloud secrets versions add db-connection-string --data-file=-
+if [ -n "$DB_CONNECTION_STRING" ]; then
+  echo -n "$DB_CONNECTION_STRING" | gcloud secrets create db-connection-string \
+    --data-file=- \
+    --replication-policy=automatic \
+    --quiet
+fi
 
 echo -n "$REDIS_CONNECTION_STRING" | gcloud secrets create redis-connection-string \
   --data-file=- \
@@ -142,32 +149,51 @@ else
 fi
 
 # -------------------------------------------------------
-# 8. Create service account for GitHub Actions
+# 8. Service accounts: one per runtime, one for CI/CD
 # -------------------------------------------------------
-echo "[8/9] Creating service account for CI/CD..."
+# The API and the batch job run as a dedicated runtime account that can reach Cloud SQL and read
+# its own secrets, nothing else (the default compute account has Editor on the whole project).
+# Staging gets its own, limited to the staging secrets. The CI/CD account deploys as them but
+# cannot read any secret itself.
+echo "[8/9] Creating service accounts..."
+RUNTIME_SA="trustscore-runtime@${PROJECT_ID}.iam.gserviceaccount.com"
+STAGING_RUNTIME_SA="trustscore-staging-runtime@${PROJECT_ID}.iam.gserviceaccount.com"
+gcloud iam service-accounts create trustscore-runtime \
+  --display-name="TrustScore API and batch job (production)" --quiet 2>/dev/null || echo "  (runtime SA exists)"
+gcloud iam service-accounts create trustscore-staging-runtime \
+  --display-name="TrustScore API and batch job (staging)" --quiet 2>/dev/null || echo "  (staging runtime SA exists)"
 gcloud iam service-accounts create "$SA_NAME" \
   --display-name="GitHub Actions CI/CD" \
-  --quiet 2>/dev/null || echo "  (already exists)"
+  --quiet 2>/dev/null || echo "  (CI/CD SA exists)"
 
-# Grant project-level roles needed for CI/CD. secretAccessor is intentionally NOT here —
-# it is granted per-secret below (least privilege) so the CI/CD SA cannot read every secret
-# in the project (e.g. the future admin-api-key or wallet keys).
+for SA in "$RUNTIME_SA" "$STAGING_RUNTIME_SA"; do
+  gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+    --member="serviceAccount:${SA}" --role=roles/cloudsql.client --condition=None --quiet > /dev/null
+  # CI/CD may deploy workloads that run as this account, and only this one.
+  gcloud iam service-accounts add-iam-policy-binding "$SA" \
+    --member="serviceAccount:${SA_EMAIL}" --role=roles/iam.serviceAccountUser --quiet > /dev/null
+done
+
+for SECRET in db-connection-string redis-connection-string admin-api-key; do
+  gcloud secrets add-iam-policy-binding "$SECRET" \
+    --member="serviceAccount:${RUNTIME_SA}" --role=roles/secretmanager.secretAccessor --quiet > /dev/null
+done
+# Staging secrets are created by the runbook (docs/runbooks/deploy.md); bind them when present.
+for SECRET in db-connection-string-staging redis-connection-string admin-api-key-staging; do
+  if gcloud secrets describe "$SECRET" >/dev/null 2>&1; then
+    gcloud secrets add-iam-policy-binding "$SECRET" \
+      --member="serviceAccount:${STAGING_RUNTIME_SA}" --role=roles/secretmanager.secretAccessor --quiet > /dev/null
+  fi
+done
+
+# CI/CD: deploy services and jobs, push images. No secretAccessor and no project-wide
+# serviceAccountUser: it acts only as the two runtime accounts above.
 for ROLE in \
   roles/run.admin \
-  roles/artifactregistry.writer \
-  roles/iam.serviceAccountUser \
-  roles/cloudsql.client; do
+  roles/artifactregistry.writer; do
   gcloud projects add-iam-policy-binding "$PROJECT_ID" \
     --member="serviceAccount:${SA_EMAIL}" \
     --role="$ROLE" \
-    --quiet > /dev/null
-done
-
-# Grant secretAccessor only on the specific secrets this SA deploys with.
-for SECRET in db-connection-string redis-connection-string admin-api-key; do
-  gcloud secrets add-iam-policy-binding "$SECRET" \
-    --member="serviceAccount:${SA_EMAIL}" \
-    --role="roles/secretmanager.secretAccessor" \
     --quiet > /dev/null
 done
 
@@ -177,23 +203,30 @@ done
 echo "[9/9] Setting up Workload Identity Federation..."
 POOL_NAME="github-pool"
 PROVIDER_NAME="github-provider"
+WIF_CONDITION="assertion.repository == 'trustscoreagent/trustscoreagent' && assertion.ref == 'refs/heads/main'"
 
 gcloud iam workload-identity-pools create "$POOL_NAME" \
   --location="global" \
   --display-name="GitHub Actions Pool" \
   --quiet 2>/dev/null || echo "  (pool already exists)"
 
-# An attribute-condition is REQUIRED by recent gcloud versions, and restricts which GitHub
-# identities can use this provider to this repository only (defense in depth alongside the
-# per-repo principalSet binding below).
+# An attribute-condition is REQUIRED by recent gcloud versions. It restricts the provider to this
+# repository AND to its main branch: otherwise any workflow on any branch, run by anyone who can
+# push one, could obtain the deploy account. Scheduled runs, workflow_run (staging deploys) and
+# workflow_dispatch on main all present refs/heads/main.
 gcloud iam workload-identity-pools providers create-oidc "$PROVIDER_NAME" \
   --location="global" \
   --workload-identity-pool="$POOL_NAME" \
   --display-name="GitHub Provider" \
   --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository" \
-  --attribute-condition="assertion.repository == 'trustscoreagent/trustscoreagent'" \
+  --attribute-condition="$WIF_CONDITION" \
   --issuer-uri="https://token.actions.githubusercontent.com" \
-  --quiet 2>/dev/null || echo "  (provider already exists)"
+  --quiet 2>/dev/null || \
+gcloud iam workload-identity-pools providers update-oidc "$PROVIDER_NAME" \
+  --location="global" \
+  --workload-identity-pool="$POOL_NAME" \
+  --attribute-condition="$WIF_CONDITION" \
+  --quiet
 
 PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')
 WIF_PROVIDER="projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${POOL_NAME}/providers/${PROVIDER_NAME}"

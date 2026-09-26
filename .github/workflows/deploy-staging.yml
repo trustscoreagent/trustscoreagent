@@ -68,6 +68,8 @@ jobs:
           # Staging has its own database (trustscore_staging, same Cloud SQL instance) and its
           # own Redis key prefix. It used to share both with production, so every migration
           # merged to main ran against production data before the production deploy gate.
+          # It also runs as its own service account, which can read only the staging secrets
+          # (its own database credentials and admin key), and signs with its own audience.
           gcloud run deploy $SERVICE_NAME \
             --image "${IMAGE_NAME}:${DEPLOY_SHA}" \
             --region $GCP_REGION \
@@ -78,9 +80,10 @@ jobs:
             --concurrency 200 \
             --cpu 1 \
             --memory 512Mi \
-            --set-env-vars "ASPNETCORE_ENVIRONMENT=Staging,Redis__KeyPrefix=staging:,Database__MaxPoolSize=2" \
-            --set-secrets "ConnectionStrings__PostgreSQL=db-connection-string-staging:latest,ConnectionStrings__Redis=redis-connection-string:latest,AdminApiKey=admin-api-key:latest" \
+            --set-env-vars "ASPNETCORE_ENVIRONMENT=Staging,Redis__KeyPrefix=staging:,Database__MaxPoolSize=2,AgentSignature__Audience=trustscoreagent-api-staging-xhunhkdtfa-ew.a.run.app" \
+            --set-secrets "ConnectionStrings__PostgreSQL=db-connection-string-staging:latest,ConnectionStrings__Redis=redis-connection-string:latest,AdminApiKey=admin-api-key-staging:latest" \
             --add-cloudsql-instances "${{ secrets.GCP_PROJECT_ID }}:europe-west1:trustscoreagent-db" \
+            --service-account "trustscore-staging-runtime@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com" \
             --quiet
 
       # The staging batch job (probe + EigenTrust + anchoring on the staging database) runs by hand
@@ -95,6 +98,7 @@ jobs:
               --image "${IMAGE_NAME}:${DEPLOY_SHA}" \
               --region $GCP_REGION \
               --update-env-vars "Redis__KeyPrefix=staging:,Database__MaxPoolSize=2" \
+              --service-account "trustscore-staging-runtime@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com" \
               --quiet
           else
             echo "No staging job: nothing to update."
