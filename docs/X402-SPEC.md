@@ -1,7 +1,7 @@
-# x402 Micropayments — Specification (Phase 2)
+# x402 Micropayments : Specification (Phase 2)
 
 > A implementer quand on a du trafic et que la monetisation devient necessaire.
-> Les endpoints premium sont deja codes et fonctionnels — il reste a ajouter le paywall.
+> Les endpoints premium sont deja codes et fonctionnels : il reste a ajouter le paywall.
 
 ## Endpoints concernes
 
@@ -19,19 +19,19 @@ Les endpoints de base (score, rate, services, audit) restent **gratuits a vie**.
 Flux standard HTTP 402 :
 
 ```
-Agent → GET /v1/score/history?did=...
-     ← 402 Payment Required
+Agent   : GET /v1/score/history?did=...
+Serveur : 402 Payment Required
        X-Payment-Amount: 1000          (0.001 USDC, 6 decimales)
        X-Payment-Currency: USDC
        X-Payment-Network: base
        X-Payment-Address: 0xabc...     (notre wallet de reception)
        X-Payment-Expiry: 300           (secondes avant expiration)
 
-Agent → transfert 0.001 USDC on-chain vers 0xabc...
+Agent   : transfert 0.001 USDC on-chain vers 0xabc...
 
-Agent → GET /v1/score/history?did=...
+Agent   : GET /v1/score/history?did=...
        X-Payment-Proof: 0xtxhash...   (hash de la transaction)
-     ← 200 OK + donnees
+Serveur : 200 OK + donnees
 ```
 
 ## Implementation necessaire
@@ -39,8 +39,8 @@ Agent → GET /v1/score/history?did=...
 ### 1. Middleware x402 (C#)
 
 Intercepte les requetes sur les endpoints premium :
-- Si pas de header `X-Payment-Proof` → retourne 402 avec les headers de paiement
-- Si header present → verifie la transaction on-chain → si OK, laisse passer
+- Si pas de header `X-Payment-Proof` : retourne 402 avec les headers de paiement
+- Si header present : verifie la transaction on-chain, puis, si OK, laisse passer
 
 ```csharp
 // Pseudo-code du middleware

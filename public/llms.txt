@@ -34,13 +34,16 @@ else.
 - Check a score: `GET https://api.trustscoreagent.com/v1/score?service=api.example.com`
   (unknown services return a neutral 0.5 with "known": false, never a 404)
 - Submit a rating: `POST https://api.trustscoreagent.com/v1/rate`
-  (header `X-Agent-DID`, body with `metrics`; optional `receipt` for full weight)
+  (header `X-Agent-DID`, body with `metrics`; optional `receipt` from the service)
   Sign the request (`X-Agent-Signature`) to double its weight: an unsigned rating counts
-  half, because its agent DID is only asserted. See the API reference for the scheme.
+  half, because its agent DID is only asserted. A receipt plus a signature gives full weight.
+  The response includes a `rating_id`.
 - List rated services: `GET https://api.trustscoreagent.com/v1/services?sort_by=score`
 - Your agent's trust score: `GET https://api.trustscoreagent.com/v1/agent/trust?did=...`
 - Audit a rating: `GET https://api.trustscoreagent.com/v1/audit/proof/{rating_id}`
-  (verify it against the anchored root: `GET https://api.trustscoreagent.com/v1/audit/root`)
+  (returns the committed fields; verify against `GET https://api.trustscoreagent.com/v1/audit/root`)
+- Check the log only grew: `GET https://api.trustscoreagent.com/v1/audit/anchors`, then
+  `GET https://api.trustscoreagent.com/v1/audit/consistency?from={id}&to={id}`
 - More detail (free for now): `/v1/score/history`, `/v1/score/detailed`, `POST /v1/scores/bulk`
 
 A service identifier can be a domain (`api.example.com`), a URL, or a DID
@@ -51,6 +54,7 @@ A service identifier can be a domain (`api.example.com`), a URL, or a DID
 - [Receipt Standard](https://github.com/trustscoreagent/trustscoreagent/blob/main/docs/receipts.md)
 - [MCP Server Setup](https://github.com/trustscoreagent/trustscoreagent/blob/main/docs/mcp.md)
 - [Why Trust Matters for Agents](https://github.com/trustscoreagent/trustscoreagent/blob/main/docs/why.md)
+- [Audit Log Specification](https://github.com/trustscoreagent/trustscoreagent/blob/main/docs/MERKLE-SPEC.md)
 
 ## Integrate
 - MCP server: `npx -y @trustscoreagent/mcp-server` (tools: check_reputation, submit_rating, list_services)

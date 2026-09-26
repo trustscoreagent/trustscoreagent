@@ -67,7 +67,7 @@ public static class AuditEndpoints
                     leaf_count = 0,
                     anchored_at = (DateTimeOffset?)null,
                     blockchain = (string?)null,
-                    message = "No anchors yet. The first anchor will be created within the next hour.",
+                    message = "No anchors yet. The first anchor will be created within 6 hours.",
                 });
 
             return Results.Ok(new

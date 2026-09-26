@@ -3,8 +3,8 @@
 Free, open reputation registry for AI microservices. Agents check trust scores before calling any service.
 
 > **Status: Phase 1 (early).** The API, scoring (Beta + EigenTrust), receipt verification,
-> Merkle audit trail and MCP server are implemented and tested — but the public dataset is
-> still small, some services (`*.example.com`) are demo seed data, and parts of the design
+> Merkle audit trail and MCP server are implemented and tested, but the public dataset is
+> still small (seeded by a transparent probe of public APIs), and parts of the design
 > (on-chain anchoring, x402 payments, *mandatory* agent signatures) are Phase 2. We publish
 > early and openly on purpose: the trust layer for the agentic economy should exist, be
 > auditable, and be adoptable *before* it becomes critical. See the trust model in
@@ -26,7 +26,7 @@ No account needed. No API key. Identify services by URL, domain, or DID.
 curl "https://api.trustscoreagent.com/v1/score?service=api.example.com"
 curl "https://api.trustscoreagent.com/v1/score?service=https://api.example.com/v1/translate"
 
-# Unknown services return a neutral score (0.5) — no errors
+# Unknown services return a neutral score (0.5), no errors
 curl "https://api.trustscoreagent.com/v1/score?service=never-seen-before.com"
 
 # Rate a service after calling it
@@ -64,14 +64,14 @@ open http://localhost:5000/swagger
 
 ## Architecture
 
-- **C# / .NET 8** — ASP.NET Core Minimal API
-- **PostgreSQL** — Ratings and service scores
-- **Redis** — Score caching, rate limiting, nonce tracking
-- **Beta Reputation System** — Bayesian scoring (per-dimension: availability, latency, conformity)
-- **EigenTrust** — Anti-Sybil agent trust scoring
-- **Merkle Tree** — Cryptographic audit log with inclusion proofs
-- **Ed25519 Receipt Verification** — Cryptographic proof of service interaction
-- **MCP Server** — Integration with Claude, Cursor, and MCP-compatible agents
+- **C# / .NET 8**: ASP.NET Core Minimal API
+- **PostgreSQL**: Ratings and service scores
+- **Redis**: Score caching, rate limiting, nonce tracking
+- **Beta Reputation System**: Bayesian scoring (per-dimension: availability, latency, conformity)
+- **EigenTrust**: Anti-Sybil agent trust scoring
+- **Merkle Tree**: Audit log with inclusion and consistency proofs (RFC 6962 tree; each leaf commits to what the rating reported)
+- **Ed25519 Receipt Verification**: Cryptographic proof of service interaction
+- **MCP Server**: Integration with Claude, Cursor, and MCP-compatible agents
 
 ## API Reference
 
@@ -84,7 +84,9 @@ open http://localhost:5000/swagger
 | `GET /v1/services` | List rated services (pagination, sorting, filtering) |
 | `GET /v1/agent/trust?did=` | Check your agent's trust score |
 | `GET /v1/audit/root` | Latest Merkle tree root |
-| `GET /v1/audit/proof/{id}` | Cryptographic inclusion proof for a rating |
+| `GET /v1/audit/proof/{id}` | Inclusion proof for a rating, with the fields it commits to |
+| `GET /v1/audit/anchors` | History of anchored roots |
+| `GET /v1/audit/consistency?from=&to=` | Proof that a later root extends an earlier one |
 
 ### Premium (free for now, x402 micropayments later)
 
@@ -96,7 +98,7 @@ open http://localhost:5000/swagger
 
 ### Service identification
 
-All endpoints accept services in any format — they are normalized internally:
+All endpoints accept services in any format (they are normalized internally):
 - `api.example.com` (domain)
 - `https://api.example.com/v1/translate` (URL)
 - `did:web:api.example.com` (DID)
@@ -118,8 +120,8 @@ See [docs/mcp.md](docs/mcp.md) for full setup instructions.
 
 Drop-in tools for agent frameworks (no account or API key needed):
 
-- **LangChain** — `from trustscoreagent_langchain import get_trustscoreagent_tools`
-- **CrewAI** — `from trustscoreagent_crewai import get_trustscoreagent_tools`
+- **LangChain**: `from trustscoreagent_langchain import get_trustscoreagent_tools`
+- **CrewAI**: `from trustscoreagent_crewai import get_trustscoreagent_tools`
 
 Each exposes `trustscore_check_reputation`, `trustscore_submit_rating`, and
 `trustscore_list_services`. See [`integrations/`](integrations/).
@@ -129,13 +131,15 @@ Each exposes `trustscore_check_reputation`, `trustscore_submit_rating`, and
 - [API Reference](docs/api.md)
 - [Examples & Recipes](docs/examples.md)
 - [Receipt Standard](docs/receipts.md)
-- [MCP Server Setup](docs/mcp.md) — Claude, Cursor, Windsurf
+- [MCP Server Setup](docs/mcp.md): Claude, Cursor, Windsurf
 - [Why Trust Matters for Agents](docs/why.md)
 - [Privacy & Data Handling](docs/privacy.md)
+- [Audit Log Specification](docs/MERKLE-SPEC.md), with an independent verifier in
+  [`tools/verify-proof`](tools/verify-proof/verify-proof.mjs)
 
 ## Contributing
 
-Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) and our
+Contributions are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md) and our
 [Code of Conduct](CODE_OF_CONDUCT.md). To report a vulnerability, follow
 [SECURITY.md](SECURITY.md).
 
@@ -145,7 +149,7 @@ TrustScoreAgent is **Phase 1 (early)**. What that means in practice:
 
 - **Baseline data is real and auditable.** Initial scores come from a transparent operated
   probe (`did:web:trustscoreagent.com:probe`) that measures the availability, latency and
-  conformity of a curated list of public, free APIs — real, Merkle-audited measurements, not
+  conformity of a curated list of public, free APIs: real, Merkle-audited measurements, not
   fabricated numbers. Community and receipt-verified ratings accumulate on top. (The earlier
   fictitious `*.example.com` seeds have been removed.)
 - **Single operator.** Neutrality currently rests on open-source scoring code and a

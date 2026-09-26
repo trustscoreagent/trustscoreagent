@@ -6,7 +6,7 @@ Please **do not** open a public issue for security vulnerabilities.
 
 Report privately via one of:
 
-1. **GitHub** → the repository's **Security** tab → **Report a vulnerability**
+1. **GitHub**: the repository's **Security** tab, then **Report a vulnerability**
    (private advisory). This is the preferred channel.
 2. Email **security@trustscoreagent.com** with `[SECURITY]` in the subject.
 
@@ -39,9 +39,10 @@ TrustScoreAgent is in **Phase 1 (early)**. Be aware of the current trust model:
   Federation/multi-operator is a later phase.
 - **Agent identity can be cryptographically proven.** An agent identified by a `did:key`
   signs each rating with the matching Ed25519 key (`X-Agent-Signature`, plus
-  `X-Agent-Timestamp` and `X-Agent-Nonce`). The signature covers the method, path,
-  timestamp, nonce and a SHA-256 of the request body, so it authorises that request and no
-  other, and the nonce makes it single-use. A signature that is present but does not verify
+  `X-Agent-Timestamp` and `X-Agent-Nonce`). The signature covers the registry it is
+  addressed to, the method, path, agent DID, timestamp, nonce and a SHA-256 of the request
+  body, so it authorises that request at that registry and no other, and the nonce makes it
+  single-use. A signature that is present but does not verify
   is rejected with `401` rather than downgraded, so sending a junk signature is not a way
   back into the unsigned path.
 
@@ -61,14 +62,19 @@ TrustScoreAgent is in **Phase 1 (early)**. Be aware of the current trust model:
 - **Baseline scores come from an operated probe.** A single transparent probe agent
   (`did:web:trustscoreagent.com:probe`, resolvable at `/probe/did.json`) measures public
   APIs and records real
-  availability/latency/conformity ratings (no receipts, normal unverified weight). These are
-  genuine, Merkle-audited measurements — not fabricated — and community/receipt ratings layer
+  availability/latency/conformity ratings, without receipts, at 0.3 times the probe's own
+  EigenTrust score (the weight of a signed rating without a receipt: its identity is set by
+  the registry, not asserted by a caller). These are
+  genuine, Merkle-audited measurements (not fabricated), and community/receipt ratings layer
   on top. The probe is clearly identified, never pretends to be multiple agents, and only hits
   public endpoints designed for unauthenticated access.
-- **Blockchain anchoring of the Merkle root is Phase 2.** Until then the audit log is
-  append-only and internally verifiable, but not yet externally anchored.
+- **Blockchain anchoring of the Merkle root is Phase 2.** Until then roots are published by
+  the registry itself. Inclusion proofs show a rating is in the log with the content it had
+  when written, and consistency proofs (`GET /v1/audit/anchors`, `/v1/audit/consistency`) let
+  anyone who records roots check that the log only grew. A root nobody recorded could still
+  have been replaced before anyone looked.
 
-We document these limits deliberately — knowing the trust boundaries is part of using the
+We document these limits deliberately: knowing the trust boundaries is part of using the
 registry responsibly.
 
 ## Supported versions

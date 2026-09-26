@@ -1,10 +1,10 @@
-# Checklist — Passage en public
+# Checklist : Passage en public
 
 A faire quand le MVP est pret et qu'on repasse le repo en public.
 
 ## GitHub
 
-- [ ] Repasser le repo en public (Settings → Danger Zone → Change visibility)
+- [ ] Repasser le repo en public (Settings, puis Danger Zone, puis Change visibility)
 - [ ] Activer "Required reviewers" sur l'environnement `production` (disponible uniquement sur les repos publics en plan Free)
 - [ ] Verifier que les secrets GitHub ne sont pas exposes dans les logs de CI
 - [ ] Verifier que le `.gitignore` exclut bien `.env`, credentials, etc.
@@ -25,9 +25,9 @@ A faire quand le MVP est pret et qu'on repasse le repo en public.
 - [ ] PR dans LangChain (tool TrustScoreAgent)
 - [ ] PR dans CrewAI
 - [ ] Premier post (Hacker News, Reddit, Dev.to)
-- [ ] Configurer les emails security@ et hello@trustscoreagent.com (Cloudflare Email Routing) — security@ est le contact de SECURITY.md
+- [ ] Configurer les emails security@ et hello@trustscoreagent.com (Cloudflare Email Routing) ; security@ est le contact de SECURITY.md
 
-## Receipts — Validation end-to-end
+## Receipts : Validation end-to-end
 
 Avant la v1, valider la chaine complete avec un VRAI receipt (pas des fakes) :
 
@@ -42,11 +42,11 @@ Avant la v1, valider la chaine complete avec un VRAI receipt (pas des fakes) :
 ## Infrastructure post-deploy
 
 - [ ] Configurer AdminApiKey dans GCP Secret Manager
-- [ ] Mettre a jour l'URL par defaut du MCP server (staging → production)
+- [x] Mettre a jour l'URL par defaut du MCP server (staging vers production)
 - [ ] Mettre a jour llms.txt et agent.json avec les URLs de production
 - [ ] Lancer infra/setup-scheduler.sh (Cloud Run Job + Cloud Scheduler)
-      → EigenTrust + Merkle anchoring toutes les heures automatiquement
-      → Ne pas oublier : necessite l'image Docker deployee en prod d'abord
+      : seed probe + EigenTrust + ancrage Merkle toutes les 6 heures
+      : necessite l'image Docker deployee en prod d'abord
 - [ ] Verifier que le job tourne : gcloud run jobs execute trustscoreagent-hourly --region europe-west1
 - [ ] Configurer un wallet Base L2 pour le blockchain anchoring (Phase 2)
 

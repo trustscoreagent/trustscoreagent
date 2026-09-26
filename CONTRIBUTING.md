@@ -1,6 +1,6 @@
 # Contributing to TrustScoreAgent
 
-Thanks for your interest in improving TrustScoreAgent — a free, open reputation
+Thanks for your interest in improving TrustScoreAgent, a free, open reputation
 registry for AI microservices. Contributions of all kinds are welcome: bug reports,
 documentation, new framework integrations, and code.
 
@@ -8,12 +8,12 @@ By participating you agree to abide by our [Code of Conduct](CODE_OF_CONDUCT.md)
 
 ## Ways to contribute
 
-- **Report a bug** — open an issue with the *Bug report* template.
-- **Request a feature** — open an issue with the *Feature request* template.
-- **Report a vulnerability** — do **not** open a public issue; follow
+- **Report a bug**: open an issue with the *Bug report* template.
+- **Request a feature**: open an issue with the *Feature request* template.
+- **Report a vulnerability**: do **not** open a public issue; follow
   [SECURITY.md](SECURITY.md).
-- **Improve docs** — everything under `docs/` and the READMEs is fair game.
-- **Add an integration** — MCP clients, framework tools (LangChain, CrewAI, …),
+- **Improve docs**: everything under `docs/` and the READMEs is fair game.
+- **Add an integration**: MCP clients, framework tools (LangChain, CrewAI, …),
   SDKs. These are especially valued: the registry is only useful if agents can reach it.
 
 ## Development setup
@@ -46,7 +46,7 @@ npm run dev        # run from source with tsx
 
 ## Before you open a pull request
 
-Run these locally — CI enforces all of them and a red check blocks the merge:
+Run these locally. CI enforces all of them and a red check blocks the merge:
 
 ```bash
 dotnet build --warnaserror        # no warnings
@@ -57,20 +57,20 @@ dotnet test                       # all tests green
 For MCP server changes: `cd mcp-server && npm run build` must succeed.
 
 New behavior should come with tests. We use **xUnit** with **FluentAssertions**
-(`[Fact]` + `.Should()`); integration tests run against a real PostgreSQL container.
+(`[Fact]` + `.Should()`); `[PostgresFact]` tests run against PostgreSQL from `docker compose` (or `ConnectionStrings__PostgreSQL`) and are skipped when none is reachable.
 
 ## Coding conventions
 
-These mirror the existing codebase — match the surrounding style:
+These mirror the existing codebase. Match the surrounding style:
 
 - **Minimal API** style (no MVC controllers).
-- **Dapper** with raw SQL — no Entity Framework.
+- **Dapper** with raw SQL, no Entity Framework.
 - **Redis is a cache, never a hard dependency**: the API must keep working (falling
   back to PostgreSQL) if Redis is down.
 - All HTTP responses are JSON with **`snake_case`** field names.
 - Services are identified by `?service=` (URL, domain, or DID) and normalized to a
-  canonical domain via `ServiceIdentifier.Normalize()`.
-- Unknown services return a neutral score (`0.5`, `known: false`) — never a 404.
+  lowercase domain or domain/path via `ServiceIdentifier.Normalize()`.
+- Unknown services return a neutral score (`0.5`, `known: false`), never a 404.
 
 ## Commits and branches
 
@@ -95,6 +95,6 @@ agree to the DCO. Contributions are licensed under **Apache-2.0** (see [LICENSE]
 
 ## Project status
 
-TrustScoreAgent is **Phase 1 (early)** — see the trust model in
+TrustScoreAgent is **Phase 1 (early)**. See the trust model in
 [SECURITY.md](SECURITY.md) and the roadmap notes in [README.md](README.md). If you're
 planning a larger change, open an issue first so we can align on direction.

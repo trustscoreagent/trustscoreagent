@@ -17,23 +17,26 @@ behavior of the code in this repository. If you find a discrepancy, please
 ## What is stored
 
 When you call `POST /v1/rate`, the following is persisted in PostgreSQL (see
-`migrations/001_initial_schema.sql`):
+`RatingRepository.cs` and migrations 001, 009 and 013):
 
 | Field | Source | Notes |
 |-------|--------|-------|
-| `service_did` | your request | The service being rated (normalized to a domain/DID). |
+| `id` | server | The `rating_id` returned to you, used to fetch the audit proof. |
+| `service_did` | your request | The service being rated (normalized to a domain or domain/path). |
 | `agent_did` | your `X-Agent-DID` header | **Self-asserted** identifier, see below. |
 | `status_code`, `latency_ms`, `response_size_bytes`, `schema_valid` | your request | Interaction metrics. |
-| `quality_score` | your request (optional) | 1–5 subjective rating. |
+| `quality_score` | your request (optional) | 1-5 subjective rating. |
 | `comment` | your request (optional) | Free text, ≤ 500 chars. **Public.** |
-| `has_receipt`, `receipt_verified`, `weight` | derived | Whether a valid service receipt backed the rating. |
+| `has_receipt`, `receipt_verified`, `signature_verified`, `weight` | derived | Whether a valid service receipt and a valid agent signature backed the rating, and the weight it counted at. |
+| `merkle_leaf_hash`, `leaf_version` | derived | The rating's audit leaf (see [MERKLE-SPEC.md](./MERKLE-SPEC.md)). |
 | `created_at` | server | Timestamp. |
 
 Aggregate, non-identifying data is also kept: per-service Beta reputation parameters,
 rating counts, and per-agent EigenTrust scores.
 
 The **Merkle audit log** (`GET /v1/audit/root`, `/v1/audit/proof/{id}`) records a hash
-of each rating so the history is tamper-evident. This is by design: auditability is a
+of each rating's metrics, flags and weight (not of the agent DID or comment) so the history
+is tamper-evident. This is by design: auditability is a
 core feature. It means ratings are effectively **permanent and public**.
 
 ## What is *not* stored

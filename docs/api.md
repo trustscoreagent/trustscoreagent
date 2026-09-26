@@ -1,4 +1,4 @@
-# TrustScoreAgent — API Reference
+# TrustScoreAgent: API Reference
 
 Base URL (production): `https://api.trustscoreagent.com`
 
@@ -11,11 +11,11 @@ No account, no API key. All core endpoints are free. Responses are JSON with
 
 ## Service identifiers
 
-Every endpoint that takes a service accepts **any** of these forms — they are
+Every endpoint that takes a service accepts **any** of these forms; they are
 normalized internally to the same canonical id:
 
-- `api.example.com` (domain → provider level)
-- `api.example.com/v1/translate` (domain + path → endpoint level)
+- `api.example.com` (domain: provider level)
+- `api.example.com/v1/translate` (domain + path: endpoint level)
 - `https://api.example.com/v1/translate` (URL)
 - `did:web:api.example.com` (DID)
 
@@ -35,7 +35,7 @@ GET /v1/score?service=api.example.com
 | Query param | Required | Description |
 |-------------|----------|-------------|
 | `service`   | yes\*    | Service identifier (any format above). |
-| `did`       | —        | Legacy alias for `service` (kept for backwards compatibility). |
+| `did`       | no       | Legacy alias for `service` (kept for backwards compatibility). |
 
 \* Provide `service` (preferred) or `did`.
 
@@ -100,11 +100,11 @@ does not verify is rejected with `401`.
 | Field | Required | Notes |
 |-------|----------|-------|
 | `service` (or `service_did`) | yes | Service identifier. |
-| `metrics.status_code` | yes | 100–599. |
-| `metrics.latency_ms` | yes | 1–600000. |
+| `metrics.status_code` | yes | 100-599. |
+| `metrics.latency_ms` | yes | 1-600000. |
 | `metrics.response_size_bytes` | no | |
 | `metrics.schema_valid` | no | Did the response match the expected format. |
-| `quality_score` | no | 1–5 subjective rating (capped at 25% of the score). |
+| `quality_score` | no | 1-5 subjective rating (capped at 25% of the score). |
 | `comment` | no | ≤ 500 chars. |
 | `receipt` | no | JWT from the service's `X-Trust-Receipt` header. See [receipts](./receipts.md). |
 
@@ -134,9 +134,14 @@ The two are independent: a receipt says the *service* saw the call, a signature 
 
 The result is then scaled by the rater's agent trust score (EigenTrust).
 
-**Errors:** `400` (validation, including `nonce_replay` for a reused receipt),
-`401` (`invalid_agent_signature`), `429` (rate limit: max 10 ratings per agent per service
-per hour).
+`agent_identity_note` appears only when a valid signature could not be counted as signed
+because replay protection was temporarily unavailable.
+
+**Errors:** `400` (validation, including `nonce_replay` for a reused receipt or while the
+receipt nonce store is unreachable), `401` (`invalid_agent_signature`), `429` (rate limit:
+unsigned ratings, 10 per IP per service per hour; signed ratings, 10 per agent per service
+per hour and 100 per IP per service per hour). Every endpoint except `/health` is also limited
+to 120 requests per minute per IP.
 
 ### Signing a rating
 
@@ -195,9 +200,9 @@ GET /v1/services?sort_by=score&order=desc&min_score=0.7&min_ratings=10&limit=20&
 |-------------|---------|--------|
 | `sort_by`   | `score` | `score`, `ratings_count`, `last_rated` |
 | `order`     | `desc`  | `asc`, `desc` |
-| `min_score` | `0`     | 0.0–1.0 |
+| `min_score` | `0`     | 0.0-1.0 |
 | `min_ratings` | `0`   | integer |
-| `limit`     | `20`    | 1–100 |
+| `limit`     | `20`    | 1-100 |
 | `offset`    | `0`     | integer |
 
 ---
@@ -262,7 +267,7 @@ GET /v1/audit/consistency?from=<older id>&to=<newer id>
 ```
 RFC 6962 consistency proof that anchor `from` is a prefix of anchor `to` (both v2): the log only
 grew between them. `409 not_consistent` if it did not, `422` for a v1 anchor or `from` larger than
-`to`. `node tools/verify-proof/verify-proof.mjs --history` checks the recent chain.
+`to`, `503` if the later anchor cannot be reproduced right now. `node tools/verify-proof/verify-proof.mjs --history` checks the recent chain.
 
 ---
 

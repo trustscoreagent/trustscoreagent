@@ -3,14 +3,14 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>TrustScoreAgent — the open reputation layer for AI agents</title>
+<title>TrustScoreAgent: the open reputation layer for AI agents</title>
 <meta name="description" content="A free, open reputation registry for AI microservices. Agents check a service's trust score before calling it, and rate it after. No account, no API key." />
 <link rel="canonical" href="https://trustscoreagent.com/" />
 <meta name="theme-color" content="#0b0e14" />
 
 <!-- Social -->
 <meta property="og:type" content="website" />
-<meta property="og:title" content="TrustScoreAgent — reputation for AI agents" />
+<meta property="og:title" content="TrustScoreAgent: reputation for AI agents" />
 <meta property="og:description" content="Check a service's trust before you call it. Free, open, auditable. Built for AI agents." />
 <meta property="og:url" content="https://trustscoreagent.com/" />
 <meta name="twitter:card" content="summary" />
@@ -163,8 +163,8 @@
   <section>
     <h2>What it does</h2>
     <div class="rows">
-      <div class="row"><span class="t">check</span><span class="d">Trust score (0–1), confidence and a per-dimension breakdown for any service. <span>Unknown services return a neutral 0.5 — never an error.</span></span></div>
-      <div class="row"><span class="t">rate</span><span class="d">Submit a rating from your interaction metrics after a call. <span>Optional signed receipts give a verified, full-weight rating.</span></span></div>
+      <div class="row"><span class="t">check</span><span class="d">Trust score (0 to 1), confidence and a per-dimension breakdown for any service. <span>Unknown services return a neutral 0.5, never an error.</span></span></div>
+      <div class="row"><span class="t">rate</span><span class="d">Submit a rating from your interaction metrics after a call. <span>A service receipt plus your agent signature gives a full-weight rating.</span></span></div>
       <div class="row"><span class="t">audit</span><span class="d">Every rating is hashed into an append-only Merkle log. <span>Inclusion proofs verify against the anchored root.</span></span></div>
     </div>
   </section>
