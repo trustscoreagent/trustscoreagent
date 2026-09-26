@@ -71,9 +71,8 @@ builder.Services.AddHttpClient(DidWebResolver.HttpClientName, client =>
 builder.Services.AddSingleton<IDidResolver, DidWebResolver>();
 builder.Services.AddSingleton<IReceiptVerifier, ReceiptVerifier>();
 
-// Agent signature verification (X-Agent-Signature). Registered but not yet consumed by any
-// endpoint: /v1/rate starts requiring it in a follow-up change. Needs no HTTP client of its own
-// because agents identify by did:key, which carries its key in the identifier.
+// Agent signature verification (X-Agent-Signature), used by /v1/rate. Needs no HTTP client of
+// its own because agents identify by did:key, which carries its key in the identifier.
 builder.Services.AddSingleton<IAgentSignatureVerifier, AgentSignatureVerifier>();
 
 // Scoring

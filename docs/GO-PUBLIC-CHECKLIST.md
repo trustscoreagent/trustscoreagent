@@ -42,11 +42,11 @@ Avant la v1, valider la chaine complete avec un VRAI receipt (pas des fakes) :
 ## Infrastructure post-deploy
 
 - [ ] Configurer AdminApiKey dans GCP Secret Manager
-- [ ] Mettre a jour l'URL par defaut du MCP server (staging → production)
+- [x] Mettre a jour l'URL par defaut du MCP server (staging vers production)
 - [ ] Mettre a jour llms.txt et agent.json avec les URLs de production
 - [ ] Lancer infra/setup-scheduler.sh (Cloud Run Job + Cloud Scheduler)
-      → EigenTrust + Merkle anchoring toutes les heures automatiquement
-      → Ne pas oublier : necessite l'image Docker deployee en prod d'abord
+      : seed probe + EigenTrust + ancrage Merkle toutes les 6 heures
+      : necessite l'image Docker deployee en prod d'abord
 - [ ] Verifier que le job tourne : gcloud run jobs execute trustscoreagent-hourly --region europe-west1
 - [ ] Configurer un wallet Base L2 pour le blockchain anchoring (Phase 2)
 

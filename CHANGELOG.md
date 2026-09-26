@@ -18,7 +18,7 @@ All notable changes to TrustScoreAgent will be documented in this file.
   and `ValidateBody` before it is allowed into the config
 - Seed prober: measurements of real public APIs under a transparent probe agent, widened from 21
   to 49 targets
-- Migrations 006 to 010
+- Migrations 006 to 013
 
 ### Changed
 - **Consistency proofs.** `GET /v1/audit/consistency?from=&to=` proves a later v2 anchor extends
@@ -75,7 +75,7 @@ All notable changes to TrustScoreAgent will be documented in this file.
 
 ### Security
 - Receipts are bound to the submitting agent; SSRF guard also covers the seed prober and NAT64
-- EigenTrust matrix is capped to bound the hourly job's memory
+- EigenTrust matrix is capped to bound the batch job's memory
 
 ## [0.1.0] - 2026-04-04
 

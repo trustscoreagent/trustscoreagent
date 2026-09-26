@@ -134,9 +134,14 @@ The two are independent: a receipt says the *service* saw the call, a signature 
 
 The result is then scaled by the rater's agent trust score (EigenTrust).
 
-**Errors:** `400` (validation, including `nonce_replay` for a reused receipt),
-`401` (`invalid_agent_signature`), `429` (rate limit: max 10 ratings per agent per service
-per hour).
+`agent_identity_note` appears only when a valid signature could not be counted as signed
+because replay protection was temporarily unavailable.
+
+**Errors:** `400` (validation, including `nonce_replay` for a reused receipt or while the
+receipt nonce store is unreachable), `401` (`invalid_agent_signature`), `429` (rate limit:
+unsigned ratings, 10 per IP per service per hour; signed ratings, 10 per agent per service
+per hour and 100 per IP per service per hour). Every endpoint except `/health` is also limited
+to 120 requests per minute per IP.
 
 ### Signing a rating
 
@@ -262,7 +267,7 @@ GET /v1/audit/consistency?from=<older id>&to=<newer id>
 ```
 RFC 6962 consistency proof that anchor `from` is a prefix of anchor `to` (both v2): the log only
 grew between them. `409 not_consistent` if it did not, `422` for a v1 anchor or `from` larger than
-`to`. `node tools/verify-proof/verify-proof.mjs --history` checks the recent chain.
+`to`, `503` if the later anchor cannot be reproduced right now. `node tools/verify-proof/verify-proof.mjs --history` checks the recent chain.
 
 ---
 

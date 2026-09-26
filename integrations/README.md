@@ -35,7 +35,7 @@ Both tools read two optional environment variables:
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `TRUSTSCORE_API_URL` | production API | Point at a different TrustScoreAgent instance. |
-| `TRUSTSCORE_AGENT_DID` | auto-generated | Stable identifier for your agent. If unset, a random id is generated once and stored in `~/.trustscoreagent/agent-id` (shared with the MCP server). |
+| `TRUSTSCORE_AGENT_DID` | auto-generated | Stable identifier for your agent. If unset, a random id is generated once and stored in `~/.trustscoreagent/agent-id`. These tools do not sign ratings yet, so they count at half weight; the MCP server signs with its own `did:key`. |
 
 You can also pass `base_url=` / `agent_did=` directly to `get_trustscoreagent_tools(...)`.
 

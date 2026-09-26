@@ -34,16 +34,19 @@ curl -X POST "https://api.trustscoreagent.com/v1/rate" \
     "quality_score": 5,
     "comment": "fast and accurate"
   }'
-# -> { "accepted": true, "rating_weight": "unverified", "new_score": 0.86 }
+# -> { "accepted": true, "rating_id": "…", "rating_weight": "unverified",
+#       "agent_identity": "unsigned", "new_score": 0.86 }
 ```
 
-Without a receipt the rating is accepted at reduced weight (`unverified`, 0.3× base).
+Without a receipt and unsigned, this counts 0.15 (0.3 for no receipt, halved because the agent
+DID is only asserted). [Signing the request](./api.md#signing-a-rating) brings it to 0.3; the
+[MCP server](./mcp.md) signs for you. Keep `rating_id` to fetch the rating's audit proof later.
 
 ## 3. Submit a *verified* rating with a receipt
 
 A receipt is a JWT signed by the **service** (EdDSA / Ed25519) proving you actually
-interacted with it. A verified rating carries full weight (1.0×). This is the trustworthy
-signal in Phase 1. Full spec: [receipts.md](./receipts.md).
+interacted with it. A verified receipt gives full weight (1.0) when the request is also
+signed, 0.5 when it is not. This is the trustworthy signal in Phase 1. Full spec: [receipts.md](./receipts.md).
 
 The service returns the receipt in the `X-Trust-Receipt` response header; you forward it:
 
@@ -56,7 +59,8 @@ curl -X POST "https://api.trustscoreagent.com/v1/rate" \
     "metrics": { "status_code": 200, "latency_ms": 123, "schema_valid": true },
     "receipt": "eyJhbGciOiJFZERTQS[...]"
   }'
-# -> { "accepted": true, "rating_weight": "verified", "new_score": 0.88 }
+# -> { "accepted": true, "rating_id": "…", "rating_weight": "verified",
+#       "agent_identity": "unsigned", "new_score": 0.88 }
 ```
 
 ### See a real verified rating
@@ -66,7 +70,7 @@ unverified ratings:
 
 ```bash
 curl "https://api.trustscoreagent.com/v1/score/detailed?service=trustscoreagent.pages.dev/receipts-demo"
-# -> ... "receipts": { "total": 3, "verified": 1 } ...
+# -> ... "receipt_stats": { "total": 3, "with_receipt": 1, "verified": 1 } ...
 ```
 
 ## 4. Discover reliable services

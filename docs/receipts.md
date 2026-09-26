@@ -86,8 +86,9 @@ The agent then forwards that token in the `receipt` field of `POST /v1/rate`.
 }
 ```
 
-`Ed25519VerificationKey2020` (`publicKeyMultibase`), `Ed25519VerificationKey2018`, and
-`JsonWebKey2020` with a `publicKeyBase64` are all accepted.
+`Ed25519VerificationKey2020` (`publicKeyMultibase`), `Ed25519VerificationKey2018`
+(`publicKeyBase58`) and `JsonWebKey2020` (`publicKeyJwk`, OKP/Ed25519) are accepted; a bare
+`publicKeyBase64` is still read for backwards compatibility.
 
 ## Verification rules
 
@@ -95,22 +96,32 @@ When a rating arrives with a receipt, TrustScoreAgent:
 
 1. Parses the JWT and decodes the payload.
 2. Checks `service_did` matches the rated service.
-3. Checks the timestamp is < 5 minutes old.
-4. Atomically claims the `nonce` (anti-replay, 10-minute window).
-5. Resolves the service DID to its public key (cached 1h).
-6. Verifies the Ed25519 signature. **The algorithm is forced to Ed25519** — the JWT
+3. Checks the timestamp is at most 5 minutes old and at most 1 minute in the future.
+4. Resolves the service DID to its public key (cached 1h).
+5. Verifies the Ed25519 signature. **The algorithm is forced to Ed25519**: the JWT
    `alg` header is ignored, so `alg:none` and algorithm-confusion attacks do not apply.
+6. Checks the receipt's `agent_did` equals the `X-Agent-DID` of the rating request, so a
+   receipt issued to one agent cannot be spent by another.
+7. Atomically claims the `nonce` (anti-replay, 10-minute window). This comes last, so a
+   receipt that fails any earlier check never burns its nonce.
 
 ### Outcome table
 
 | Situation | Weight |
 |-----------|--------|
 | Valid signature, nonce fresh | **1.0** (verified) |
+| Malformed JWT | **0.3** (unverified) |
+| `service_did` or `agent_did` does not match the request | **0.3** (unverified) |
 | Invalid signature | **0.3** (unverified) |
-| Timestamp expired (> 5 min) | **0.3** (unverified) |
+| Timestamp out of range | **0.3** (unverified) |
 | DID resolution failed | **0.3** (unverified) |
 | No receipt at all | **0.3** (unverified) |
-| Nonce already used | **rejected** (`400 nonce_replay`) |
+| Nonce already used, or the nonce store is unreachable | **rejected** (`400 nonce_replay`) |
+
+These are base weights. The rating's weight is then halved if the request is not signed by the
+agent (`X-Agent-Signature`) and multiplied by the agent's EigenTrust score. Replay protection
+fails closed: while the nonce store is down, receipts are refused rather than accepted
+unchecked.
 
 The system is **tolerant for early adopters, strict on replay**: a malformed or
 unverifiable receipt is downgraded, not punished; only a replayed nonce is rejected.

@@ -3,8 +3,8 @@
 Free, open reputation registry for AI microservices. Agents check trust scores before calling any service.
 
 > **Status: Phase 1 (early).** The API, scoring (Beta + EigenTrust), receipt verification,
-> Merkle audit trail and MCP server are implemented and tested — but the public dataset is
-> still small, some services (`*.example.com`) are demo seed data, and parts of the design
+> Merkle audit trail and MCP server are implemented and tested, but the public dataset is
+> still small (seeded by a transparent probe of public APIs), and parts of the design
 > (on-chain anchoring, x402 payments, *mandatory* agent signatures) are Phase 2. We publish
 > early and openly on purpose: the trust layer for the agentic economy should exist, be
 > auditable, and be adoptable *before* it becomes critical. See the trust model in
@@ -69,7 +69,7 @@ open http://localhost:5000/swagger
 - **Redis** — Score caching, rate limiting, nonce tracking
 - **Beta Reputation System** — Bayesian scoring (per-dimension: availability, latency, conformity)
 - **EigenTrust** — Anti-Sybil agent trust scoring
-- **Merkle Tree** — Cryptographic audit log with inclusion proofs
+- **Merkle Tree** — Audit log with inclusion and consistency proofs (RFC 6962 tree; each leaf commits to what the rating reported)
 - **Ed25519 Receipt Verification** — Cryptographic proof of service interaction
 - **MCP Server** — Integration with Claude, Cursor, and MCP-compatible agents
 
@@ -84,7 +84,9 @@ open http://localhost:5000/swagger
 | `GET /v1/services` | List rated services (pagination, sorting, filtering) |
 | `GET /v1/agent/trust?did=` | Check your agent's trust score |
 | `GET /v1/audit/root` | Latest Merkle tree root |
-| `GET /v1/audit/proof/{id}` | Cryptographic inclusion proof for a rating |
+| `GET /v1/audit/proof/{id}` | Inclusion proof for a rating, with the fields it commits to |
+| `GET /v1/audit/anchors` | History of anchored roots |
+| `GET /v1/audit/consistency?from=&to=` | Proof that a later root extends an earlier one |
 
 ### Premium (free for now, x402 micropayments later)
 
@@ -132,6 +134,8 @@ Each exposes `trustscore_check_reputation`, `trustscore_submit_rating`, and
 - [MCP Server Setup](docs/mcp.md) — Claude, Cursor, Windsurf
 - [Why Trust Matters for Agents](docs/why.md)
 - [Privacy & Data Handling](docs/privacy.md)
+- [Audit Log Specification](docs/MERKLE-SPEC.md), with an independent verifier in
+  [`tools/verify-proof`](tools/verify-proof/verify-proof.mjs)
 
 ## Contributing
 

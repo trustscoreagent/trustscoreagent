@@ -7,7 +7,8 @@ using TrustScore.Core.Interfaces;
 namespace TrustScore.Api.Jobs;
 
 /// <summary>
-/// Hourly batch job that runs EigenTrust + Merkle tree anchoring.
+/// Batch job (every 6 hours; the name is historical) that runs the seed probe, EigenTrust and
+/// Merkle tree anchoring.
 /// Invoked via: dotnet TrustScore.Api.dll --job
 /// Designed for Cloud Run Jobs triggered by Cloud Scheduler.
 /// </summary>

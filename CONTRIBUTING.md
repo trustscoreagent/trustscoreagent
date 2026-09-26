@@ -57,7 +57,7 @@ dotnet test                       # all tests green
 For MCP server changes: `cd mcp-server && npm run build` must succeed.
 
 New behavior should come with tests. We use **xUnit** with **FluentAssertions**
-(`[Fact]` + `.Should()`); integration tests run against a real PostgreSQL container.
+(`[Fact]` + `.Should()`); `[PostgresFact]` tests run against PostgreSQL from `docker compose` (or `ConnectionStrings__PostgreSQL`) and are skipped when none is reachable.
 
 ## Coding conventions
 
@@ -69,7 +69,7 @@ These mirror the existing codebase — match the surrounding style:
   back to PostgreSQL) if Redis is down.
 - All HTTP responses are JSON with **`snake_case`** field names.
 - Services are identified by `?service=` (URL, domain, or DID) and normalized to a
-  canonical domain via `ServiceIdentifier.Normalize()`.
+  lowercase domain or domain/path via `ServiceIdentifier.Normalize()`.
 - Unknown services return a neutral score (`0.5`, `known: false`) — never a 404.
 
 ## Commits and branches
