@@ -79,3 +79,15 @@ public class DbConnectionFactoryPoolTests
                 TrustScore.Api.Data.DbConnectionFactory.WithPoolCap("Host=db;Maximum Pool Size=7", 3))
             .MaxPoolSize.Should().Be(7);
 }
+
+public class RateLimiterLoggingTests
+{
+    [Theory]
+    [InlineData("global:203.0.113.7", "global")]
+    [InlineData("ip:203.0.113.7:api.example.com", "ip")]
+    [InlineData("agent:did:key:z6Mk:api.example.com", "agent")]
+    [InlineData("nocolon", "unknown")]
+    public void LogsTheBucketKind_NeverTheKeyWithItsIp(string key, string expected)
+        => TrustScore.Api.Middleware.RedisRateLimiter.BucketKind(key).Should().Be(expected).And.NotContain("203.0.113.7");
+}
+

@@ -54,9 +54,19 @@ public sealed class RedisRateLimiter : IRateLimiter
             // The API stays up (project convention: never fail because Redis is down), but the
             // unauthenticated endpoints keep a bound. (Receipt nonce anti-replay stays fail-closed;
             // that lives in RedisCacheService.)
-            _logger.LogWarning(ex, "Redis rate limiter unavailable, using in-process fallback for key {Key}", key);
+            // Log the kind of bucket, never the key: keys embed the client IP ("global:{ip}",
+            // "ip:{ip}:{service}"), and docs/privacy.md promises IPs are never written to durable
+            // storage. Cloud Logging is durable storage.
+            _logger.LogWarning(ex, "Redis rate limiter unavailable, using in-process fallback for a {Bucket} bucket",
+                BucketKind(key));
             return CheckInMemory(key, maxRequests, window);
         }
+    }
+
+    internal static string BucketKind(string key)
+    {
+        var colon = key.IndexOf(':');
+        return colon > 0 ? key[..colon] : "unknown";
     }
 
     private RateLimitResult CheckInMemory(string key, int maxRequests, TimeSpan window)
