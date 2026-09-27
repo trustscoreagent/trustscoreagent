@@ -114,7 +114,12 @@ TrustScoreAgent is available as an MCP server for Claude, Cursor, and other agen
 claude mcp add trustscoreagent -- npx -y @trustscoreagent/mcp-server
 ```
 
-See [docs/mcp.md](docs/mcp.md) for full setup instructions.
+See [docs/mcp.md](docs/mcp.md) for full setup instructions. Also listed on the
+[official MCP Registry](https://registry.modelcontextprotocol.io/v0/servers?search=trustscoreagent)
+(`io.github.trustscoreagent/mcp-server`), [npm](https://www.npmjs.com/package/@trustscoreagent/mcp-server),
+[Smithery](https://smithery.ai/servers/trustscoreagent/trustscoreagent) and
+[Glama](https://glama.ai/mcp/servers/trustscoreagent/trustscoreagent); each GitHub release attaches an
+`.mcpb` bundle for Claude Desktop.
 
 ## Framework integrations
 

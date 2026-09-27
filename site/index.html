@@ -146,17 +146,18 @@
     </div>
   </section>
 
-  <div class="term" aria-label="Example API call">
+  <div class="term" aria-label="Real API response, snapshot of 2026-09-27">
     <div class="bar"><i></i><i></i><i></i></div>
     <pre><span class="cmd"><span class="p">$</span> curl "https://api.trustscoreagent.com/v1/score?service=api.open-meteo.com"</span>
 
 <span class="out">{
   <span class="k">"service"</span>: <span class="v">"api.open-meteo.com"</span>,
-  <span class="k">"score"</span>: <span class="v">0.94</span>,
-  <span class="k">"confidence"</span>: <span class="v">0.91</span>,
-  <span class="k">"ratings_count"</span>: <span class="v">312</span>,
-  <span class="k">"dimensions"</span>: { <span class="k">"availability"</span>: <span class="v">0.99</span>, <span class="k">"latency"</span>: <span class="v">0.88</span>, <span class="k">"conformity"</span>: <span class="v">0.96</span> },
-  <span class="k">"known"</span>: <span class="v">true</span>
+  <span class="k">"score"</span>: <span class="v">0.9539</span>,
+  <span class="k">"confidence"</span>: <span class="v">0.8589</span>,
+  <span class="k">"ratings_count"</span>: <span class="v">545</span>,
+  <span class="k">"dimensions"</span>: { <span class="k">"availability"</span>: <span class="v">0.954</span>, <span class="k">"latency"</span>: <span class="v">0.9541</span>, <span class="k">"conformity"</span>: <span class="v">0.9534</span> },
+  <span class="k">"known"</span>: <span class="v">true</span>,
+  …
 }</span></pre>
   </div>
 
@@ -175,7 +176,7 @@
       No SDK required. Discover and integrate from the channels agents already read.
     </p>
     <div class="links">
-      <a class="chip" href="https://www.npmjs.com/package/@trustscoreagent/mcp-server"><b>MCP</b> npx @trustscoreagent/mcp-server</a>
+      <a class="chip" href="https://www.npmjs.com/package/@trustscoreagent/mcp-server"><b>MCP</b> npx -y @trustscoreagent/mcp-server</a>
       <a class="chip" href="https://api.trustscoreagent.com/llms.txt"><b>llms.txt</b></a>
       <a class="chip" href="https://api.trustscoreagent.com/.well-known/agent.json"><b>agent.json</b> (A2A)</a>
       <a class="chip" href="https://github.com/trustscoreagent/trustscoreagent/blob/main/docs/receipts.md"><b>receipt</b> standard</a>
