@@ -1,5 +1,6 @@
 using System.Data;
 using Dapper;
+using TrustScore.Api.Scoring;
 using Microsoft.Extensions.Configuration;
 using TrustScore.Core.Interfaces;
 using TrustScore.Core.Models;
@@ -192,7 +193,7 @@ public sealed class ServiceRepository : IServiceRepository
         {
             "ratings_count" => "ratings_count",
             "last_rated" => "last_rated_at",
-            "score" => "(alpha / (alpha + beta))",
+            "score" => BetaReputationSystem.ScoreSql,
             _ => throw new ArgumentException($"Invalid sort field: {filter.SortBy}"),
         };
         var orderDir = filter.Order switch
@@ -217,8 +218,8 @@ public sealed class ServiceRepository : IServiceRepository
                    updated_at AS UpdatedAt
             FROM services
             WHERE ratings_count >= @MinRatings
-              AND (alpha / (alpha + beta)) >= @MinScore
-            ORDER BY {orderColumn} {orderDir}
+              AND {BetaReputationSystem.ScoreSql} >= @MinScore
+            ORDER BY {orderColumn} {orderDir}, did
             LIMIT @Limit OFFSET @Offset
             """;
 

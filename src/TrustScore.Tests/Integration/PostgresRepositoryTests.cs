@@ -4,6 +4,7 @@ using Microsoft.Extensions.Configuration;
 using TrustScore.Api.Data;
 using TrustScore.Api.Scoring;
 using TrustScore.Core.Audit;
+using TrustScore.Core.Interfaces;
 using TrustScore.Core.Models;
 using Xunit;
 
@@ -319,5 +320,35 @@ public class PostgresRepositoryTests : PostgresDatabaseTest
 
         var latest = await TrustScore.Api.Jobs.HourlyJob.LoadLatestV2AnchorAsync(conn);
         latest.Should().Be(new TrustScore.Api.Jobs.HourlyJob.PreviousAnchor("bb", 12));
+    }
+
+    [PostgresFact]
+    public async Task ListSortedByScore_FollowsTheDisplayedScore_NotTheAggregateRatio()
+    {
+        // "agg-high" has the better aggregate alpha/(alpha+beta) but the worse weighted score,
+        // because its strength is in conformity (weight 0.25) and its weakness in availability (0.4).
+        using (var conn = Db.CreateConnection())
+        {
+            await conn.ExecuteAsync(
+                """
+                INSERT INTO services (did, alpha, beta, alpha_availability, beta_availability,
+                    alpha_latency, beta_latency, alpha_conformity, beta_conformity, ratings_count)
+                VALUES ('agg-high.test', 90, 10,  2, 8,   5, 5,   50, 1, 20),
+                       ('agg-low.test',  60, 40,  9, 1,   8, 2,    5, 5, 20)
+                """);
+        }
+        var repo = Services();
+        var engine = new BetaReputationSystem();
+
+        var listed = await repo.ListAsync(new ServiceListFilter { SortBy = "score", Order = "desc", Limit = 10 });
+        var scores = listed.Where(s => s.Did.EndsWith(".test")).Select(s => (s.Did, engine.CalculateScore(s).Score)).ToList();
+
+        scores.Select(s => s.Did).Should().Equal("agg-low.test", "agg-high.test");
+        scores.Select(s => s.Score).Should().BeInDescendingOrder();
+
+        // min_score filters on the same displayed score.
+        var threshold = scores[0].Score - 0.01;
+        var filtered = await repo.ListAsync(new ServiceListFilter { SortBy = "score", Order = "desc", Limit = 10, MinScore = threshold });
+        filtered.Select(s => s.Did).Should().Contain("agg-low.test").And.NotContain("agg-high.test");
     }
 }
