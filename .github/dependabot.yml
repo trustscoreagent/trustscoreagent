@@ -54,6 +54,11 @@ updates:
       - "dependencies"
     commit-message:
       prefix: "deps"
+    ignore:
+      # Majors are migrations, not bumps: @types/node follows the Node 20 runtime we target, and a
+      # new TypeScript major needs its own change. Security updates still come through.
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "docker"
     directory: "/mcp-server"
@@ -72,6 +77,9 @@ updates:
     directories:
       - "/integrations/langchain"
       - "/integrations/crewai"
+    # These are minimums for users, not pins: only raise one when the current range no longer
+    # allows a fixed version, instead of forcing every user onto the newest release.
+    versioning-strategy: increase-if-necessary
     schedule:
       interval: "weekly"
       day: "monday"
