@@ -91,6 +91,13 @@ This service supports trust receipts (verified ratings)
 
 Incidents are not tracked yet, so no incident line is shown (0.2.3 and later).
 
+Since 0.2.4 every tool also returns its data as `structuredContent` matching a declared
+`outputSchema` (for `check_reputation`: `service`, `known`, `score`, `trust_level`, `confidence`,
+`ratings_count`, `dimensions`, `recent_incidents`, `service_supports_receipts`, `last_rated`), and
+declares annotations: `check_reputation` and `list_services` are read-only, `submit_rating` writes a
+rating (not destructive, not idempotent). `submit_rating` returns the `rating_id` to fetch the
+rating's [audit proof](./api.md#audit).
+
 ### submit_rating
 
 Rate a microservice after calling it.

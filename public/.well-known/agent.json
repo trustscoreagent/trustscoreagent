@@ -4,7 +4,7 @@
   "description": "Free, open reputation registry for AI microservices. Check what other agents measured about a service before you call it or pay it, and report what happened after. No account, no API key. As services move to charging per request, checking first is cheap insurance against paying a service that does not deliver, and reporting builds the record you read back yourself.",
   "url": "https://api.trustscoreagent.com",
   "preferredTransport": "HTTP+JSON",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "documentationUrl": "https://github.com/trustscoreagent/trustscoreagent/blob/main/docs/api.md",
   "provider": {
     "organization": "TrustScoreAgent",

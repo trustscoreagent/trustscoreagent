@@ -5,6 +5,22 @@ and the MCP server share one version number per release.
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-09-27
+
+### Added
+- MCP tools declare an `outputSchema` and return their data as `structuredContent` alongside the
+  text (score, trust level, dimensions; the `rating_id` of a submitted rating), so clients read
+  numbers instead of parsing prose
+- MCP tool annotations: `check_reputation` and `list_services` are read-only, `submit_rating`
+  writes but is not destructive
+- MCP server info carries a title, website and icon; the `.mcpb` bundle has an icon
+
+### Changed
+- `submit_rating` output includes the `rating_id` to fetch the rating's audit proof, and the
+  unknown-service message no longer asks the agent to help others
+- Real Redis tests, no silent test skips in CI, the MCP server and proof verifier built and
+  self-tested in CI, CodeQL enabled and its first findings (log forging) fixed
+
 ## [0.2.3] - 2026-09-27
 
 ### Fixed
@@ -141,7 +157,8 @@ and the MCP server share one version number per release.
 - Swagger disabled in production
 - Global rate limiting: 120 requests/minute per IP
 
-[Unreleased]: https://github.com/trustscoreagent/trustscoreagent/compare/v0.2.3...HEAD
+[Unreleased]: https://github.com/trustscoreagent/trustscoreagent/compare/v0.2.4...HEAD
+[0.2.4]: https://github.com/trustscoreagent/trustscoreagent/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/trustscoreagent/trustscoreagent/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/trustscoreagent/trustscoreagent/compare/v0.1.1...v0.2.2
 [0.1.1]: https://github.com/trustscoreagent/trustscoreagent/releases/tag/v0.1.1
