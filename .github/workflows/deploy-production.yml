@@ -102,7 +102,7 @@ jobs:
       - name: Build and push Docker image
         run: |
           IMAGE="${IMAGE_NAME}:${DEPLOY_SHA}"
-          docker build -f src/TrustScore.Api/Dockerfile -t "$IMAGE" .
+          docker build -f src/TrustScore.Api/Dockerfile --build-arg SOURCE_COMMIT="$DEPLOY_SHA" -t "$IMAGE" .
           docker push "$IMAGE"
 
       # Capture the revision currently serving 100% of traffic BEFORE deploying the canary, so a
