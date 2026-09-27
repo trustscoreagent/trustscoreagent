@@ -217,7 +217,8 @@ public sealed class ServiceRepository : IServiceRepository
                    created_at AS CreatedAt,
                    updated_at AS UpdatedAt
             FROM services
-            WHERE ratings_count >= @MinRatings
+            WHERE listed
+              AND ratings_count >= @MinRatings
               AND {BetaReputationSystem.ScoreSql} >= @MinScore
             ORDER BY {orderColumn} {orderDir}, did
             LIMIT @Limit OFFSET @Offset

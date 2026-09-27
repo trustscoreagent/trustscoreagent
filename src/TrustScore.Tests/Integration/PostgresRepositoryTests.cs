@@ -351,4 +351,23 @@ public class PostgresRepositoryTests : PostgresDatabaseTest
         var filtered = await repo.ListAsync(new ServiceListFilter { SortBy = "score", Order = "desc", Limit = 10, MinScore = threshold });
         filtered.Select(s => s.Did).Should().Contain("agg-low.test").And.NotContain("agg-high.test");
     }
+
+    [PostgresFact]
+    public async Task UnlistedService_IsScoredButNotListed()
+    {
+        using (var conn = Db.CreateConnection())
+        {
+            await conn.ExecuteAsync(
+                """
+                INSERT INTO services (did, alpha, beta, ratings_count, listed)
+                VALUES ('shown.test', 5, 1, 3, TRUE), ('hidden.test', 5, 1, 3, FALSE)
+                """);
+        }
+        var repo = Services();
+
+        var listed = await repo.ListAsync(new ServiceListFilter { SortBy = "ratings_count", Limit = 100 });
+
+        listed.Select(s => s.Did).Should().Contain("shown.test").And.NotContain("hidden.test");
+        (await repo.GetByDidAsync("hidden.test")).Should().NotBeNull("an unlisted service still has a score");
+    }
 }
