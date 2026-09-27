@@ -50,13 +50,14 @@ GET /v1/score?service=api.example.com
   "confidence": 0.94,
   "ratings_count": 2341,
   "dimensions": { "availability": 0.99, "latency": 0.82, "conformity": 0.91 },
-  "recent_incidents": 0,
+  "recent_incidents": null,
   "last_rated": "2026-03-29T14:23:01Z",
   "service_supports_receipts": true
 }
 ```
 
-`level` is `provider` (domain only) or `endpoint` (with path). Unknown service:
+`level` is `provider` (domain only) or `endpoint` (with path). `recent_incidents` is `null`: incidents are not tracked yet, and
+a `0` would wrongly read as "none". Unknown service:
 
 ```json
 { "service": "never-seen.com", "known": false, "score": 0.5, "ratings_count": 0 }

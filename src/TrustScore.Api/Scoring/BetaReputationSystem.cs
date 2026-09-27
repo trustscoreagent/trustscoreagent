@@ -78,7 +78,7 @@ public sealed class BetaReputationSystem : IScoringEngine
                 Latency = Math.Round(latency, 4),
                 Conformity = Math.Round(conformity, 4),
             },
-            RecentIncidents = 0, // Phase 2: track incidents over sliding window
+            RecentIncidents = null, // not tracked yet; null rather than a 0 that reads as "none"
             LastRatedAt = service.LastRatedAt,
             ServiceSupportsReceipts = service.SupportsReceipts,
         };
