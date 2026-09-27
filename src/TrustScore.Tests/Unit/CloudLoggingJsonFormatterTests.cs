@@ -91,3 +91,18 @@ public class RateLimiterLoggingTests
         => TrustScore.Api.Middleware.RedisRateLimiter.BucketKind(key).Should().Be(expected).And.NotContain("203.0.113.7");
 }
 
+
+public class LogValueTests
+{
+    [Fact]
+    public void Newlines_CannotForgeALogLine()
+        => TrustScore.Api.Logging.LogValue.Safe("did:web:evil\r\n[INF] forged").Should().NotContain("\n").And.NotContain("\r");
+
+    [Fact]
+    public void OversizedValues_AreTruncated()
+        => TrustScore.Api.Logging.LogValue.Safe(new string('a', 5000)).Length.Should().BeLessThan(210);
+
+    [Fact]
+    public void Null_IsEmpty()
+        => TrustScore.Api.Logging.LogValue.Safe(null).Should().BeEmpty();
+}

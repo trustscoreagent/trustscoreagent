@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Sockets;
 using System.Text.Json;
+using TrustScore.Api.Logging;
 using TrustScore.Core.Interfaces;
 
 namespace TrustScore.Api.Receipts;
@@ -29,7 +30,7 @@ public sealed class DidWebResolver : IDidResolver
     {
         if (!did.StartsWith("did:web:"))
         {
-            _logger.LogWarning("Unsupported DID method: {Did}", did);
+            _logger.LogWarning("Unsupported DID method: {Did}", LogValue.Safe(did));
             return null;
         }
 
@@ -68,13 +69,13 @@ public sealed class DidWebResolver : IDidResolver
             using var response = await httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cts.Token);
             if (!response.IsSuccessStatusCode)
             {
-                _logger.LogWarning("DID resolution failed for {Did}: HTTP {StatusCode}", did, response.StatusCode);
+                _logger.LogWarning("DID resolution failed for {Did}: HTTP {StatusCode}", LogValue.Safe(did), response.StatusCode);
                 return null;
             }
 
             if (response.Content.Headers.ContentLength is long declared && declared > MaxResponseBytes)
             {
-                _logger.LogWarning("DID document too large for {Did}: {Bytes} bytes", did, declared);
+                _logger.LogWarning("DID document too large for {Did}: {Bytes} bytes", LogValue.Safe(did), declared);
                 return null;
             }
 
@@ -82,7 +83,7 @@ public sealed class DidWebResolver : IDidResolver
             var json = await ReadBoundedAsync(stream, MaxResponseBytes, cts.Token);
             if (json is null)
             {
-                _logger.LogWarning("DID document exceeded {Max} bytes for {Did}", MaxResponseBytes, did);
+                _logger.LogWarning("DID document exceeded {Max} bytes for {Did}", MaxResponseBytes, LogValue.Safe(did));
                 return null;
             }
 
@@ -109,12 +110,12 @@ public sealed class DidWebResolver : IDidResolver
                 }
             }
 
-            _logger.LogWarning("No Ed25519 key found in DID Document for {Did}", did);
+            _logger.LogWarning("No Ed25519 key found in DID Document for {Did}", LogValue.Safe(did));
             return null;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "DID resolution error for {Did}", did);
+            _logger.LogWarning(ex, "DID resolution error for {Did}", LogValue.Safe(did));
             return null;
         }
     }

@@ -1,5 +1,6 @@
 using System.Globalization;
 using NSec.Cryptography;
+using TrustScore.Api.Logging;
 using TrustScore.Core.Interfaces;
 using TrustScore.Core.Models;
 
@@ -102,7 +103,7 @@ public sealed class AgentSignatureVerifier : IAgentSignatureVerifier
         var age = DateTimeOffset.UtcNow - signedAt;
         if (age > MaxAge || age < -MaxClockSkew)
         {
-            _logger.LogInformation("Agent signature timestamp out of range for {AgentDid}", headers.AgentDid);
+            _logger.LogInformation("Agent signature timestamp out of range for {AgentDid}", LogValue.Safe(headers.AgentDid));
             return AgentSignatureResult.Failed(AgentSignatureStatus.TimestampExpired);
         }
 
@@ -139,7 +140,7 @@ public sealed class AgentSignatureVerifier : IAgentSignatureVerifier
 
             if (!algorithm.Verify(publicKey, signedData, signatureBytes))
             {
-                _logger.LogWarning("Invalid agent signature for {AgentDid}", headers.AgentDid);
+                _logger.LogWarning("Invalid agent signature for {AgentDid}", LogValue.Safe(headers.AgentDid));
                 return AgentSignatureResult.Failed(AgentSignatureStatus.InvalidSignature);
             }
         }
@@ -162,11 +163,11 @@ public sealed class AgentSignatureVerifier : IAgentSignatureVerifier
             if (!await _cache.IsAvailableAsync())
             {
                 _logger.LogWarning(
-                    "Nonce store unavailable: accepting the rating from {AgentDid} as unsigned", headers.AgentDid);
+                    "Nonce store unavailable: accepting the rating from {AgentDid} as unsigned", LogValue.Safe(headers.AgentDid));
                 return AgentSignatureResult.Failed(AgentSignatureStatus.ReplayCheckUnavailable);
             }
 
-            _logger.LogWarning("Agent nonce replay for {AgentDid}", headers.AgentDid);
+            _logger.LogWarning("Agent nonce replay for {AgentDid}", LogValue.Safe(headers.AgentDid));
             return AgentSignatureResult.Failed(AgentSignatureStatus.NonceAlreadyUsed);
         }
 
