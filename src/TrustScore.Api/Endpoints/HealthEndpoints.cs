@@ -5,6 +5,17 @@ namespace TrustScore.Api.Endpoints;
 
 public static class HealthEndpoints
 {
+    // InformationalVersion is "<Version>+<commit sha>" when built from git: the release number and
+    // the exact commit deployed, instead of the four-part assembly version.
+    private static readonly string Informational =
+        typeof(Program).Assembly
+            .GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+            .OfType<System.Reflection.AssemblyInformationalVersionAttribute>()
+            .FirstOrDefault()?.InformationalVersion ?? "unknown";
+
+    internal static readonly string Version = Informational.Split('+')[0];
+    internal static readonly string? Commit = Informational.Contains('+') ? Informational.Split('+')[1] : null;
+
     public static void MapHealthEndpoints(this WebApplication app)
     {
         app.MapGet("/health", async (DbConnectionFactory db, ICacheService cache) =>
@@ -39,7 +50,8 @@ public static class HealthEndpoints
             {
                 status,
                 checks,
-                version = typeof(Program).Assembly.GetName().Version?.ToString() ?? "0.1.0",
+                version = Version,
+                commit = Commit,
             };
 
             // Only a database failure is fatal (503); degraded (Redis down) still serves traffic.
