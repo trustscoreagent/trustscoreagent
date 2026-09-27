@@ -1,2 +1,2 @@
-langchain-core>=0.3.0
+langchain-core>=1.6.4
 requests>=2.34.2
