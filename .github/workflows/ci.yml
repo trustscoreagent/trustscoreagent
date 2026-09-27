@@ -84,6 +84,9 @@ jobs:
         env:
           ConnectionStrings__PostgreSQL: "Server=localhost;Port=5432;Database=trustscore_test;User Id=trustscore;Password=trustscore;"
           ConnectionStrings__Redis: "localhost:6379"
+          # A service container that failed to start must fail the run, not silently skip the
+          # [PostgresFact]/[RedisFact] tests and leave the build green without having run them.
+          REQUIRE_TEST_SERVICES: "1"
 
       - name: Upload test results
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -92,6 +95,31 @@ jobs:
           name: test-results
           path: "**/TestResults/**"
           retention-days: 30
+
+  tools:
+    name: MCP & tools
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 20
+
+      # The MCP server is what npm publishes: it must at least compile on every change.
+      - name: Build the MCP server
+        working-directory: mcp-server
+        run: |
+          npm ci
+          npm run build
+
+      # The independent verifier checks the golden leaf, root and consistency vectors that the
+      # C# tests also pin; if either side drifts, one of them fails.
+      - name: Self-test the audit proof verifier
+        run: node tools/verify-proof/verify-proof.mjs --self-test
+
+      - name: Compile the Python integrations
+        run: python3 -m py_compile integrations/langchain/trustscoreagent_langchain.py integrations/crewai/trustscoreagent_crewai.py
 
   lint:
     name: Lint & Format

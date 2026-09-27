@@ -46,12 +46,23 @@ public static class PostgresTestServer
     }
 }
 
-/// <summary>A [Fact] that only runs when a PostgreSQL test server is reachable.</summary>
+/// <summary>
+/// Whether the test servers are mandatory. CI sets REQUIRE_TEST_SERVICES=1: there, a PostgreSQL or
+/// Redis that failed to start must fail the run, not quietly skip the tests that need it and leave
+/// the build green without having run them.
+/// </summary>
+public static class TestServices
+{
+    public static bool Required =>
+        Environment.GetEnvironmentVariable("REQUIRE_TEST_SERVICES") == "1";
+}
+
+/// <summary>A [Fact] that only runs when a PostgreSQL test server is reachable (always, in CI).</summary>
 public sealed class PostgresFactAttribute : FactAttribute
 {
     public PostgresFactAttribute()
     {
-        if (PostgresTestServer.MaintenanceConnectionString is null)
+        if (PostgresTestServer.MaintenanceConnectionString is null && !TestServices.Required)
             Skip = PostgresTestServer.SkipReason;
     }
 }
@@ -72,9 +83,14 @@ public abstract class PostgresDatabaseTest : IAsyncLifetime
 
     public Task InitializeAsync()
     {
-        // All tests in the class are [PostgresFact]-skipped; nothing to set up.
         if (PostgresTestServer.MaintenanceConnectionString is not { } maintenance)
+        {
+            if (TestServices.Required)
+                throw new InvalidOperationException(
+                    PostgresTestServer.SkipReason + ", and REQUIRE_TEST_SERVICES=1 forbids skipping.");
+            // All tests in the class are [PostgresFact]-skipped; nothing to set up.
             return Task.CompletedTask;
+        }
 
         _databaseName = $"tsa_test_{Guid.NewGuid():N}";
         using (var conn = new NpgsqlConnection(maintenance))
