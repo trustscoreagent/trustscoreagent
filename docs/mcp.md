@@ -78,7 +78,7 @@ Check the trust score of any AI microservice before calling it.
 
 **Example response:**
 ```
-Trust Score for did:web:api.example.com: 0.87/1.0 (HIGH)
+Trust Score for api.example.com: 0.87/1.0 (HIGH)
 Confidence: 0.94 (based on 2341 ratings)
 
 Dimensions:
@@ -86,9 +86,10 @@ Dimensions:
   Latency:      0.82
   Conformity:   0.91
 
-No recent incidents
 This service supports trust receipts (verified ratings)
 ```
+
+Incidents are not tracked yet, so no incident line is shown (0.2.3 and later).
 
 ### submit_rating
 

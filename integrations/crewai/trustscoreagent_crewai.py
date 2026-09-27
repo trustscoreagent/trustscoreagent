@@ -111,7 +111,8 @@ class _TrustScoreAPI:
         score = data.get("score", 0.5)
         level = "HIGH" if score >= 0.8 else "MODERATE" if score >= 0.5 else "LOW"
         dims = data.get("dimensions") or {}
-        incidents = data.get("recent_incidents", 0) or 0
+        # None means incidents are not tracked: say nothing rather than "no incidents".
+        incidents = data.get("recent_incidents")
         lines = [
             f"Trust score for {data.get('service', service)}: {score}/1.0 ({level})",
             f"Confidence: {data.get('confidence', 0)} "
@@ -120,13 +121,12 @@ class _TrustScoreAPI:
             f"availability={dims.get('availability', 'n/a')}, "
             f"latency={dims.get('latency', 'n/a')}, "
             f"conformity={dims.get('conformity', 'n/a')}",
-            f"{incidents} incident(s) in the last 30 days"
-            if incidents
-            else "No recent incidents",
             "Supports verified receipts"
             if data.get("service_supports_receipts")
             else "Does not yet support verified receipts",
         ]
+        if isinstance(incidents, int):
+            lines.insert(3, f"{incidents} incident(s) in the last 30 days" if incidents else "No recent incidents")
         return "\n".join(lines)
 
     def submit_rating(

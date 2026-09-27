@@ -1,8 +1,37 @@
 # Changelog
 
-All notable changes to TrustScoreAgent will be documented in this file.
+All notable changes to TrustScoreAgent will be documented in this file. The API, the agent card
+and the MCP server share one version number per release.
 
 ## [Unreleased]
+
+## [0.2.3] - 2026-09-27
+
+### Fixed
+- `GET /v1/services?sort_by=score` sorted, and `min_score` filtered, by the aggregate
+  `alpha/(alpha+beta)` instead of the score it displays, so the list came out of order
+- `recent_incidents` is `null` instead of a hard-coded `0`: incidents are not tracked yet, and the
+  MCP server and Python integrations no longer print "No recent incidents" on no evidence
+- The rate limiter no longer logs the client IP (inside its bucket key) when Redis is down
+- `/health` reports the release version and commit instead of `0.1.0.0`, and the agent card its
+  real version
+- `trustscoreagent.com/llms.txt` and `/.well-known/agent.json` served the landing's HTML; the
+  landing deploy now publishes both from `public/`
+
+### Changed
+- Services created by tests against the live API are kept (their ratings are anchored) but no
+  longer listed (`services.listed`, migration 014)
+- Application logs carry a Cloud Logging `severity`, so errors (including `Merkle integrity` and
+  `Merkle consistency`) reach alerts; alerts now fire on any API or batch-job error and when the
+  batch job has not succeeded for 7 hours
+- Database connections per instance are capped (3, `Database:MaxPoolSize`) and instances limited
+  (prod 4, staging 2) to stay within the database's connection limit
+- Production and staging run as dedicated, least-privilege service accounts instead of the
+  default account with project-wide Editor; staging has its own database user, admin key and
+  signature audience; deployments are accepted from `main` only
+- A test fails CI when the API, the agent card and the MCP listings disagree on the version
+
+## [0.2.2] - 2026-09-26
 
 ### Added
 - **Agent signatures (`X-Agent-Signature`).** An agent identified by a `did:key` signs each
@@ -11,27 +40,30 @@ All notable changes to TrustScoreAgent will be documented in this file.
   at one registry and cannot be replayed or relayed. Unsigned ratings are still accepted at half
   weight, so existing clients keep working; a signature that is present but invalid is rejected
   with `401` rather than downgraded. The MCP server (npm 0.2.0) generates and stores the key.
-- Probe target quarantine: a target that fails every pass for three days is treated as a bad URL
-  rather than as evidence about the service, and stops producing ratings until it answers again
-  (migration 010)
-- `tools/ProbeCandidates`: verifies a probe target against the prober's own HTTP configuration
-  and `ValidateBody` before it is allowed into the config
-- Seed prober: measurements of real public APIs under a transparent probe agent, widened from 21
-  to 49 targets
-- Migrations 006 to 013
-
-### Changed
+- **Merkle v2.** New ratings get a leaf that commits to what they reported (metrics, quality
+  score, receipt and signature verification, weight), not just to their id, service and time; new
+  anchors use an RFC 6962-style tree with leaf/node domain separation and no odd-node duplication.
+  Existing ratings keep their v1 leaf and stay provable. `GET /v1/audit/proof` returns the
+  committed fields and versions, `POST /v1/rate` returns the `rating_id` to ask for it, and
+  `tools/verify-proof` verifies a proof independently (migration 013, `docs/MERKLE-SPEC.md`)
 - **Consistency proofs.** `GET /v1/audit/consistency?from=&to=` proves a later v2 anchor extends
   an earlier one (RFC 6962 / RFC 9162), `GET /v1/audit/anchors` lists the root history, the
   anchoring job logs a `Merkle consistency` error if a new anchor does not extend the previous one,
   and `tools/verify-proof --history` checks the chain. Erasure clears the agent DID and comment
   instead of deleting a rating, which would break the chain
-- **Merkle v2.** New ratings get a leaf that commits to what they reported (metrics, quality
-  score, receipt and signature verification, weight), not just to their id, service and time; new
-  anchors use an RFC 6962-style tree with leaf/node domain separation and no odd-node duplication.
-  Existing ratings keep their v1 leaf and stay provable. `GET /v1/audit/proof` now returns the
-  committed fields and versions, `POST /v1/rate` returns the `rating_id` to ask for it, and
-  `tools/verify-proof` verifies a proof independently (migration 013, `docs/MERKLE-SPEC.md`)
+- Probe target quarantine: a target that fails for three days is treated as a bad URL rather than
+  as evidence about the service, and stops producing ratings until it answers again (migrations
+  010 and 012); `ExpectText` conformity check for non-JSON targets
+- `tools/ProbeCandidates`: verifies a probe target against the prober's own HTTP configuration
+  and `ValidateBody` before it is allowed into the config
+- LangChain and CrewAI tools (`integrations/`)
+- MCP server as an `.mcpb` bundle, attached to each GitHub release; a Dockerfile for registries
+  such as Glama; the official MCP Registry listing is published from CI
+- Staging has its own database and Redis key prefix (`Redis:KeyPrefix`)
+- Migrations 009 to 013
+
+### Changed
+- Seed prober widened from 21 to 49 targets, run concurrently (bounded), every 6 hours
 - The machine-readable surfaces (MCP tool descriptions, `llms.txt`, the A2A agent card, OpenAPI
   descriptions) now explain *why* checking and reporting are rational for an agent, instead of
   only describing mechanics. `submit_rating` previously asked for altruism ("this helps other
@@ -40,12 +72,8 @@ All notable changes to TrustScoreAgent will be documented in this file.
   the sender never proved can neither damage nor borrow that agent's standing
 - The per-service rating quota is keyed on a proven identity; unsigned callers are bucketed by
   IP, so an asserted DID cannot exhaust another agent's quota
-- Seed probe runs its targets concurrently (bounded)
-- Rate limiter now **fails open** when Redis is unavailable (per the "never fail if Redis is
-  down" convention), falling back to a bounded per-instance limiter; the receipt nonce
-  anti-replay stays fail-closed
-- Merkle anchoring is reproducible under concurrent writes (cutoff-based snapshot)
-- Receipt verification accepts standard DID key encodings (multibase multicodec, base58, JWK)
+- Infrastructure: Redis moved to Upstash (the VPC connector and Memorystore are gone), Cloud Run
+  scales to zero, and the landing deploys to Cloudflare Pages from GitHub Actions
 
 ### Fixed
 - A correctly signed request whose URL differed only in case was rejected with `401`, because the
@@ -55,12 +83,8 @@ All notable changes to TrustScoreAgent will be documented in this file.
   counted as unsigned while the nonce store is down
 - `/v1/agent/trust` returned a stale pre-split value for agents that never signed; it now reports
   both identities (`trust_score`, `unsigned_trust_score`) (migration 011)
-- Probe quarantine is decided by how long a target has been failing (3 days), not by a pass count
-  that changed meaning with the schedule (migration 012), and a `probe_target_health` error no
-  longer aborts the probe pass or drops a measurement
-- Three probe targets had no conformity check, so conformity always read valid: `date.nager.at`
-  and `api.github.com` now check a JSON field (and no longer use a year-pinned URL or a
-  plain-text endpoint), and arXiv, which answers Atom XML, uses the new `ExpectText` check
+- A `probe_target_health` error no longer aborts the probe pass or drops a measurement
+- Three probe targets had no conformity check, so conformity always read valid
 - MCP server 0.2.2: without a usable key it keeps a stable fallback DID in
   `~/.trustscoreagent/agent-id` instead of a new one per restart, and several instances starting
   at once no longer race to write different keys
@@ -72,6 +96,19 @@ All notable changes to TrustScoreAgent will be documented in this file.
   it, but a root nobody recorded could have been replaced before anyone looked
 - Signing is not mandatory, and key possession proves identity rather than uniqueness, so it
   stops impersonation but is not Sybil resistance on its own
+
+## [0.1.1] - 2026-07-11
+
+### Added
+- Seed prober: measurements of real public APIs under a transparent probe agent
+- Migrations 006 to 008 (removed fictitious seeds, performance indexes, anchor cutoff)
+
+### Changed
+- Rate limiter now **fails open** when Redis is unavailable (per the "never fail if Redis is
+  down" convention), falling back to a bounded per-instance limiter; the receipt nonce
+  anti-replay stays fail-closed
+- Merkle anchoring is reproducible under concurrent writes (cutoff-based snapshot)
+- Receipt verification accepts standard DID key encodings (multibase multicodec, base58, JWK)
 
 ### Security
 - Receipts are bound to the submitting agent; SSRF guard also covers the seed prober and NAT64
@@ -97,9 +134,15 @@ All notable changes to TrustScoreAgent will be documented in this file.
 ### Security
 - Admin endpoints require API key authentication
 - SSRF protection in DID resolver (blocks private IPs)
-- Rate limiter (fail-open on Redis outage as of Unreleased; see above)
+- Redis-based rate limiter
 - Admin key compared in constant time
 - Input validation: length limits, range checks on all fields
 - Request body size limited to 1MB
 - Swagger disabled in production
 - Global rate limiting: 120 requests/minute per IP
+
+[Unreleased]: https://github.com/trustscoreagent/trustscoreagent/compare/v0.2.3...HEAD
+[0.2.3]: https://github.com/trustscoreagent/trustscoreagent/compare/v0.2.2...v0.2.3
+[0.2.2]: https://github.com/trustscoreagent/trustscoreagent/compare/v0.1.1...v0.2.2
+[0.1.1]: https://github.com/trustscoreagent/trustscoreagent/releases/tag/v0.1.1
+[0.1.0]: https://github.com/trustscoreagent/trustscoreagent/commits/v0.1.1

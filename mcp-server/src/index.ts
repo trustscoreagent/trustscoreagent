@@ -507,9 +507,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               `  Latency:      ${score.dimensions?.latency ?? "n/a"}`,
               `  Conformity:   ${score.dimensions?.conformity ?? "n/a"}`,
               ``,
-              score.recent_incidents > 0
-                ? `⚠ ${score.recent_incidents} incidents in the last 30 days`
-                : `No recent incidents`,
+              // null means incidents are not tracked: say nothing rather than "no incidents".
+              ...(typeof score.recent_incidents === "number"
+                ? [score.recent_incidents > 0
+                    ? `${score.recent_incidents} incidents in the last 30 days`
+                    : `No recent incidents`]
+                : []),
               score.service_supports_receipts
                 ? `This service supports trust receipts (verified ratings)`
                 : `This service does not yet support trust receipts`,

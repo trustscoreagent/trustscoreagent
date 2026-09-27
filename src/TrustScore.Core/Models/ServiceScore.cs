@@ -7,7 +7,11 @@ public sealed class ServiceScore
     public double Confidence { get; init; }
     public int RatingsCount { get; init; }
     public DimensionScores Dimensions { get; init; } = new();
-    public int RecentIncidents { get; init; }
+    /// <summary>
+    /// Null while incidents are not tracked. It used to be a hard-coded 0, which clients
+    /// displayed as "no recent incidents": a claim nothing had measured.
+    /// </summary>
+    public int? RecentIncidents { get; init; }
     public DateTimeOffset? LastRatedAt { get; init; }
     public bool ServiceSupportsReceipts { get; init; }
 }

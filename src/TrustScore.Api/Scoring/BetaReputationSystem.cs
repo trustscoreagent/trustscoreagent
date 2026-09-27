@@ -13,6 +13,24 @@ public sealed class BetaReputationSystem : IScoringEngine
     private const double LatencyWeight = 0.35;
     private const double ConformityWeight = 0.25;
 
+    /// <summary>
+    /// The displayed score as a SQL expression over the services table, built from the same weights
+    /// as <see cref="CalculateScore"/>. Sorting and min_score filtering must use this, not the
+    /// aggregate alpha/(alpha+beta): that is a different number, and listing by it put services out
+    /// of the order of the scores it displayed.
+    /// </summary>
+    public static readonly string ScoreSql = string.Format(
+        System.Globalization.CultureInfo.InvariantCulture,
+        "({0} * {3} + {1} * {4} + {2} * {5})",
+        AvailabilityWeight, LatencyWeight, ConformityWeight,
+        DimensionSql("alpha_availability", "beta_availability"),
+        DimensionSql("alpha_latency", "beta_latency"),
+        DimensionSql("alpha_conformity", "beta_conformity"));
+
+    // Mirrors BetaScore: alpha / (alpha + beta), or 0.5 when there is no evidence at all.
+    private static string DimensionSql(string alpha, string beta) =>
+        $"COALESCE({alpha} / NULLIF({alpha} + {beta}, 0), 0.5)";
+
     // Smoothing constant for the confidence curve: confidence reaches 0.5 at this many effective
     // observations. Higher = more evidence required before the score is treated as confident.
     private const double ConfidenceSmoothing = 10.0;
@@ -60,7 +78,7 @@ public sealed class BetaReputationSystem : IScoringEngine
                 Latency = Math.Round(latency, 4),
                 Conformity = Math.Round(conformity, 4),
             },
-            RecentIncidents = 0, // Phase 2: track incidents over sliding window
+            RecentIncidents = null, // not tracked yet; null rather than a 0 that reads as "none"
             LastRatedAt = service.LastRatedAt,
             ServiceSupportsReceipts = service.SupportsReceipts,
         };
