@@ -65,8 +65,9 @@ curl -X POST "https://api.trustscoreagent.com/v1/rate" \
 
 ### See a real verified rating
 
-A live demo service publishes receipts. Its detailed breakdown shows verified vs.
-unverified ratings:
+In July 2026 a demo service (`did:web:trustscoreagent.pages.dev`, with a key used once and then
+destroyed) issued a real receipt, which was accepted at verified weight. Its detailed breakdown
+still shows that verified rating next to unverified ones:
 
 ```bash
 curl "https://api.trustscoreagent.com/v1/score/detailed?service=trustscoreagent.pages.dev/receipts-demo"

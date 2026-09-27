@@ -3,9 +3,9 @@
 Gives a LangChain agent three tools backed by the free, open reputation registry
 at https://api.trustscoreagent.com (no account or API key required):
 
-- ``trustscore_check_reputation`` — check a service's trust score *before* calling it
-- ``trustscore_submit_rating``     — rate a service *after* calling it
-- ``trustscore_list_services``     — discover reliable services
+- ``trustscore_check_reputation``: check a service's trust score *before* calling it
+- ``trustscore_submit_rating``: rate a service *after* calling it
+- ``trustscore_list_services``: discover reliable services
 
 Usage::
 
@@ -36,8 +36,9 @@ def _resolve_agent_did() -> str:
     """Return a stable per-machine agent DID.
 
     Honors ``TRUSTSCORE_AGENT_DID``; otherwise reuses (or creates) the id stored
-    in ``~/.trustscoreagent/agent-id`` — the same file the MCP server uses, so an
-    install shares one identity across tools. Contains no personal information.
+    in ``~/.trustscoreagent/agent-id``. The MCP server normally signs as its own
+    ``did:key`` and reads that file only when it has no usable key, so these tools
+    and the MCP server do not share an identity. Contains no personal information.
     """
     env = os.environ.get("TRUSTSCORE_AGENT_DID")
     if env:
@@ -202,7 +203,7 @@ class _TrustScoreAPI:
             level = "HIGH" if score >= 0.8 else "MODERATE" if score >= 0.5 else "LOW"
             receipts = " [receipts]" if svc.get("service_supports_receipts") else ""
             rows.append(
-                f"{i}. {svc.get('service')} — {score}/1.0 ({level}) — "
+                f"{i}. {svc.get('service')}: {score}/1.0 ({level}), "
                 f"{svc.get('ratings_count', 0)} ratings{receipts}"
             )
         count = (data.get("pagination") or {}).get("count", len(services))
@@ -212,7 +213,7 @@ class _TrustScoreAPI:
 def _timeout_msg(action: str, timeout: float) -> str:
     return (
         f"Could not {action}: the TrustScoreAgent API did not respond within "
-        f"{timeout:g}s. It may be down or slow — try again later."
+        f"{timeout:g}s. It may be down or slow; try again later."
     )
 
 
@@ -279,8 +280,9 @@ def get_trustscoreagent_tools(
             func=api.submit_rating,
             name="trustscore_submit_rating",
             description=(
-                "Rate an AI microservice AFTER calling it, from your interaction "
-                "metrics (status code, latency, optional receipt). Helps other agents."
+                "Report what happened after calling a service, from metrics you already have "
+                "(status code, latency, whether the response matched). The ratings you write "
+                "are the ones you read back the next time you meet this service."
             ),
             args_schema=SubmitRatingInput,
         ),
