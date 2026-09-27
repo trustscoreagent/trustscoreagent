@@ -12,7 +12,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const api = process.env.TRUSTSCORE_API_URL;
-if (!api || api.includes("api.trustscoreagent.com")) {
+// Compare the parsed host exactly: a substring test would let "api.trustscoreagent.com.evil.net"
+// through, or refuse a staging URL that merely mentions the production name.
+const host = (() => {
+  try {
+    return new URL(api ?? "").hostname.toLowerCase();
+  } catch {
+    return "";
+  }
+})();
+if (!host || host === "api.trustscoreagent.com" || host === "trustscoreagent.com") {
   console.error("Set TRUSTSCORE_API_URL to a staging (non-production) registry.");
   process.exit(2);
 }
