@@ -81,3 +81,6 @@ src/src.sln
 # Copied from public/ by the landing deploy; public/ is the source.
 site/llms.txt
 site/.well-known/agent.json
+
+# Written by mcp-server/scripts/publish-smithery.mjs
+mcp-server/payload.json
