@@ -12,12 +12,15 @@ COPY src/TrustScore.Api/TrustScore.Api.csproj src/TrustScore.Api/
 COPY src/TrustScore.Core/TrustScore.Core.csproj src/TrustScore.Core/
 RUN dotnet restore src/TrustScore.Api/TrustScore.Api.csproj
 
-# Copy everything and build
+# Copy everything and build. The image is built without .git, so the deployed commit is passed
+# in and stamped into InformationalVersion ("0.2.3+<sha>"), which /health reports.
+ARG SOURCE_COMMIT=""
 COPY . .
 RUN dotnet publish src/TrustScore.Api/TrustScore.Api.csproj \
     -c Release \
     -o /app/publish \
-    --no-restore
+    --no-restore \
+    -p:SourceRevisionId="$SOURCE_COMMIT"
 
 FROM mcr.microsoft.com/dotnet/aspnet:8.0-alpine AS runtime
 WORKDIR /app
