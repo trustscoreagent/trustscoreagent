@@ -84,3 +84,4 @@ site/.well-known/agent.json
 
 # Written by mcp-server/scripts/publish-smithery.mjs
 mcp-server/payload.json
+!mcp-server/icon.png

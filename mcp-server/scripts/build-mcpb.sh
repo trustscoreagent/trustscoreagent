@@ -22,7 +22,7 @@ npm run build
 
 echo "==> Staging bundle contents"
 cp -r dist "$STAGE/dist"
-cp manifest.json package.json package-lock.json README.md LICENSE "$STAGE/"
+cp manifest.json icon.png package.json package-lock.json README.md LICENSE "$STAGE/"
 
 echo "==> Installing production dependencies into the bundle"
 ( cd "$STAGE" && npm ci --omit=dev )

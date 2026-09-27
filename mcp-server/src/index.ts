@@ -310,7 +310,10 @@ function signRequest(
 const server = new Server(
   {
     name: "trustscoreagent",
+    title: "TrustScoreAgent",
     version: PACKAGE_VERSION,
+    websiteUrl: "https://trustscoreagent.com",
+    icons: [{ src: "https://trustscoreagent.com/apple-touch-icon.png", mimeType: "image/png", sizes: ["180x180"] }],
   },
   {
     capabilities: {
@@ -320,6 +323,79 @@ const server = new Server(
 );
 
 // List available tools
+// Output schemas: each successful call returns this object as structuredContent alongside the
+// text, so a client can read the numbers instead of parsing prose. Nullable where the API may
+// legitimately have no value (an unknown service has no dimensions or last rating).
+const TRUST_LEVEL = { type: "string", enum: ["HIGH", "MODERATE", "LOW", "UNKNOWN"] } as const;
+const DIMENSIONS = {
+  type: ["object", "null"],
+  properties: {
+    availability: { type: "number" },
+    latency: { type: "number" },
+    conformity: { type: "number" },
+  },
+} as const;
+
+const CHECK_OUTPUT = {
+  type: "object" as const,
+  properties: {
+    service: { type: "string", description: "Canonical service id" },
+    known: { type: "boolean", description: "False when nobody has rated this service yet" },
+    score: { type: "number", minimum: 0, maximum: 1 },
+    trust_level: TRUST_LEVEL,
+    confidence: { type: "number", minimum: 0, maximum: 1 },
+    ratings_count: { type: "integer", minimum: 0 },
+    dimensions: DIMENSIONS,
+    recent_incidents: { type: ["integer", "null"], description: "null while incidents are not tracked" },
+    service_supports_receipts: { type: "boolean" },
+    last_rated: { type: ["string", "null"] },
+  },
+  required: ["service", "known", "score", "trust_level", "confidence", "ratings_count"],
+};
+
+const SUBMIT_OUTPUT = {
+  type: "object" as const,
+  properties: {
+    service: { type: "string" },
+    accepted: { type: "boolean" },
+    rating_id: {
+      type: ["string", "null"],
+      description: "Pass to GET /v1/audit/proof/{rating_id} to verify the rating is in the audit log",
+    },
+    rating_weight: { type: ["string", "null"], description: "verified (valid receipt) or unverified" },
+    agent_identity: { type: ["string", "null"], description: "signed or unsigned" },
+    new_score: { type: ["number", "null"] },
+  },
+  required: ["service", "accepted"],
+};
+
+const LIST_OUTPUT = {
+  type: "object" as const,
+  properties: {
+    count: { type: "integer", minimum: 0 },
+    services: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          service: { type: "string" },
+          score: { type: "number" },
+          trust_level: TRUST_LEVEL,
+          confidence: { type: ["number", "null"] },
+          ratings_count: { type: "integer" },
+          dimensions: DIMENSIONS,
+          service_supports_receipts: { type: "boolean" },
+        },
+        required: ["service", "score", "trust_level", "ratings_count"],
+      },
+    },
+  },
+  required: ["count", "services"],
+};
+
+const trustLevelOf = (score: number): "HIGH" | "MODERATE" | "LOW" =>
+  score >= 0.8 ? "HIGH" : score >= 0.5 ? "MODERATE" : "LOW";
+
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
   tools: [
     {
@@ -348,6 +424,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         },
         required: ["service_did"],
       },
+      outputSchema: CHECK_OUTPUT,
+      annotations: { title: "Check a service's reputation", readOnlyHint: true, openWorldHint: true },
     },
     {
       name: "submit_rating",
@@ -406,6 +484,15 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         },
         required: ["service_did", "status_code", "latency_ms"],
       },
+      outputSchema: SUBMIT_OUTPUT,
+      // Writes a rating (not idempotent: two calls are two ratings) but never deletes anything.
+      annotations: {
+        title: "Submit a rating",
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
     },
     {
       name: "list_services",
@@ -444,6 +531,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         },
         required: [],
       },
+      outputSchema: LIST_OUTPUT,
+      annotations: { title: "List rated services", readOnlyHint: true, openWorldHint: true },
     },
   ],
 }));
@@ -471,6 +560,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       // Unknown service — neutral score, no data
       if (score.known === false) {
         return {
+          structuredContent: {
+            service: score.service,
+            known: false,
+            score: 0.5,
+            trust_level: "UNKNOWN",
+            confidence: 0,
+            ratings_count: 0,
+            dimensions: null,
+            recent_incidents: null,
+            service_supports_receipts: false,
+            last_rated: null,
+          },
           content: [
             {
               type: "text" as const,
@@ -480,21 +581,28 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 `Confidence: 0 (no data)`,
                 ``,
                 `This service has never been rated. Proceed with caution.`,
-                `After calling it, consider submitting a rating to help other agents.`,
+                `If you call it, submit a rating: the next check of this service will read it back.`,
               ].join("\n"),
             },
           ],
         };
       }
 
-      const trustLevel =
-        score.score >= 0.8
-          ? "HIGH"
-          : score.score >= 0.5
-            ? "MODERATE"
-            : "LOW";
+      const trustLevel = trustLevelOf(score.score);
 
       return {
+        structuredContent: {
+          service: score.service,
+          known: true,
+          score: score.score,
+          trust_level: trustLevel,
+          confidence: score.confidence ?? 0,
+          ratings_count: score.ratings_count ?? 0,
+          dimensions: score.dimensions ?? null,
+          recent_incidents: typeof score.recent_incidents === "number" ? score.recent_incidents : null,
+          service_supports_receipts: Boolean(score.service_supports_receipts),
+          last_rated: score.last_rated ?? null,
+        },
         content: [
           {
             type: "text" as const,
@@ -594,6 +702,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       const result = await response.json();
       return {
+        structuredContent: {
+          service: serviceDid,
+          accepted: result.accepted !== false,
+          rating_id: result.rating_id ?? null,
+          rating_weight: result.rating_weight ?? null,
+          agent_identity: result.agent_identity ?? null,
+          new_score: typeof result.new_score === "number" ? result.new_score : null,
+        },
         content: [
           {
             type: "text" as const,
@@ -602,6 +718,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               `Rating weight: ${result.rating_weight ?? "unknown"}`,
               `Agent identity: ${result.agent_identity ?? "unknown"}`,
               `Updated score: ${result.new_score ?? "unknown"}`,
+              ...(result.rating_id ? [`Rating id: ${result.rating_id} (audit proof: /v1/audit/proof/${result.rating_id})`] : []),
             ].join("\n"),
           },
         ],
@@ -637,6 +754,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         services: Array<{
           service: string;
           score: number;
+          confidence?: number;
           ratings_count: number;
           dimensions: { availability: number; latency: number; conformity: number };
           service_supports_receipts: boolean;
@@ -646,17 +764,30 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       if (!Array.isArray(data.services) || data.services.length === 0) {
         return {
+          structuredContent: { count: 0, services: [] },
           content: [{ type: "text" as const, text: "No services found matching the criteria." }],
         };
       }
 
       const lines = data.services.map((s, i) => {
-        const trustLevel = s.score >= 0.8 ? "HIGH" : s.score >= 0.5 ? "MODERATE" : "LOW";
+        const trustLevel = trustLevelOf(s.score);
         const receipt = s.service_supports_receipts ? " [receipts]" : "";
         return `${i + 1}. ${s.service}: ${s.score}/1.0 (${trustLevel}), ${s.ratings_count} ratings${receipt}`;
       });
 
       return {
+        structuredContent: {
+          count: data.pagination?.count ?? data.services.length,
+          services: data.services.map((s) => ({
+            service: s.service,
+            score: s.score,
+            trust_level: trustLevelOf(s.score),
+            confidence: s.confidence ?? null,
+            ratings_count: s.ratings_count,
+            dimensions: s.dimensions ?? null,
+            service_supports_receipts: Boolean(s.service_supports_receipts),
+          })),
+        },
         content: [
           {
             type: "text" as const,
