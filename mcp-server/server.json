@@ -6,13 +6,13 @@
     "url": "https://github.com/trustscoreagent/trustscoreagent",
     "source": "github"
   },
-  "version": "0.2.3",
+  "version": "0.2.4",
   "websiteUrl": "https://trustscoreagent.com",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@trustscoreagent/mcp-server",
-      "version": "0.2.3",
+      "version": "0.2.4",
       "transport": {
         "type": "stdio"
       },
