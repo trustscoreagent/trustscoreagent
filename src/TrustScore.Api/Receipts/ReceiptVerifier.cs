@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using NSec.Cryptography;
+using TrustScore.Api.Logging;
 using TrustScore.Core.Interfaces;
 using TrustScore.Core.Models;
 
@@ -50,7 +51,7 @@ public sealed class ReceiptVerifier : IReceiptVerifier
         if (payload.ServiceDid != expectedServiceDid)
         {
             _logger.LogWarning("Receipt service_did mismatch: expected {Expected}, got {Got}",
-                expectedServiceDid, payload.ServiceDid);
+                LogValue.Safe(expectedServiceDid), LogValue.Safe(payload.ServiceDid));
             return ReceiptVerificationResult.Failed(ReceiptVerificationStatus.InvalidSignature);
         }
 
@@ -67,7 +68,7 @@ public sealed class ReceiptVerifier : IReceiptVerifier
         var age = DateTimeOffset.UtcNow - receiptTime;
         if (age > MaxReceiptAge || age < -MaxClockSkew)
         {
-            _logger.LogInformation("Receipt timestamp out of range for {ServiceDid}", expectedServiceDid);
+            _logger.LogInformation("Receipt timestamp out of range for {ServiceDid}", LogValue.Safe(expectedServiceDid));
             return ReceiptVerificationResult.Failed(ReceiptVerificationStatus.TimestampExpired);
         }
 
@@ -75,7 +76,7 @@ public sealed class ReceiptVerifier : IReceiptVerifier
         var publicKeyBytes = await _didResolver.ResolvePublicKeyAsync(payload.ServiceDid);
         if (publicKeyBytes is null)
         {
-            _logger.LogWarning("DID resolution failed for {ServiceDid}", payload.ServiceDid);
+            _logger.LogWarning("DID resolution failed for {ServiceDid}", LogValue.Safe(payload.ServiceDid));
             return ReceiptVerificationResult.Failed(ReceiptVerificationStatus.DidResolutionFailed);
         }
 
@@ -92,13 +93,13 @@ public sealed class ReceiptVerifier : IReceiptVerifier
 
             if (!isValid)
             {
-                _logger.LogWarning("Invalid Ed25519 signature for receipt from {ServiceDid}", payload.ServiceDid);
+                _logger.LogWarning("Invalid Ed25519 signature for receipt from {ServiceDid}", LogValue.Safe(payload.ServiceDid));
                 return ReceiptVerificationResult.Failed(ReceiptVerificationStatus.InvalidSignature);
             }
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Signature verification error for {ServiceDid}", payload.ServiceDid);
+            _logger.LogWarning(ex, "Signature verification error for {ServiceDid}", LogValue.Safe(payload.ServiceDid));
             return ReceiptVerificationResult.Failed(ReceiptVerificationStatus.InvalidSignature);
         }
 
@@ -110,7 +111,7 @@ public sealed class ReceiptVerifier : IReceiptVerifier
         if (payload.AgentDid != expectedAgentDid)
         {
             _logger.LogWarning("Receipt agent_did mismatch for {ServiceDid}: signed {Signed}, submitted by {Submitter}",
-                payload.ServiceDid, payload.AgentDid, expectedAgentDid);
+                LogValue.Safe(payload.ServiceDid), LogValue.Safe(payload.AgentDid), LogValue.Safe(expectedAgentDid));
             return ReceiptVerificationResult.Failed(ReceiptVerificationStatus.InvalidSignature);
         }
 
@@ -123,7 +124,7 @@ public sealed class ReceiptVerifier : IReceiptVerifier
         var nonceClaimed = await _cache.SetIfNotExistsAsync(nonceKey, "used", NonceTtl);
         if (!nonceClaimed)
         {
-            _logger.LogWarning("Nonce replay or Redis unavailable: {Nonce} for {ServiceDid}", payload.Nonce, expectedServiceDid);
+            _logger.LogWarning("Nonce replay or Redis unavailable: {Nonce} for {ServiceDid}", LogValue.Safe(payload.Nonce), LogValue.Safe(expectedServiceDid));
             return ReceiptVerificationResult.Rejected(ReceiptVerificationStatus.NonceAlreadyUsed);
         }
 
