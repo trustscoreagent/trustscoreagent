@@ -71,6 +71,7 @@ public class AuditEndpointTests : IClassFixture<WebApplicationFactory<Program>>
             Task.FromResult<IReadOnlyList<MerkleAnchor>>(Array.Empty<MerkleAnchor>());
         public Task<ConsistencyProofResult> GetConsistencyProofAsync(int fromId, int toId) =>
             Task.FromResult(new ConsistencyProofResult { Status = ConsistencyProofStatus.AnchorNotFound });
+        public Task<byte[]?> GetAnchorTimestampFileAsync(int anchorId) => Task.FromResult<byte[]?>(null);
     }
 
     [Fact]
@@ -132,6 +133,7 @@ public class AuditEndpointTests : IClassFixture<WebApplicationFactory<Program>>
         public Task<IReadOnlyList<MerkleAnchor>> GetAnchorsAsync(int limit, int? beforeId) =>
             Task.FromResult<IReadOnlyList<MerkleAnchor>>(anchors.Where(a => beforeId is null || a.Id < beforeId).Take(limit).ToList());
         public Task<ConsistencyProofResult> GetConsistencyProofAsync(int fromId, int toId) => Task.FromResult(result);
+        public Task<byte[]?> GetAnchorTimestampFileAsync(int anchorId) => Task.FromResult<byte[]?>(null);
     }
 
     private static readonly MerkleAnchor A1 = new() { Id = 1, MerkleRoot = "aa", LeafCount = 3, TreeVersion = 2 };

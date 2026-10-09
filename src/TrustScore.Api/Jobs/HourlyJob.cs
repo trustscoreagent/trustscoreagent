@@ -7,8 +7,8 @@ using TrustScore.Core.Interfaces;
 namespace TrustScore.Api.Jobs;
 
 /// <summary>
-/// Batch job (every 6 hours; the name is historical) that runs the seed probe, EigenTrust and
-/// Merkle tree anchoring.
+/// Batch job (every 6 hours; the name is historical) that runs the seed probe, EigenTrust,
+/// Merkle tree anchoring and the OpenTimestamps proofs of the anchored roots.
 /// Invoked via: dotnet TrustScore.Api.dll --job
 /// Designed for Cloud Run Jobs triggered by Cloud Scheduler.
 /// </summary>
@@ -31,6 +31,7 @@ public static class HourlyJob
                          ("SeedProbe", () => RunSeedProbe(services, logger)),
                          ("EigenTrust", () => RunEigenTrust(services, logger)),
                          ("MerkleAnchor", () => RunMerkleAnchor(services, logger)),
+                         ("OpenTimestamps", () => RunOpenTimestamps(services, logger)),
                      })
             {
                 try { await step(); }
@@ -52,6 +53,17 @@ public static class HourlyJob
         using var scope = services.CreateScope();
         var prober = scope.ServiceProvider.GetRequiredService<SeedProber>();
         await prober.RunAsync();
+    }
+
+    private static async Task RunOpenTimestamps(IServiceProvider services, ILogger logger)
+    {
+        using var scope = services.CreateScope();
+        if (scope.ServiceProvider.GetService<AnchorTimestamper>() is not { } timestamper)
+        {
+            logger.LogInformation("OpenTimestamps: not configured, skipping");
+            return;
+        }
+        await timestamper.RunAsync();
     }
 
     private static async Task RunEigenTrust(IServiceProvider services, ILogger logger)
@@ -175,10 +187,7 @@ public static class HourlyJob
 
         logger.LogInformation("Merkle: anchor stored in database");
 
-        // TODO Phase 2: Publish root to Base L2 blockchain
-        // var txHash = await blockchainService.AnchorRootAsync(rootHex);
-        // await conn.ExecuteAsync("UPDATE merkle_anchors SET blockchain='base', transaction_hash=@Tx WHERE merkle_root=@Root",
-        //     new { Tx = txHash, Root = rootHex });
+        // The root is then committed into Bitcoin by the OpenTimestamps step (AnchorTimestamper).
     }
 
     // Positional: Dapper binds it by constructor, so column order and exact types matter.

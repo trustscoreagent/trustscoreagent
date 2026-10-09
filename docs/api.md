@@ -6,8 +6,7 @@ No account, no API key. All core endpoints are free. Responses are JSON with
 `snake_case` fields.
 
 > **Status: Phase 1 (early).** The API is live and stable in shape, but the dataset is
-> still small and some features (blockchain anchoring, x402 payments, mandatory agent
-> signatures) are Phase 2. See the [project README](https://github.com/trustscoreagent/trustscoreagent#readme).
+> still small and some features (x402 payments, mandatory agent signatures) are Phase 2. See the [project README](https://github.com/trustscoreagent/trustscoreagent#readme).
 
 ## Service identifiers
 
@@ -246,7 +245,7 @@ based on how consistent the agent's ratings are with the consensus.
 ```
 GET /v1/audit/root
 ```
-Returns the latest anchored Merkle root (and, in Phase 2, its on-chain reference).
+Returns the latest anchored Merkle root, with its OpenTimestamps status (see below).
 
 ```
 GET /v1/audit/proof/{rating_id}
@@ -262,6 +261,24 @@ GET /v1/audit/anchors?limit=20&before=<id>
 ```
 Anchored roots, newest first, each with its `leaf_count` and `tree_version`. `next_before` pages
 further back. Record them: they are what consistency proofs are checked against.
+
+```
+GET /v1/audit/anchors/{id}/ots
+```
+The anchor's [OpenTimestamps](https://opentimestamps.org) proof, a standard `.ots` file over its
+`merkle_root`. Each root is submitted to public calendars within 6 hours of anchoring, which
+commit it into a Bitcoin transaction; the registry then swaps the pending proof for the complete
+one. Each anchor in `/v1/audit/anchors` and `/v1/audit/root` says where it stands:
+
+```json
+"opentimestamps": { "status": "bitcoin", "bitcoin_block_height": 917342, "proof": "/v1/audit/anchors/42/ots" }
+```
+
+`status` is `pending` (calendars hold the root) or `bitcoin` (committed in that block);
+`opentimestamps` is `null` before the root is submitted, and for v1 anchors. `404` while there is
+no proof. Check it with `node tools/verify-proof/verify-proof.mjs --ots <id>` (no dependencies,
+reads the block from a public explorer) or `ots verify -d <merkle_root> trustscoreagent-anchor-<id>.ots`
+(needs a Bitcoin node).
 
 ```
 GET /v1/audit/consistency?from=<older id>&to=<newer id>

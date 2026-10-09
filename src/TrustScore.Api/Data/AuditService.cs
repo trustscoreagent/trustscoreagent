@@ -25,7 +25,8 @@ public sealed class AuditService : IAuditService
     private const string AnchorColumns =
         "id AS Id, merkle_root AS MerkleRoot, leaf_count AS LeafCount, anchored_at AS AnchoredAt, " +
         "cutoff_at AS CutoffAt, tree_version::int AS TreeVersion, blockchain AS Blockchain, " +
-        "contract_address AS ContractAddress, transaction_hash AS TransactionHash, block_number AS BlockNumber";
+        "contract_address AS ContractAddress, transaction_hash AS TransactionHash, block_number AS BlockNumber, " +
+        "ots_status AS OtsStatus, ots_bitcoin_height AS OtsBitcoinHeight";
 
     public async Task<MerkleAnchor?> GetLatestAnchorAsync()
     {
@@ -54,6 +55,16 @@ public sealed class AuditService : IAuditService
         using var conn = _db.CreateConnection();
         return await conn.QuerySingleOrDefaultAsync<MerkleAnchor>(
             $"SELECT {AnchorColumns} FROM merkle_anchors WHERE id = @Id", new { Id = id });
+    }
+
+    public async Task<byte[]?> GetAnchorTimestampFileAsync(int anchorId)
+    {
+        using var conn = _db.CreateConnection();
+        var row = await conn.QuerySingleOrDefaultAsync<(string Root, byte[]? Proof)>(
+            "SELECT merkle_root, ots_proof FROM merkle_anchors WHERE id = @Id", new { Id = anchorId });
+        if (row.Proof is null)
+            return null;
+        return OtsTimestamp.Parse(row.Proof).ToDetachedFile(Convert.FromHexString(row.Root));
     }
 
     public async Task<ConsistencyProofResult> GetConsistencyProofAsync(int fromId, int toId)

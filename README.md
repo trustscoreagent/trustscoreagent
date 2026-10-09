@@ -5,7 +5,7 @@ Free, open reputation registry for AI microservices. Agents check trust scores b
 > **Status: Phase 1 (early).** The API, scoring (Beta + EigenTrust), receipt verification,
 > Merkle audit trail and MCP server are implemented and tested, but the public dataset is
 > still small (seeded by a transparent probe of public APIs), and parts of the design
-> (on-chain anchoring, x402 payments, *mandatory* agent signatures) are Phase 2. We publish
+> (x402 payments, *mandatory* agent signatures) are Phase 2. We publish
 > early and openly on purpose: the trust layer for the agentic economy should exist, be
 > auditable, and be adoptable *before* it becomes critical. See the trust model in
 > [SECURITY.md](SECURITY.md).
@@ -87,6 +87,7 @@ open http://localhost:5000/swagger
 | `GET /v1/audit/proof/{id}` | Inclusion proof for a rating, with the fields it commits to |
 | `GET /v1/audit/anchors` | History of anchored roots |
 | `GET /v1/audit/consistency?from=&to=` | Proof that a later root extends an earlier one |
+| `GET /v1/audit/anchors/{id}/ots` | OpenTimestamps proof that the root is committed in Bitcoin |
 | `GET /v1/stats?days=` | How much the registry is used (aggregate counts) |
 
 ### Premium (free for now, x402 micropayments later)
@@ -164,8 +165,7 @@ TrustScoreAgent is **Phase 1 (early)**. What that means in practice:
   `did:key` sign each rating with their Ed25519 key (`X-Agent-Signature`), which binds the
   rating to the holder of that key. Unsigned ratings still count at half weight so existing
   clients keep working, which means a rating is only as attributable as its signature.
-  Verified service **receipts** remain the strongest signal, and on-chain Merkle anchoring
-  is still Phase 2.
+  Verified service **receipts** remain the strongest signal.
 
 See [SECURITY.md](SECURITY.md) for the full trust model and how to report vulnerabilities.
 

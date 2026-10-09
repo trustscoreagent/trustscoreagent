@@ -732,6 +732,8 @@ internal class FakeAuditService : IAuditService
 
     public Task<ConsistencyProofResult> GetConsistencyProofAsync(int fromId, int toId)
         => Task.FromResult(new ConsistencyProofResult { Status = ConsistencyProofStatus.AnchorNotFound });
+
+    public Task<byte[]?> GetAnchorTimestampFileAsync(int anchorId) => Task.FromResult<byte[]?>(null);
 }
 
 

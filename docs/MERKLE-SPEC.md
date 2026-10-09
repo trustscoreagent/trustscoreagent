@@ -18,9 +18,9 @@ rating with that id, service and timestamp is in the log, not what it reported.
 
 What a proof does not establish, whatever the version:
 
-- **When** the root was fixed. Until on-chain anchoring is active (see below), roots are published
-  by the registry itself. Consistency proofs (below) show every later root extends the ones you
-  recorded, but a root nobody recorded could have been replaced before anyone looked.
+- **When** the root was fixed, on its own. That comes from the root's OpenTimestamps proof (see
+  below): once it is in Bitcoin, the root, and so every rating under it, existed no later than that
+  block. Before that, and for roots never stamped, only roots you recorded yourself are fixed.
 - **Who** rated. The agent DID is not committed (see [Privacy](#privacy)).
 - That the rating is **honest**. The log records what was submitted and how it was weighted.
 
@@ -152,8 +152,8 @@ For a v1 leaf, `committed` holds only `id`, `service` and `created_at` (in the v
 3. Starting from `leaf_hash`, for each proof node in order: if `is_right`, `current = node(current,
    hash)`, else `current = node(hash, current)`, with `node` from `tree_version`. The result must
    equal `merkle_root`.
-4. `merkle_root` must equal the root published by `GET /v1/audit/root` (and, once on-chain
-   anchoring is active, the root recorded on chain).
+4. `merkle_root` must equal the root published by `GET /v1/audit/root`, and, to know it was not
+   replaced since, a root committed into Bitcoin (see below).
 
 Proofs are always against the latest anchor. A rating newer than its cutoff is not provable yet
 and returns `404`.
@@ -229,13 +229,34 @@ those two columns and keeps the rating: its leaf is unchanged and no longer link
 Deleting the row instead would remove an anchored leaf, which every later consistency proof
 would expose as history being rewritten.
 
-## Anchoring cadence and on-chain publication
+## Anchoring cadence and Bitcoin timestamps
 
 Roots are computed by the batch job every 6 hours and stored in `merkle_anchors` with their
 `cutoff_at` and `tree_version`.
 
-Publishing each root on a public chain (Base L2 is the candidate: a 32-byte hash per anchor, a few
-cents a month) is planned but not active: `blockchain`, `transaction_hash` and `block_number` in
-`/v1/audit/root` are `null` until it is. Until then, anyone who wants protection against history
-being rewritten should record roots themselves over time.
+Each v2 root is then timestamped with [OpenTimestamps](https://opentimestamps.org): the job
+submits the 32-byte root, as the digest, to public calendars (a.pool.opentimestamps.org,
+b.pool.opentimestamps.org, a.pool.eternitywall.com; one answer is enough). Each calendar aggregates
+the digests it receives into a Merkle tree of its own and commits that tree's root into a Bitcoin
+transaction within a few hours. The answer is a pending proof; on later runs (from 2 hours after
+anchoring) the job asks the calendar named in it for the completed proof and stores it. Calendars
+being down only delays this. Cost: none, the calendars are free.
+
+`GET /v1/audit/anchors/{id}/ots` serves the proof as a standard detached `.ots` file whose digest
+is `merkle_root` (file hash operation SHA-256). Following its operations from the root ends, for a
+complete proof, in a Bitcoin block header attestation: the result must equal that block's Merkle
+root (in internal byte order, i.e. reversed from how explorers display it). Then the root existed
+no later than the block's time, and since a consistency proof links every later root to it, so
+did every rating anchored under it.
+
+To check one:
+
+- `node tools/verify-proof/verify-proof.mjs --ots <anchor id>` follows the proof and compares
+  against the block header from a public Esplora explorer (`--explorer` for your own);
+- or download the file and run `ots verify -d <merkle_root> trustscoreagent-anchor-<id>.ots` with
+  the reference client and your own Bitcoin node.
+
+What this does not cover: anchors made before 2026-10 were stamped when this started, so their
+timestamp is from then, not from when they were anchored. The `blockchain`, `transaction_hash` and
+`block_number` fields, kept for compatibility, stay `null`.
 
