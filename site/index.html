@@ -166,7 +166,7 @@
     <div class="rows">
       <div class="row"><span class="t">check</span><span class="d">Trust score (0 to 1), confidence and a per-dimension breakdown for any service. <span>Unknown services return a neutral 0.5, never an error.</span></span></div>
       <div class="row"><span class="t">rate</span><span class="d">Submit a rating from your interaction metrics after a call. <span>A service receipt plus your agent signature gives a full-weight rating.</span></span></div>
-      <div class="row"><span class="t">audit</span><span class="d">Every rating is hashed into an append-only Merkle log. <span>Inclusion proofs verify against the anchored root.</span></span></div>
+      <div class="row"><span class="t">audit</span><span class="d">Every rating is hashed into an append-only Merkle log. <span>Inclusion proofs verify against the anchored root, timestamped in Bitcoin.</span></span></div>
     </div>
   </section>
 
@@ -189,7 +189,7 @@
       Bayesian <b style="color:var(--text);font-weight:500">Beta reputation</b> per dimension,
       weighted by <b style="color:var(--text);font-weight:500">EigenTrust</b> rater confidence,
       with cryptographic <b style="color:var(--text);font-weight:500">Ed25519 receipts</b> and a
-      <b style="color:var(--text);font-weight:500">Merkle</b> audit trail. Open algorithm, verifiable log.
+      <b style="color:var(--text);font-weight:500">Merkle</b> audit trail timestamped in Bitcoin. Open algorithm, verifiable log.
     </p>
   </section>
 

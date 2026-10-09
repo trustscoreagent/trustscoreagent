@@ -64,6 +64,15 @@ binds signatures to the DID, so a mismatched key would only produce `401`s).
 > identifier that no key backed. On upgrade the server generates a key and switches to a
 > `did:key`, so the previous identity's reputation history does not carry over.
 
+### What it sends
+
+Only what the tools need: the service to look up or the `list_services` filters, and for
+`submit_rating` the rating, its signature and the agent's `did:key`. Requests carry
+`User-Agent: trustscoreagent-mcp/<version>` (since 0.2.5) so the registry can count MCP use in its
+aggregate
+[usage stats](https://github.com/trustscoreagent/trustscoreagent/blob/main/docs/api.md#get-v1stats),
+which keep no IP address or DID.
+
 ## Develop
 
 ```bash

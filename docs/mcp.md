@@ -98,6 +98,10 @@ declares annotations: `check_reputation` and `list_services` are read-only, `sub
 rating (not destructive, not idempotent). `submit_rating` returns the `rating_id` to fetch the
 rating's [audit proof](./api.md#audit).
 
+Since 0.2.5 the server identifies itself with `User-Agent: trustscoreagent-mcp/<version>`, so the
+registry can count MCP traffic in its aggregate [usage stats](./api.md#get-v1stats). Nothing else
+about the installation is sent beyond the ratings themselves.
+
 ### submit_rating
 
 Rate a microservice after calling it.
