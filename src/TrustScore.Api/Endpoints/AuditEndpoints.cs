@@ -79,6 +79,7 @@ public static class AuditEndpoints
                 contract_address = anchor.ContractAddress,
                 transaction_hash = anchor.TransactionHash,
                 block_number = anchor.BlockNumber,
+                opentimestamps = OtsJson(anchor),
             });
         })
         .WithName("GetAuditRoot")
@@ -86,7 +87,8 @@ public static class AuditEndpoints
         .Produces(200)
         .WithSummary("Get the latest Merkle tree root")
         .WithDescription("Returns the latest anchored Merkle root hash, proving the integrity of all ratings. " +
-            "When blockchain anchoring is active, includes the transaction hash and block number for on-chain verification.");
+            "Includes its OpenTimestamps status: once \"bitcoin\", the root is committed in that Bitcoin block " +
+            "(proof at GET /v1/audit/anchors/{id}/ots).");
 
         app.MapGet("/v1/audit/anchors", async (int? limit, int? before, IAuditService auditService) =>
         {
@@ -105,6 +107,26 @@ public static class AuditEndpoints
         .WithSummary("History of anchored Merkle roots")
         .WithDescription("Every anchored root with its leaf count and tree version, newest first. " +
             "Record them over time: GET /v1/audit/consistency proves each later root extends an earlier one.");
+
+        app.MapGet("/v1/audit/anchors/{id:int}/ots", async (int id, IAuditService auditService) =>
+        {
+            var file = await auditService.GetAnchorTimestampFileAsync(id);
+            return file is null
+                ? Results.NotFound(new
+                {
+                    error = "no_timestamp",
+                    message = "No such anchor, or its root has not been timestamped yet (within 6 hours of anchoring).",
+                })
+                : Results.File(file, "application/vnd.opentimestamps.v1", $"trustscoreagent-anchor-{id}.ots");
+        })
+        .WithName("GetAnchorTimestamp")
+        .WithTags("Audit")
+        .Produces(200, contentType: "application/vnd.opentimestamps.v1")
+        .Produces(404)
+        .WithSummary("OpenTimestamps proof of an anchored root")
+        .WithDescription("A standard .ots file proving the anchor's Merkle root was committed into Bitcoin " +
+            "(or, while pending, submitted to OpenTimestamps calendars). Check it with " +
+            "`ots verify -d <merkle_root> trustscoreagent-anchor-<id>.ots`.");
 
         app.MapGet("/v1/audit/consistency", async (int? from, int? to, IAuditService auditService) =>
         {
@@ -177,5 +199,14 @@ public static class AuditEndpoints
         blockchain = a.Blockchain,
         transaction_hash = a.TransactionHash,
         block_number = a.BlockNumber,
+        opentimestamps = OtsJson(a),
+    };
+
+    private static object? OtsJson(MerkleAnchor a) => a.OtsStatus is null ? null : new
+    {
+        // "pending": calendars hold the root and will commit it; "bitcoin": committed in that block.
+        status = a.OtsStatus,
+        bitcoin_block_height = a.OtsBitcoinHeight,
+        proof = $"/v1/audit/anchors/{a.Id}/ots",
     };
 }

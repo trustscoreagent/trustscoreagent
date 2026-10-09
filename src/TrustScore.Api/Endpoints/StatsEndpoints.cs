@@ -1,3 +1,4 @@
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
 using TrustScore.Api.Jobs;
@@ -62,6 +63,8 @@ public static class StatsEndpoints
             var json = JsonSerializer.Serialize(response, new JsonSerializerOptions(JsonSerializerDefaults.Web)
             {
                 PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
+                // Served as application/json, never embedded in HTML: keep "<version>" readable.
+                Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
             });
             await cache.SetAsync(cacheKey, json, CacheTtl);
             return Results.Text(json, "application/json");

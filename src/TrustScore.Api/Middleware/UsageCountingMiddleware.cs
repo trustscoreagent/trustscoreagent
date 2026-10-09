@@ -59,6 +59,7 @@ public sealed partial class UsageCountingMiddleware
             ("GET", "/llms.txt") => "llms_txt",
             ("GET", "/.well-known/agent.json") => "agent_card",
             ("GET", _) when p.StartsWith("/v1/audit/proof/") => "audit_proof",
+            ("GET", _) when p.StartsWith("/v1/audit/anchors/") && p.EndsWith("/ots") => "audit_ots",
             _ => null,
         };
     }

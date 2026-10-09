@@ -23,6 +23,12 @@ public interface IAuditService
     /// <paramref name="toId"/>'s. Both must be v2 trees.
     /// </summary>
     Task<ConsistencyProofResult> GetConsistencyProofAsync(int fromId, int toId);
+
+    /// <summary>
+    /// The anchor's OpenTimestamps proof as a detached .ots file over its root, or null when the
+    /// anchor does not exist or has not been stamped yet.
+    /// </summary>
+    Task<byte[]?> GetAnchorTimestampFileAsync(int anchorId);
 }
 
 public enum ConsistencyProofStatus
@@ -83,4 +89,10 @@ public sealed class MerkleAnchor
     public string? ContractAddress { get; init; }
     public string? TransactionHash { get; init; }
     public long? BlockNumber { get; init; }
+
+    /// <summary>OpenTimestamps proof of the root: null (not stamped yet), "pending" or "bitcoin".</summary>
+    public string? OtsStatus { get; init; }
+
+    /// <summary>The Bitcoin block the root is committed in, once the proof is complete.</summary>
+    public int? OtsBitcoinHeight { get; init; }
 }

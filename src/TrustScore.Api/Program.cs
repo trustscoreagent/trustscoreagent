@@ -108,6 +108,22 @@ builder.Services.AddHttpClient(SeedProber.HttpClientName, client =>
     });
 builder.Services.AddScoped<SeedProber>();
 
+// OpenTimestamps: the batch job commits each anchored Merkle root into Bitcoin through public
+// calendars. Same SSRF guard and no redirects: the upgrade URLs come from stored proofs.
+builder.Services.Configure<OpenTimestampsOptions>(builder.Configuration.GetSection(OpenTimestampsOptions.SectionName));
+builder.Services.AddHttpClient(AnchorTimestamper.HttpClientName, client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(20);
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("TrustScoreAgent-Timestamper/1.0 (+https://trustscoreagent.com)");
+})
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+    {
+        AllowAutoRedirect = false,
+        ConnectTimeout = TimeSpan.FromSeconds(10),
+        ConnectCallback = SsrfGuard.ConnectAsync,
+    });
+builder.Services.AddScoped<AnchorTimestamper>();
+
 // OpenAPI
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>

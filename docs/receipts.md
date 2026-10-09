@@ -134,8 +134,8 @@ unverifiable receipt is downgraded, not punished; only a replayed nonce is rejec
 
 Every accepted rating is hashed into an append-only **Merkle tree**. The root is anchored
 periodically (every 6 hours), and `GET /v1/audit/proof/{rating_id}` returns an inclusion proof
-that verifies against the anchored root from `GET /v1/audit/root`. On-chain anchoring to
-Base L2 is Phase 2.
+that verifies against the anchored root from `GET /v1/audit/root`. Each root is then committed
+into Bitcoin through OpenTimestamps (see [MERKLE-SPEC.md](./MERKLE-SPEC.md)).
 
 Ratings stored since Merkle v2 commit to what they reported (metrics, receipt and signature
 verification, weight), so a proof shows the rating is in the log unchanged. The exact leaf and

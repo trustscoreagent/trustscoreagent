@@ -68,11 +68,12 @@ TrustScoreAgent is in **Phase 1 (early)**. Be aware of the current trust model:
   genuine, Merkle-audited measurements (not fabricated), and community/receipt ratings layer
   on top. The probe is clearly identified, never pretends to be multiple agents, and only hits
   public endpoints designed for unauthenticated access.
-- **Blockchain anchoring of the Merkle root is Phase 2.** Until then roots are published by
-  the registry itself. Inclusion proofs show a rating is in the log with the content it had
-  when written, and consistency proofs (`GET /v1/audit/anchors`, `/v1/audit/consistency`) let
-  anyone who records roots check that the log only grew. A root nobody recorded could still
-  have been replaced before anyone looked.
+- **Merkle roots are timestamped in Bitcoin through OpenTimestamps**, within hours of each
+  anchor (`GET /v1/audit/anchors/{id}/ots`). Inclusion proofs show a rating is in the log with the
+  content it had when written, consistency proofs (`/v1/audit/consistency`) that the log only
+  grew, and the timestamp that a root existed no later than its Bitcoin block, so history before
+  it cannot be rewritten unnoticed. The window left is the few hours between an anchor and its
+  Bitcoin confirmation, and ratings newer than the latest anchor.
 
 We document these limits deliberately: knowing the trust boundaries is part of using the
 registry responsibly.
