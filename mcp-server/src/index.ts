@@ -52,9 +52,16 @@ const FETCH_TIMEOUT_MS = 10_000;
 
 // fetch with a timeout; distinguishes "API took too long" from "API unreachable" so the
 // LLM gets an actionable message instead of hanging until the MCP host kills the request.
+// Identifies this client in the registry's aggregate usage counts (GET /v1/stats). Nothing else
+// about the caller is sent or kept.
+const USER_AGENT = `trustscoreagent-mcp/${PACKAGE_VERSION}`;
+
 async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
+  const headers = new Headers(init?.headers);
+  headers.set("User-Agent", USER_AGENT);
   return fetch(`${API_BASE_URL}${path}`, {
     ...init,
+    headers,
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
 }

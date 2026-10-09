@@ -30,6 +30,9 @@ from pydantic import BaseModel, Field
 
 DEFAULT_API_BASE_URL = "https://api.trustscoreagent.com"
 _DEFAULT_TIMEOUT = 10.0
+# Identifies these tools in the registry's aggregate usage counts (GET /v1/stats).
+__version__ = "1.0.0"
+_USER_AGENT = f"trustscoreagent-langchain/{__version__}"
 
 
 def _resolve_agent_did() -> str:
@@ -84,6 +87,7 @@ class _TrustScoreAPI:
         try:
             resp = requests.get(
                 f"{self.base_url}/v1/score",
+                headers={"User-Agent": _USER_AGENT},
                 params={"service": service},
                 timeout=self.timeout,
             )
@@ -148,7 +152,7 @@ class _TrustScoreAPI:
             resp = requests.post(
                 f"{self.base_url}/v1/rate",
                 json=body,
-                headers={"X-Agent-DID": self.agent_did},
+                headers={"X-Agent-DID": self.agent_did, "User-Agent": _USER_AGENT},
                 timeout=self.timeout,
             )
             if not resp.ok:
@@ -184,7 +188,8 @@ class _TrustScoreAPI:
 
         try:
             resp = requests.get(
-                f"{self.base_url}/v1/services", params=params, timeout=self.timeout
+                f"{self.base_url}/v1/services", params=params, timeout=self.timeout,
+                headers={"User-Agent": _USER_AGENT},
             )
             resp.raise_for_status()
             data = resp.json()

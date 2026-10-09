@@ -5,6 +5,14 @@ and the MCP server share one version number per release.
 
 ## [Unreleased]
 
+### Added
+- `GET /v1/stats?days=7`: how much the registry is used. Ratings split between the registry's own
+  probe and other agents (distinct agents, signed, receipt-backed), and API calls per endpoint and
+  client family, from daily aggregate counters (no IP, agent DID or request content)
+- The MCP server sends `User-Agent: trustscoreagent-mcp/<version>`, and the LangChain and CrewAI
+  tools `trustscoreagent-langchain/1.0.0` and `trustscoreagent-crewai/1.0.0`, so their use can be
+  counted
+
 ## [0.2.4] - 2026-09-27
 
 ### Added
