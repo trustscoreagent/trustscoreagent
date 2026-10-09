@@ -108,6 +108,8 @@ public class ScoreEndpointTests : IClassFixture<WebApplicationFactory<Program>>
                 ReplaceService<IAuditService, FakeAuditService>(services);
                 ReplaceService<IAgentRepository, FakeAgentRepository>(services);
                 ReplaceService<IRatingWriter, FakeRatingWriter>(services);
+                ReplaceService<IUsageCounter, FakeUsageCounter>(services);
+                ReplaceService<IUsageStatsRepository, FakeUsageStatsRepository>(services);
 
                 // Remove Redis (not needed with FakeCacheService)
                 var redisDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IConnectionMultiplexer));
@@ -730,6 +732,28 @@ internal class FakeAuditService : IAuditService
 
     public Task<ConsistencyProofResult> GetConsistencyProofAsync(int fromId, int toId)
         => Task.FromResult(new ConsistencyProofResult { Status = ConsistencyProofStatus.AnchorNotFound });
+}
+
+
+internal class FakeUsageCounter : IUsageCounter
+{
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<(string, string), long> _counts = new();
+
+    public Task RecordAsync(DateOnly day, string endpoint, string client)
+    {
+        _counts.AddOrUpdate((endpoint, client), 1, (_, n) => n + 1);
+        return Task.CompletedTask;
+    }
+
+    public Task<IReadOnlyList<UsageCount>> ReadAsync(DateOnly from, DateOnly to)
+        => Task.FromResult<IReadOnlyList<UsageCount>>(
+            _counts.Select(c => new UsageCount(c.Key.Item1, c.Key.Item2, c.Value)).ToList());
+}
+
+internal class FakeUsageStatsRepository : IUsageStatsRepository
+{
+    public Task<RatingStats> GetRatingStatsAsync(DateTimeOffset since, string probeAgentDid)
+        => Task.FromResult(new RatingStats(10, 6, 4, 2, 3, 1));
 }
 
 #endregion

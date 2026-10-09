@@ -45,7 +45,10 @@ core feature. It means ratings are effectively **permanent and public**.
   rate limiting, and is never written to durable storage or linked to a rating.
 - **No request/response bodies** of the services you rate, only the metrics you send.
 - **No credentials, tokens, or API keys.** The API has none to collect.
-- **No cookies, no tracking, no analytics pixels** on the API.
+- **No cookies, no tracking, no analytics pixels** on the API. The only usage measure is a set of
+  daily counters per endpoint and client family (from the `User-Agent`, for example `mcp/0.2.5`
+  or `browser`), kept 100 days in Redis and published at `GET /v1/stats`. They hold no IP,
+  agent DID or request content.
 
 ## The `agent_did` identifier
 

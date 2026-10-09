@@ -87,6 +87,7 @@ open http://localhost:5000/swagger
 | `GET /v1/audit/proof/{id}` | Inclusion proof for a rating, with the fields it commits to |
 | `GET /v1/audit/anchors` | History of anchored roots |
 | `GET /v1/audit/consistency?from=&to=` | Proof that a later root extends an earlier one |
+| `GET /v1/stats?days=` | How much the registry is used (aggregate counts) |
 
 ### Premium (free for now, x402 micropayments later)
 

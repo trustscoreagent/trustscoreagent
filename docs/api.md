@@ -272,6 +272,39 @@ grew between them. `409 not_consistent` if it did not, `422` for a v1 anchor or 
 
 ---
 
+## GET /v1/stats
+
+How much the registry is used, so anyone can check adoption claims. Aggregate numbers only.
+
+| Param | Default | Description |
+|-------|---------|-------------|
+| `days` | `7` | Window in days, 1 to 90 (days are UTC, today included). |
+
+```json
+{
+  "period": { "from": "2026-10-03", "to": "2026-10-09", "days": 7 },
+  "ratings": {
+    "total": 412, "from_probe": 400, "from_agents": 12, "distinct_agents": 3,
+    "signed": 5, "with_verified_receipt": 0
+  },
+  "requests": {
+    "total": 1830,
+    "by_endpoint": { "score": 1204, "llms_txt": 310, "rate": 12 },
+    "by_client": { "browser": 700, "mcp/0.2.5": 240, "bot": 190 }
+  }
+}
+```
+
+`from_probe` counts the registry's own probe (it measures public APIs every 6 hours);
+`from_agents` is everyone else. Request counts are grouped by endpoint and by client family from
+the `User-Agent`: the registry's MCP server and Python tools send
+`trustscoreagent-mcp/<version>`, `trustscoreagent-langchain/<version>` and
+`trustscoreagent-crewai/<version>` and are counted per version (`mcp/0.2.5`); everything else
+falls into `browser`, `bot`, `curl`, `python`, `node`, `other` or `none`. Health checks are not
+counted. Cached for 5 minutes.
+
+---
+
 ## Premium endpoints
 
 Free during Phase 1; metered via [x402](https://x402.org/) micropayments in Phase 2.

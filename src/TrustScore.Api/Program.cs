@@ -60,6 +60,8 @@ builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
 builder.Services.AddSingleton<RedisKeyspace>();
 builder.Services.AddSingleton<ICacheService, RedisCacheService>();
 builder.Services.AddSingleton<IRateLimiter, RedisRateLimiter>();
+builder.Services.AddSingleton<IUsageCounter, RedisUsageCounter>();
+builder.Services.AddScoped<IUsageStatsRepository, UsageStatsRepository>();
 
 // Receipt verification. The did:web HTTP client routes through an SSRF-guarding connect
 // callback that validates every resolved IP and refuses redirects.
@@ -207,6 +209,7 @@ app.Use(async (context, next) =>
 
 app.UseCors();
 app.UseMiddleware<GlobalRateLimitMiddleware>();
+app.UseMiddleware<UsageCountingMiddleware>();
 
 // An agent signature covers a hash of the raw request body, so /v1/rate has to read those bytes
 // after model binding has already consumed the stream. EnableBuffering makes the body re-readable;
@@ -241,6 +244,7 @@ app.MapServicesEndpoints();
 app.MapAuditEndpoints();
 app.MapPremiumEndpoints();
 app.MapAgentEndpoints();
+app.MapStatsEndpoints();
 
 // Static discovery files served from public/. Resolved to an absolute path: Results.File
 // requires a rooted path (a relative one throws → 500), and the folder sits at a different

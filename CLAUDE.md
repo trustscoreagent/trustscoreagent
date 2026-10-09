@@ -37,6 +37,7 @@ TrustScoreAgent — Free, open reputation registry for AI microservices.
 - `GET /v1/audit/proof/{id}` — Inclusion proof (with committed fields)
 - `GET /v1/audit/anchors` — Anchored root history
 - `GET /v1/audit/consistency?from=&to=` — Consistency proof between two v2 anchors
+- `GET /v1/stats?days=` — Aggregate usage: ratings by origin, calls by endpoint and client family
 - `GET /v1/score/history?service=` — Score history (premium, free for now)
 - `GET /v1/score/detailed?service=` — Detailed breakdown (premium, free for now)
 - `POST /v1/scores/bulk` — Bulk scores (premium, free for now)
