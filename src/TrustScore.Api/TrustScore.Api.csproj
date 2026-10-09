@@ -6,7 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <!-- One version for the release: this, public/.well-known/agent.json and the MCP server's
          package.json / server.json / manifest.json. VersionConsistencyTests fails CI if they differ. -->
-    <Version>0.2.4</Version>
+    <Version>0.2.5</Version>
   </PropertyGroup>
 
   <ItemGroup>

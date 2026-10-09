@@ -5,6 +5,8 @@ and the MCP server share one version number per release.
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-10-09
+
 ### Added
 - `GET /v1/stats?days=7`: how much the registry is used. Ratings split between the registry's own
   probe and other agents (distinct agents, signed, receipt-backed), and API calls per endpoint and
@@ -169,7 +171,8 @@ and the MCP server share one version number per release.
 - Swagger disabled in production
 - Global rate limiting: 120 requests/minute per IP
 
-[Unreleased]: https://github.com/trustscoreagent/trustscoreagent/compare/v0.2.4...HEAD
+[Unreleased]: https://github.com/trustscoreagent/trustscoreagent/compare/v0.2.5...HEAD
+[0.2.5]: https://github.com/trustscoreagent/trustscoreagent/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/trustscoreagent/trustscoreagent/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/trustscoreagent/trustscoreagent/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/trustscoreagent/trustscoreagent/compare/v0.1.1...v0.2.2
