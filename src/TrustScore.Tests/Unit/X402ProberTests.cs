@@ -8,6 +8,7 @@ using TrustScore.Api.Jobs;
 using TrustScore.Api.Scoring;
 using TrustScore.Core.Interfaces;
 using TrustScore.Core.Models;
+using TrustScore.Core.X402;
 using TrustScore.Tests.TestSupport;
 using Xunit;
 
@@ -155,6 +156,21 @@ public class X402ProberTests
         }
     }
 
+    private sealed class InMemoryTerms : IX402TermsRepository
+    {
+        public ConcurrentDictionary<string, X402Challenge> Seen { get; } = new();
+        public bool Fail { get; init; }
+
+        public Task<X402TermsRecord?> GetAsync(string serviceDid) => Task.FromResult<X402TermsRecord?>(null);
+
+        public Task<X402TermsChange> RecordAsync(string serviceDid, X402Challenge challenge, DateTimeOffset now)
+        {
+            if (Fail) throw new InvalidOperationException("database down");
+            Seen[serviceDid] = challenge;
+            return Task.FromResult(default(X402TermsChange));
+        }
+    }
+
     private sealed class FixedTrust : IAgentRepository
     {
         public Task<double> GetTrustScoreAsync(string agentDid) => Task.FromResult(0.8);
@@ -172,7 +188,8 @@ public class X402ProberTests
         new(HttpStatusCode.OK) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
 
     private static async Task<(CapturingRatingWriter Writer, InMemoryTargets Targets, InMemoryProbeHealth Health)> RunAsync(
-        Func<HttpRequestMessage, HttpResponseMessage> respond, InMemoryTargets? targets = null, InMemoryProbeHealth? health = null)
+        Func<HttpRequestMessage, HttpResponseMessage> respond, InMemoryTargets? targets = null, InMemoryProbeHealth? health = null,
+        InMemoryTerms? terms = null)
     {
         var writer = new CapturingRatingWriter();
         targets ??= new InMemoryTargets();
@@ -184,6 +201,7 @@ public class X402ProberTests
             new FixedTrust(),
             health,
             targets,
+            terms ?? new InMemoryTerms(),
             Options.Create(new X402ProbeOptions
             {
                 Enabled = true,
@@ -335,13 +353,46 @@ public class X402ProberTests
     }
 
     [Fact]
+    public async Task ValidChallenges_HaveTheirTermsRecorded_InvalidOnesDoNot()
+    {
+        var targets = new InMemoryTargets
+        {
+            Active = [new("paid.test/good", "https://paid.test/good", "GET", 50), new("paid.test/bad", "https://paid.test/bad", "GET", 40)],
+            LastRefresh = DateTimeOffset.UtcNow,
+        };
+        var terms = new InMemoryTerms();
+
+        await RunAsync(r => r.RequestUri!.AbsolutePath == "/good"
+            ? Challenge402()
+            : new HttpResponseMessage(HttpStatusCode.PaymentRequired) { Content = new StringContent("not a challenge") },
+            targets, terms: terms);
+
+        terms.Seen.Keys.Should().Equal("paid.test/good");
+        terms.Seen["paid.test/good"].Accepts.Should().NotBeEmpty();
+    }
+
+    [Fact]
+    public async Task FailingToRecordTerms_StillRecordsTheRating()
+    {
+        var targets = new InMemoryTargets
+        {
+            Active = [new("paid.test/good", "https://paid.test/good", "GET", 50)],
+            LastRefresh = DateTimeOffset.UtcNow,
+        };
+
+        var (writer, _, _) = await RunAsync(_ => Challenge402(), targets, terms: new InMemoryTerms { Fail = true });
+
+        writer.Ratings.Should().ContainSingle().Which.Metrics.SchemaValid.Should().BeTrue();
+    }
+
+    [Fact]
     public async Task Disabled_DoesNothing()
     {
         var calls = 0;
         var prober = new X402Prober(
             new StubHttpClientFactory(new StubHttpMessageHandler(_ => { calls++; return Challenge402(); })),
             new BetaReputationSystem(), new CapturingRatingWriter(), new FixedTrust(), new InMemoryProbeHealth(),
-            new InMemoryTargets(), Options.Create(new X402ProbeOptions { Enabled = false }),
+            new InMemoryTargets(), new InMemoryTerms(), Options.Create(new X402ProbeOptions { Enabled = false }),
             NullLogger<X402Prober>.Instance);
 
         await prober.RunAsync();

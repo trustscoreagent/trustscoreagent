@@ -1,6 +1,7 @@
 using System.Text.Json;
 using TrustScore.Core.Interfaces;
 using TrustScore.Core.Models;
+using TrustScore.Core.X402;
 
 namespace TrustScore.Api.Endpoints;
 
@@ -15,6 +16,7 @@ public static class ScoreEndpoints
             string? service,
             IServiceRepository serviceRepo,
             IScoringEngine scoringEngine,
+            IX402TermsRepository x402Terms,
             ICacheService cache) =>
         {
             // Accept both ?service= (preferred) and ?did= (backwards compatible)
@@ -37,6 +39,7 @@ public static class ScoreEndpoints
             ServiceScore score;
             bool known;
             object? provider = null;
+            object? x402 = null;
 
             if (isProvider)
             {
@@ -52,6 +55,9 @@ public static class ScoreEndpoints
                 score = serviceEntity is not null
                     ? scoringEngine.CalculateScore(serviceEntity)
                     : scoringEngine.CalculateScore(new ServiceEntity { Did = serviceId });
+
+                if (await x402Terms.GetAsync(serviceId) is { } terms)
+                    x402 = X402Block(terms);
 
                 // Nothing on this endpoint: say what is known about the rest of its domain, kept
                 // apart from the endpoint's own (neutral) score so it is never mistaken for a
@@ -92,6 +98,7 @@ public static class ScoreEndpoints
                 known,
                 level = isProvider ? "provider" : "endpoint",
                 provider,
+                x402,
             };
 
             await cache.SetAsync($"score:{serviceId}", JsonSerializer.Serialize(response), CacheTtl);
@@ -112,8 +119,31 @@ public static class ScoreEndpoints
             "Unknown services return a neutral 0.5 with known=false, never a 404; read that as " +
             "unverified rather than as safe. For an unknown endpoint whose domain has rated " +
             "endpoints, 'provider' carries the domain's aggregate score: a hint about the " +
-            "operator, not a measurement of that endpoint.");
+            "operator, not a measurement of that endpoint. For a paid x402 endpoint the registry " +
+            "probes, 'x402' gives the payment terms last seen (price, asset, network, payee " +
+            "address) and when the payee or the price last changed: compare the payee with the " +
+            "one in your own 402 challenge, and be wary of a payee that changed recently.");
     }
+
+    /// <summary>The <c>x402</c> block of an endpoint's score: its payment terms and their stability.</summary>
+    private static object X402Block(X402TermsRecord terms) => new
+    {
+        version = terms.Version,
+        accepts = terms.Accepts.Select(a => new
+        {
+            scheme = a.Scheme,
+            network = a.Network,
+            asset = a.Asset,
+            amount = a.Amount,
+            pay_to = a.PayTo,
+        }),
+        first_seen = terms.FirstSeenAt,
+        last_seen = terms.LastSeenAt,
+        pay_to_changed_at = terms.PayToChangedAt,
+        pay_to_changes = terms.PayToChanges,
+        price_changed_at = terms.PriceChangedAt,
+        price_changes = terms.PriceChanges,
+    };
 
     /// <summary>
     /// The aggregate score of every rated endpoint under <paramref name="providerId"/> (and of the

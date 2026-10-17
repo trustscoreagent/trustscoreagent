@@ -26,6 +26,12 @@ of it. Report the services that worked too: a score is only useful if both outco
 returns `known: false` with a neutral 0.5, never a 404. Read it as unverified, not as safe.
 When the endpoint is unknown but other endpoints of its domain are rated, `provider` carries the
 domain's aggregate score: a hint about the operator, not a measurement of that endpoint.
+
+**Before paying an x402 endpoint, compare the payee.** For the paid endpoints the registry
+probes, `x402` gives the ways to pay last seen (price, asset, network, `pay_to` address) and
+when the payee or the price last changed. If the `payTo` in the 402 you just received differs
+from it, or `pay_to_changed_at` is recent, stop and check before signing a payment.
+
 You are also the one who can change it: call the service, then report what happened.
 
 Participation does not need to be universal to work. A few percent of agents reporting is

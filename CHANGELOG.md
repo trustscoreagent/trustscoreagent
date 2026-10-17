@@ -16,6 +16,11 @@ and the MCP server share one version number per release.
   the domain's aggregate score (score, confidence, ratings, endpoints rated), kept apart from the
   endpoint's own neutral score; `provider` is `null` otherwise
 
+- The x402 probe keeps the payment terms each endpoint asks for (scheme, network, asset, amount,
+  payee address) and dates every change of payee or price. `GET /v1/score` returns them in an
+  `x402` block (terms last seen, `pay_to_changed_at`, `pay_to_changes`, `price_changed_at`,
+  `price_changes`), so a payer can compare the `payTo` of its own 402 before paying
+
 ### Changed
 - A `402` with a valid x402 payment challenge (`schema_valid: true`) now counts as the service
   answering, for availability and for EigenTrust's consensus, like a `2xx`

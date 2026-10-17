@@ -125,6 +125,7 @@ builder.Services.AddHttpClient(X402Prober.HttpClientName, client =>
         ConnectCallback = SsrfGuard.ConnectAsync,
     });
 builder.Services.AddScoped<IX402TargetRepository, X402TargetRepository>();
+builder.Services.AddScoped<IX402TermsRepository, X402TermsRepository>();
 builder.Services.AddScoped<X402Prober>();
 
 // OpenTimestamps: the batch job commits each anchored Merkle root into Bitcoin through public
