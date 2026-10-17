@@ -78,16 +78,23 @@ counted, and kept with the terms it replaced.
   "version": 2,
   "accepts": [{ "scheme": "exact", "network": "eip155:8453", "asset": "0x8335...2913",
                 "amount": "10000", "pay_to": "0x7284...299c" }],
-  "first_seen": "2026-10-09T12:00:41Z", "last_seen": "2026-10-17T12:00:37Z",
-  "pay_to_changed_at": null, "pay_to_changes": 0,
-  "price_changed_at": null, "price_changes": 0
+  "first_seen": "2026-10-09T12:00:41Z", "last_seen": "2026-10-17T12:00:37Z", "observations": 33,
+  "pay_to_changed_at": null, "pay_to_changes": 0, "pay_to_rotates": false,
+  "price_changed_at": null, "price_changes": 0, "price_varies": false
 }
 ```
 
 The case it is for: an agent receives a 402 from an endpoint it pays every day, and the `payTo`
 in it is not the one the registry has seen for a week. A compromised server or a hijacked domain
-would show exactly this, and checking costs one free lookup. A payee that rotates on purpose
-shows up as frequent changes, which is worth knowing too.
+would show exactly this, and checking costs one free lookup.
+
+Some endpoints issue a **new payee address on every request**, one deposit address per payment
+(the first probes found this on a widely used search API), and some price each request
+differently. For them a change is the normal state, not a warning: once the payee changed on 3
+consecutive observations, `pay_to_rotates` is `true` (and `price_varies` for the price), until an
+observation keeps it. Comparing addresses then says nothing, and the change dates should not be
+read as an alarm. Three, so a payee that was replaced and then restored still shows as two
+changes.
 
 The terms are what the probe saw every 6 hours, not a guarantee: always compare with the
 challenge you actually received.

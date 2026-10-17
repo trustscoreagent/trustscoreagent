@@ -122,7 +122,8 @@ public static class ScoreEndpoints
             "operator, not a measurement of that endpoint. For a paid x402 endpoint the registry " +
             "probes, 'x402' gives the payment terms last seen (price, asset, network, payee " +
             "address) and when the payee or the price last changed: compare the payee with the " +
-            "one in your own 402 challenge, and be wary of a payee that changed recently.");
+            "one in your own 402 challenge, and be wary of a payee that changed recently, unless " +
+            "'pay_to_rotates' is true: that endpoint issues a new payee on every request.");
     }
 
     /// <summary>The <c>x402</c> block of an endpoint's score: its payment terms and their stability.</summary>
@@ -139,10 +140,13 @@ public static class ScoreEndpoints
         }),
         first_seen = terms.FirstSeenAt,
         last_seen = terms.LastSeenAt,
+        observations = terms.Observations,
         pay_to_changed_at = terms.PayToChangedAt,
         pay_to_changes = terms.PayToChanges,
+        pay_to_rotates = terms.PayToRotates,
         price_changed_at = terms.PriceChangedAt,
         price_changes = terms.PriceChanges,
+        price_varies = terms.PriceVaries,
     };
 
     /// <summary>

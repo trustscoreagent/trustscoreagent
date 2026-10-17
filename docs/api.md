@@ -85,21 +85,23 @@ provider query):
   "version": 2,
   "accepts": [{ "scheme": "exact", "network": "eip155:8453", "asset": "0x8335...2913",
                 "amount": "10000", "pay_to": "0x7284...299c" }],
-  "first_seen": "2026-10-09T12:00:41Z", "last_seen": "2026-10-17T12:00:37Z",
-  "pay_to_changed_at": "2026-10-15T18:00:12Z", "pay_to_changes": 1,
-  "price_changed_at": null, "price_changes": 0
+  "first_seen": "2026-10-09T12:00:41Z", "last_seen": "2026-10-17T12:00:37Z", "observations": 33,
+  "pay_to_changed_at": "2026-10-15T18:00:12Z", "pay_to_changes": 1, "pay_to_rotates": false,
+  "price_changed_at": null, "price_changes": 0, "price_varies": false
 }
 ```
 
 | Field | Meaning |
 |---|---|
 | `accepts` | The ways to pay the last valid challenge offered (`amount` in the asset's smallest unit). |
-| `first_seen`, `last_seen` | First and latest valid challenge seen by the probe. |
+| `first_seen`, `last_seen`, `observations` | First and latest valid challenge seen by the probe, and how many it saw. |
 | `pay_to_changed_at`, `pay_to_changes` | When the payee address last changed, and how many times (`null`: never seen changing). |
-| `price_changed_at`, `price_changes` | The same for the price, asset or network. |
+| `pay_to_rotates` | `true` when the payee changed on each of the last 3 observations or more: the endpoint issues a new address per request. |
+| `price_changed_at`, `price_changes`, `price_varies` | The same for the price, asset or network. |
 
 Before paying, compare the `payTo` of the challenge you received with `accepts`: a payee that
-differs, or that changed recently, is the moment to stop and check.
+differs, or that changed recently, is the moment to stop and check. When `pay_to_rotates` is
+`true` a different address is expected and the comparison does not apply.
 
 ---
 

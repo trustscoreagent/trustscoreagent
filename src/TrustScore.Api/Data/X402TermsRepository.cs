@@ -22,7 +22,8 @@ public sealed class X402TermsRepository : IX402TermsRepository
             SELECT service_did AS ServiceDid, x402_version AS Version, accepts::text AS Accepts,
                    first_seen_at AS FirstSeenAt, last_seen_at AS LastSeenAt,
                    pay_to_changed_at AS PayToChangedAt, pay_to_changes AS PayToChanges,
-                   price_changed_at AS PriceChangedAt, price_changes AS PriceChanges
+                   price_changed_at AS PriceChangedAt, price_changes AS PriceChanges,
+                   observations AS Observations, pay_to_streak AS PayToStreak, price_streak AS PriceStreak
             FROM x402_terms
             WHERE service_did = @serviceDid
             """, new { serviceDid });
@@ -32,7 +33,8 @@ public sealed class X402TermsRepository : IX402TermsRepository
                 row.ServiceDid, row.Version, FromJson(row.Accepts),
                 Utc(row.FirstSeenAt), Utc(row.LastSeenAt),
                 row.PayToChangedAt is { } p ? Utc(p) : null, row.PayToChanges,
-                row.PriceChangedAt is { } c ? Utc(c) : null, row.PriceChanges);
+                row.PriceChangedAt is { } c ? Utc(c) : null, row.PriceChanges,
+                row.Observations, row.PayToStreak, row.PriceStreak);
     }
 
     public async Task<X402TermsChange> RecordAsync(string serviceDid, X402Challenge challenge, DateTimeOffset now)
@@ -68,6 +70,9 @@ public sealed class X402TermsRepository : IX402TermsRepository
                 x402_version      = @Version,
                 accepts           = @json::jsonb,
                 last_seen_at      = @now,
+                observations      = observations + 1,
+                pay_to_streak     = CASE WHEN @PayTo THEN pay_to_streak + 1 ELSE 0 END,
+                price_streak      = CASE WHEN @Price THEN price_streak + 1 ELSE 0 END,
                 pay_to_changed_at = CASE WHEN @PayTo THEN @now ELSE pay_to_changed_at END,
                 pay_to_changes    = pay_to_changes + CASE WHEN @PayTo THEN 1 ELSE 0 END,
                 price_changed_at  = CASE WHEN @Price THEN @now ELSE price_changed_at END,
@@ -121,5 +126,8 @@ public sealed class X402TermsRepository : IX402TermsRepository
         public int PayToChanges { get; init; }
         public DateTime? PriceChangedAt { get; init; }
         public int PriceChanges { get; init; }
+        public int Observations { get; init; }
+        public int PayToStreak { get; init; }
+        public int PriceStreak { get; init; }
     }
 }
