@@ -7,8 +7,8 @@ using TrustScore.Core.Interfaces;
 namespace TrustScore.Api.Jobs;
 
 /// <summary>
-/// Batch job (every 6 hours; the name is historical) that runs the seed probe, EigenTrust,
-/// Merkle tree anchoring and the OpenTimestamps proofs of the anchored roots.
+/// Batch job (every 6 hours; the name is historical) that runs the seed probe, the x402 probe,
+/// EigenTrust, Merkle tree anchoring and the OpenTimestamps proofs of the anchored roots.
 /// Invoked via: dotnet TrustScore.Api.dll --job
 /// Designed for Cloud Run Jobs triggered by Cloud Scheduler.
 /// </summary>
@@ -29,6 +29,7 @@ public static class HourlyJob
             foreach (var (name, step) in new (string, Func<Task>)[]
                      {
                          ("SeedProbe", () => RunSeedProbe(services, logger)),
+                         ("X402Probe", () => RunX402Probe(services, logger)),
                          ("EigenTrust", () => RunEigenTrust(services, logger)),
                          ("MerkleAnchor", () => RunMerkleAnchor(services, logger)),
                          ("OpenTimestamps", () => RunOpenTimestamps(services, logger)),
@@ -52,6 +53,17 @@ public static class HourlyJob
     {
         using var scope = services.CreateScope();
         var prober = scope.ServiceProvider.GetRequiredService<SeedProber>();
+        await prober.RunAsync();
+    }
+
+    private static async Task RunX402Probe(IServiceProvider services, ILogger logger)
+    {
+        using var scope = services.CreateScope();
+        if (scope.ServiceProvider.GetService<X402Prober>() is not { } prober)
+        {
+            logger.LogInformation("X402Probe: not configured, skipping");
+            return;
+        }
         await prober.RunAsync();
     }
 

@@ -152,13 +152,13 @@ public sealed class BetaReputationSystem : IScoringEngine
         service.AlphaConformity *= _lambda;
         service.BetaConformity *= _lambda;
 
-        // Availability: 2xx = positive, 5xx = negative, others = neutral
-        if (metrics.StatusCode >= 200 && metrics.StatusCode < 300)
+        // Availability: 2xx (or a valid x402 challenge) = positive, 5xx = negative, others = neutral
+        if (ResponseOutcome.IsSuccess(metrics.StatusCode, metrics.SchemaValid))
         {
             service.AlphaAvailability += weight;
             service.Alpha += weight;
         }
-        else if (metrics.StatusCode >= 500)
+        else if (ResponseOutcome.IsFailure(metrics.StatusCode))
         {
             service.BetaAvailability += weight;
             service.Beta += weight;
@@ -216,12 +216,12 @@ public sealed class BetaReputationSystem : IScoringEngine
         var delta = new RatingDeltaBuilder();
 
         // Availability
-        if (metrics.StatusCode >= 200 && metrics.StatusCode < 300)
+        if (ResponseOutcome.IsSuccess(metrics.StatusCode, metrics.SchemaValid))
         {
             delta.AlphaAvailability += weight;
             delta.Alpha += weight;
         }
-        else if (metrics.StatusCode >= 500)
+        else if (ResponseOutcome.IsFailure(metrics.StatusCode))
         {
             delta.BetaAvailability += weight;
             delta.Beta += weight;

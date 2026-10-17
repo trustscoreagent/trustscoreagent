@@ -108,6 +108,25 @@ builder.Services.AddHttpClient(SeedProber.HttpClientName, client =>
     });
 builder.Services.AddScoped<SeedProber>();
 
+// x402 probe: measures the paid endpoints listed in the public Bazaar catalog, without paying.
+// The catalog's resource URLs come from third parties, so the same SSRF guard and no redirects.
+builder.Services.Configure<X402ProbeOptions>(builder.Configuration.GetSection(X402ProbeOptions.SectionName));
+builder.Services.AddHttpClient(X402Prober.HttpClientName, client =>
+{
+    // Above the 60 s catalog-page token, which is what bounds each request.
+    client.Timeout = TimeSpan.FromSeconds(90);
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("TrustScoreAgent-Probe/1.0 (+https://trustscoreagent.com)");
+    client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
+})
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+    {
+        AllowAutoRedirect = false,
+        ConnectTimeout = TimeSpan.FromSeconds(10),
+        ConnectCallback = SsrfGuard.ConnectAsync,
+    });
+builder.Services.AddScoped<IX402TargetRepository, X402TargetRepository>();
+builder.Services.AddScoped<X402Prober>();
+
 // OpenTimestamps: the batch job commits each anchored Merkle root into Bitcoin through public
 // calendars. Same SSRF guard and no redirects: the upgrade URLs come from stored proofs.
 builder.Services.Configure<OpenTimestampsOptions>(builder.Configuration.GetSection(OpenTimestampsOptions.SectionName));

@@ -103,7 +103,7 @@ does not verify is rejected with `401`.
 | `metrics.status_code` | yes | 100-599. |
 | `metrics.latency_ms` | yes | 1-600000. |
 | `metrics.response_size_bytes` | no | |
-| `metrics.schema_valid` | no | Did the response match the expected format. |
+| `metrics.schema_valid` | no | Did the response match the expected format. For a `402`, whether it carried a valid x402 payment challenge. |
 | `quality_score` | no | 1-5 subjective rating (capped at 25% of the score). |
 | `comment` | no | ≤ 500 chars. |
 | `receipt` | no | JWT from the service's `X-Trust-Receipt` header. See [receipts](./receipts.md). |
@@ -119,6 +119,12 @@ does not verify is rejected with `401`.
   "new_score": 0.87
 }
 ```
+
+How the metrics count: a `2xx` raises availability and a `5xx` lowers it. So does a `402`
+whose x402 challenge was valid (`schema_valid: true`), since for a paid endpoint that is the
+correct answer to a request without payment; any other `4xx` leaves availability unchanged.
+Latency counts for or against the service around a 2 s threshold, and `schema_valid` for or
+against conformity.
 
 `rating_weight` is `verified` (valid receipt) or `unverified` (no/invalid receipt).
 `agent_identity` is `signed` or `unsigned`. Keep `rating_id`: it is how you later fetch the
@@ -312,7 +318,8 @@ How much the registry is used, so anyone can check adoption claims. Aggregate nu
 }
 ```
 
-`from_probe` counts the registry's own probe (it measures public APIs every 6 hours);
+`from_probe` counts the registry's own probe (every 6 hours it measures public APIs and the most
+used x402 endpoints);
 `from_agents` is everyone else. Request counts are grouped by endpoint and by client family from
 the `User-Agent`: the registry's MCP server and Python tools send
 `trustscoreagent-mcp/<version>`, `trustscoreagent-langchain/<version>` and

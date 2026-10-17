@@ -5,6 +5,17 @@ and the MCP server share one version number per release.
 
 ## [Unreleased]
 
+### Added
+- The batch job measures x402 endpoints: once a day it picks, from the public Bazaar catalog, the
+  endpoints with more than 10 distinct payers over 30 days (at most 20 per host, 500 in all), and
+  every 6 hours sends each one request without payment. The answer is recorded as a probe rating:
+  availability, latency, and whether the 402 payment challenge is valid
+  ([docs/x402-probe.md](docs/x402-probe.md))
+
+### Changed
+- A `402` with a valid x402 payment challenge (`schema_valid: true`) now counts as the service
+  answering, for availability and for EigenTrust's consensus, like a `2xx`
+
 ## [0.2.5] - 2026-10-09
 
 ### Added

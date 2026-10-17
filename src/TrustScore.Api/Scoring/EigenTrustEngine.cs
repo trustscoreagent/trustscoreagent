@@ -136,7 +136,7 @@ public sealed class EigenTrustEngine
                     var schemaRatings = records.Where(r => r.SchemaValid.HasValue).ToList();
                     return new ServiceConsensus
                     {
-                        MedianStatusIsSuccess = records.Count(r => r.StatusCode >= 200 && r.StatusCode < 300) > records.Count / 2.0,
+                        MedianStatusIsSuccess = records.Count(r => ResponseOutcome.IsSuccess(r.StatusCode, r.SchemaValid)) > records.Count / 2.0,
                         MedianLatencyMs = ComputeMedianLatency(records),
                         HasSchemaConsensus = schemaRatings.Count > 0,
                         MedianSchemaValid = schemaRatings.Count(r => r.SchemaValid == true) > schemaRatings.Count / 2.0,
@@ -176,7 +176,7 @@ public sealed class EigenTrustEngine
                 var isCoherent = true;
 
                 // Check status code agreement
-                var ratingIsSuccess = rec.StatusCode >= 200 && rec.StatusCode < 300;
+                var ratingIsSuccess = ResponseOutcome.IsSuccess(rec.StatusCode, rec.SchemaValid);
                 if (ratingIsSuccess != svcConsensus.MedianStatusIsSuccess)
                     isCoherent = false;
 
