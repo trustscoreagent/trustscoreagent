@@ -116,6 +116,9 @@ public class ScoreEndpointTests : IClassFixture<WebApplicationFactory<Program>>
         x402.GetProperty("pay_to_changed_at").ValueKind.Should().Be(JsonValueKind.String);
         x402.GetProperty("price_changes").GetInt32().Should().Be(0);
         x402.GetProperty("price_changed_at").ValueKind.Should().Be(JsonValueKind.Null);
+        x402.GetProperty("observations").GetInt32().Should().Be(80);
+        x402.GetProperty("pay_to_rotates").GetBoolean().Should().BeFalse();
+        x402.GetProperty("price_varies").GetBoolean().Should().BeFalse();
     }
 
     [Theory]
@@ -459,7 +462,8 @@ internal class FakeX402TermsRepository : IX402TermsRepository
                 serviceDid, 2,
                 [new X402Requirement("exact", "eip155:8453", "10000", "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", PayTo)],
                 DateTimeOffset.UtcNow.AddDays(-20), DateTimeOffset.UtcNow.AddHours(-1),
-                DateTimeOffset.UtcNow.AddDays(-2), 1, null, 0)
+                DateTimeOffset.UtcNow.AddDays(-2), 1, null, 0,
+                Observations: 80, PayToStreak: 0, PriceStreak: 0)
             : null);
 
     public Task<X402TermsChange> RecordAsync(string serviceDid, X402Challenge challenge, DateTimeOffset now) =>

@@ -30,7 +30,8 @@ domain's aggregate score: a hint about the operator, not a measurement of that e
 **Before paying an x402 endpoint, compare the payee.** For the paid endpoints the registry
 probes, `x402` gives the ways to pay last seen (price, asset, network, `pay_to` address) and
 when the payee or the price last changed. If the `payTo` in the 402 you just received differs
-from it, or `pay_to_changed_at` is recent, stop and check before signing a payment.
+from it, or `pay_to_changed_at` is recent, stop and check before signing a payment, unless
+`pay_to_rotates` is true: that endpoint issues a new address on every request.
 
 You are also the one who can change it: call the service, then report what happened.
 

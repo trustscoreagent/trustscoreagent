@@ -19,7 +19,9 @@ and the MCP server share one version number per release.
 - The x402 probe keeps the payment terms each endpoint asks for (scheme, network, asset, amount,
   payee address) and dates every change of payee or price. `GET /v1/score` returns them in an
   `x402` block (terms last seen, `pay_to_changed_at`, `pay_to_changes`, `price_changed_at`,
-  `price_changes`), so a payer can compare the `payTo` of its own 402 before paying
+  `price_changes`), so a payer can compare the `payTo` of its own 402 before paying. Endpoints
+  that issue a new payee on every request (or vary the price) are marked `pay_to_rotates`
+  (`price_varies`) after 3 consecutive changes, so their normal behavior is not read as a warning
 
 ### Changed
 - A `402` with a valid x402 payment challenge (`schema_valid: true`) now counts as the service

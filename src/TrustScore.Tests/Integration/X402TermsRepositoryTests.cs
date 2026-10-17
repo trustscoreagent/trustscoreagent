@@ -49,6 +49,9 @@ public class X402TermsRepositoryTests : PostgresDatabaseTest
         now.PayToChanges.Should().Be(1);
         now.PriceChangedAt.Should().BeCloseTo(t3, TimeSpan.FromMilliseconds(5));
         now.PriceChanges.Should().Be(1);
+        now.Observations.Should().Be(4);
+        now.PayToStreak.Should().Be(0, "the last observation kept the payee");
+        now.PriceStreak.Should().Be(1);
 
         using var conn = Db.CreateConnection();
         var history = (await conn.QueryAsync<(bool PayTo, bool Price, string Previous)>(
@@ -58,5 +61,25 @@ public class X402TermsRepositoryTests : PostgresDatabaseTest
             """)).ToList();
         history.Select(h => (h.PayTo, h.Price)).Should().Equal((true, false), (false, true));
         history[0].Previous.Should().Contain("0xaaaa", "the change keeps what it replaced");
+    }
+
+    [PostgresFact]
+    public async Task APayeeNewOnEveryObservation_ReadsAsRotating_AndStopsWhenItHolds()
+    {
+        var repo = new X402TermsRepository(Db);
+        var t = DateTimeOffset.UtcNow.AddDays(-1);
+
+        await repo.RecordAsync("paid.test/r", Challenge("10000", "0x01"), t);
+        await repo.RecordAsync("paid.test/r", Challenge("10000", "0x02"), t = t.AddHours(6));
+        await repo.RecordAsync("paid.test/r", Challenge("10000", "0x03"), t = t.AddHours(6));
+        (await repo.GetAsync("paid.test/r"))!.PayToRotates.Should().BeFalse("two changes may be a swap and its fix");
+
+        await repo.RecordAsync("paid.test/r", Challenge("10000", "0x04"), t = t.AddHours(6));
+        var rotating = (await repo.GetAsync("paid.test/r"))!;
+        rotating.PayToRotates.Should().BeTrue();
+        rotating.PriceVaries.Should().BeFalse();
+
+        await repo.RecordAsync("paid.test/r", Challenge("10000", "0x04"), t.AddHours(6));
+        (await repo.GetAsync("paid.test/r"))!.PayToRotates.Should().BeFalse();
     }
 }
