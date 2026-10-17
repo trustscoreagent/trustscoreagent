@@ -52,7 +52,8 @@ GET /v1/score?service=api.example.com
   "recent_incidents": null,
   "last_rated": "2026-03-29T14:23:01Z",
   "service_supports_receipts": true,
-  "provider": null
+  "provider": null,
+  "x402": null
 }
 ```
 
@@ -74,6 +75,31 @@ endpoint (it is `null` otherwise):
                 "ratings_count": 412, "endpoints_rated": 6, "last_rated": "2026-10-17T13:00:58Z" }
 }
 ```
+
+For a paid x402 endpoint the registry probes ([x402 probe](x402-probe.md)), `x402` gives the
+payment terms last seen and how stable they have been (it is `null` otherwise, and on a
+provider query):
+
+```json
+"x402": {
+  "version": 2,
+  "accepts": [{ "scheme": "exact", "network": "eip155:8453", "asset": "0x8335...2913",
+                "amount": "10000", "pay_to": "0x7284...299c" }],
+  "first_seen": "2026-10-09T12:00:41Z", "last_seen": "2026-10-17T12:00:37Z",
+  "pay_to_changed_at": "2026-10-15T18:00:12Z", "pay_to_changes": 1,
+  "price_changed_at": null, "price_changes": 0
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `accepts` | The ways to pay the last valid challenge offered (`amount` in the asset's smallest unit). |
+| `first_seen`, `last_seen` | First and latest valid challenge seen by the probe. |
+| `pay_to_changed_at`, `pay_to_changes` | When the payee address last changed, and how many times (`null`: never seen changing). |
+| `price_changed_at`, `price_changes` | The same for the price, asset or network. |
+
+Before paying, compare the `payTo` of the challenge you received with `accepts`: a payee that
+differs, or that changed recently, is the moment to stop and check.
 
 ---
 

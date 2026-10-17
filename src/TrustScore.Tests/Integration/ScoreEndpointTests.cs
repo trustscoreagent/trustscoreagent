@@ -10,6 +10,7 @@ using StackExchange.Redis;
 using TrustScore.Core.Audit;
 using TrustScore.Core.Interfaces;
 using TrustScore.Core.Models;
+using TrustScore.Core.X402;
 using Xunit;
 
 namespace TrustScore.Tests.Integration;
@@ -99,6 +100,34 @@ public class ScoreEndpointTests : IClassFixture<WebApplicationFactory<Program>>
     }
 
     [Fact]
+    public async Task GetScore_ProbedX402Endpoint_CarriesItsPaymentTermsAndTheirStability()
+    {
+        using var doc = JsonDocument.Parse(
+            await _client.GetStringAsync("/v1/score?service=https://seeded.example.com/v1/translate"));
+        var x402 = doc.RootElement.GetProperty("x402");
+
+        x402.GetProperty("version").GetInt32().Should().Be(2);
+        var accept = x402.GetProperty("accepts").EnumerateArray().Should().ContainSingle().Subject;
+        accept.GetProperty("scheme").GetString().Should().Be("exact");
+        accept.GetProperty("network").GetString().Should().Be("eip155:8453");
+        accept.GetProperty("amount").GetString().Should().Be("10000");
+        accept.GetProperty("pay_to").GetString().Should().Be(FakeX402TermsRepository.PayTo);
+        x402.GetProperty("pay_to_changes").GetInt32().Should().Be(1);
+        x402.GetProperty("pay_to_changed_at").ValueKind.Should().Be(JsonValueKind.String);
+        x402.GetProperty("price_changes").GetInt32().Should().Be(0);
+        x402.GetProperty("price_changed_at").ValueKind.Should().Be(JsonValueKind.Null);
+    }
+
+    [Theory]
+    [InlineData("/v1/score?service=https://seeded.example.com/v1/summarize")]  // rated, never probed
+    [InlineData("/v1/score?service=seeded.example.com")]                       // provider query
+    public async Task GetScore_X402IsNull_WithoutPaymentTermsOnThatEndpoint(string url)
+    {
+        using var doc = JsonDocument.Parse(await _client.GetStringAsync(url));
+        doc.RootElement.GetProperty("x402").ValueKind.Should().Be(JsonValueKind.Null);
+    }
+
+    [Fact]
     public async Task GetScore_DifferentEndpoints_HaveDifferentScores()
     {
         var resp1 = await _client.GetAsync("/v1/score?service=seeded.example.com/v1/translate");
@@ -138,6 +167,7 @@ public class ScoreEndpointTests : IClassFixture<WebApplicationFactory<Program>>
                 ReplaceService<IRatingWriter, FakeRatingWriter>(services);
                 ReplaceService<IUsageCounter, FakeUsageCounter>(services);
                 ReplaceService<IUsageStatsRepository, FakeUsageStatsRepository>(services);
+                ReplaceService<IX402TermsRepository, FakeX402TermsRepository>(services);
 
                 // Remove Redis (not needed with FakeCacheService)
                 var redisDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IConnectionMultiplexer));
@@ -418,6 +448,23 @@ public class HealthEndpointTests : IClassFixture<WebApplicationFactory<Program>>
 }
 
 #region Fakes
+
+internal class FakeX402TermsRepository : IX402TermsRepository
+{
+    public const string PayTo = "0x1111111111111111111111111111111111111111";
+
+    public Task<X402TermsRecord?> GetAsync(string serviceDid) =>
+        Task.FromResult(serviceDid == "seeded.example.com/v1/translate"
+            ? new X402TermsRecord(
+                serviceDid, 2,
+                [new X402Requirement("exact", "eip155:8453", "10000", "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", PayTo)],
+                DateTimeOffset.UtcNow.AddDays(-20), DateTimeOffset.UtcNow.AddHours(-1),
+                DateTimeOffset.UtcNow.AddDays(-2), 1, null, 0)
+            : null);
+
+    public Task<X402TermsChange> RecordAsync(string serviceDid, X402Challenge challenge, DateTimeOffset now) =>
+        Task.FromResult(default(X402TermsChange));
+}
 
 internal class FakeServiceRepository : IServiceRepository
 {

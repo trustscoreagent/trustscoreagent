@@ -58,6 +58,40 @@ being recorded until it answers again: by then a moved URL is likelier than an o
 registry does not publish accusations based on its own stale data. An invalid challenge is not a
 reason to stop: it is exactly what a payer needs to know.
 
+## Payment terms and their changes
+
+The ways to pay a valid challenge offers are also kept per endpoint: `scheme`, `network`, `asset`,
+`amount` and `payTo`, in a separate table that never enters a score. Each probe compares them with
+the previous ones:
+
+- the **payee** changed when the set of (`network`, `payTo`) differs;
+- the **price** changed when the set of (`scheme`, `network`, `asset`, `amount`) differs.
+
+The order of the list does not matter, and EVM addresses compare in any case (servers send them
+lowercase or checksummed); other chains' addresses are case-sensitive. Each change is dated,
+counted, and kept with the terms it replaced.
+
+`GET /v1/score` returns them in an `x402` block on the endpoint:
+
+```json
+"x402": {
+  "version": 2,
+  "accepts": [{ "scheme": "exact", "network": "eip155:8453", "asset": "0x8335...2913",
+                "amount": "10000", "pay_to": "0x7284...299c" }],
+  "first_seen": "2026-10-09T12:00:41Z", "last_seen": "2026-10-17T12:00:37Z",
+  "pay_to_changed_at": null, "pay_to_changes": 0,
+  "price_changed_at": null, "price_changes": 0
+}
+```
+
+The case it is for: an agent receives a 402 from an endpoint it pays every day, and the `payTo`
+in it is not the one the registry has seen for a week. A compromised server or a hijacked domain
+would show exactly this, and checking costs one free lookup. A payee that rotates on purpose
+shows up as frequent changes, which is worth knowing too.
+
+The terms are what the probe saw every 6 hours, not a guarantee: always compare with the
+challenge you actually received.
+
 ## Opting out
 
 If you run an x402 endpoint and do not want it probed, email **security@trustscoreagent.com**

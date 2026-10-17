@@ -159,7 +159,8 @@ TrustScoreAgent is **Phase 1 (early)**. What that means in practice:
   conformity of a curated list of public, free APIs, and of the x402 endpoints agents pay the
   most (picked daily from the public Bazaar catalog and probed without paying, see
   [docs/x402-probe.md](docs/x402-probe.md)): real, Merkle-audited measurements, not
-  fabricated numbers. Community and receipt-verified ratings accumulate on top. (The earlier
+  fabricated numbers. For those x402 endpoints the score also says which payee address and
+  price they ask for, and when either last changed. Community and receipt-verified ratings accumulate on top. (The earlier
   fictitious `*.example.com` seeds have been removed.)
 - **Single operator.** Neutrality currently rests on open-source scoring code and a
   verifiable Merkle audit trail, not on decentralization. Federation is a later phase.

@@ -13,7 +13,8 @@ namespace TrustScore.Api.Jobs;
 /// Bazaar catalog (endpoints with real payers in the last 30 days, a few per host); every pass it
 /// sends each one request <b>without payment</b> and records what came back as an ordinary
 /// rating: availability (a valid 402 challenge counts as the endpoint answering), latency, and
-/// conformity (whether that challenge is a complete, parseable x402 one).
+/// conformity (whether that challenge is a complete, parseable x402 one). The ways to pay a valid
+/// challenge offers are kept per endpoint, so a change of payee address or price is dated.
 ///
 /// The same honesty rules as <see cref="SeedProber"/>: real measurements only, one transparent
 /// probe identity at normal unverified weight, quarantine for targets that fail for days. It never
@@ -29,6 +30,7 @@ public sealed class X402Prober
     private readonly IAgentRepository _agentRepo;
     private readonly IProbeHealthRepository _healthRepo;
     private readonly IX402TargetRepository _targets;
+    private readonly IX402TermsRepository _terms;
     private readonly X402ProbeOptions _options;
     private readonly ILogger<X402Prober> _logger;
 
@@ -39,6 +41,7 @@ public sealed class X402Prober
         IAgentRepository agentRepo,
         IProbeHealthRepository healthRepo,
         IX402TargetRepository targets,
+        IX402TermsRepository terms,
         IOptions<X402ProbeOptions> options,
         ILogger<X402Prober> logger)
     {
@@ -48,6 +51,7 @@ public sealed class X402Prober
         _agentRepo = agentRepo;
         _healthRepo = healthRepo;
         _targets = targets;
+        _terms = terms;
         _options = options.Value;
         _logger = logger;
     }
@@ -75,7 +79,7 @@ public sealed class X402Prober
         var tracker = await ProbeHealthTracker.LoadAsync(
             _healthRepo, _options.QuarantineAfterConsecutiveFailures, _options.QuarantineAfter, _logger, "X402Probe");
 
-        int recorded = 0, errors = 0, suppressed = 0, challenges = 0;
+        int recorded = 0, errors = 0, suppressed = 0, challenges = 0, payToChanges = 0, priceChanges = 0;
         await Parallel.ForEachAsync(
             SpreadByHost(targets),
             new ParallelOptions { MaxDegreeOfParallelism = _options.MaxConcurrentProbes },
@@ -83,8 +87,16 @@ public sealed class X402Prober
             {
                 try
                 {
-                    var (statusCode, latencyMs, schemaValid) = await ProbeAsync(client, target);
-                    if (schemaValid == true) Interlocked.Increment(ref challenges);
+                    var (statusCode, latencyMs, challenge) = await ProbeAsync(client, target);
+                    bool? schemaValid = statusCode == 402
+                        ? challenge is not null
+                        // Any other answer says nothing about the challenge: conformity is unknown.
+                        : null;
+                    if (challenge is not null)
+                    {
+                        Interlocked.Increment(ref challenges);
+                        await RecordTermsAsync(target, challenge);
+                    }
 
                     // A moved or retired endpoint answers 404 forever; any 402, valid or not, shows the
                     // endpoint is there. An invalid challenge must keep being published, not end up
@@ -120,10 +132,30 @@ public sealed class X402Prober
                 }
             });
 
+        async Task RecordTermsAsync(X402ProbeTarget target, X402Challenge challenge)
+        {
+            // Kept apart from the rating: losing one observation of the terms must not lose the
+            // measurement, nor the other way round.
+            try
+            {
+                var change = await _terms.RecordAsync(target.ServiceDid, challenge, DateTimeOffset.UtcNow);
+                if (change.PayTo)
+                {
+                    Interlocked.Increment(ref payToChanges);
+                    _logger.LogInformation("X402Probe: payee address changed on {Service}", target.ServiceDid);
+                }
+                if (change.Price) Interlocked.Increment(ref priceChanges);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "X402Probe: failed to record payment terms for {Service}", target.ServiceDid);
+            }
+        }
+
         _logger.LogInformation(
             "X402Probe complete: {Targets} targets, {Recorded} recorded ({Challenges} valid challenges), " +
-            "{Suppressed} suppressed (quarantined), {Errors} errors",
-            targets.Count, recorded, challenges, suppressed, errors);
+            "{Suppressed} suppressed (quarantined), {Errors} errors; {PayToChanges} payee and {PriceChanges} price changes",
+            targets.Count, recorded, challenges, suppressed, errors, payToChanges, priceChanges);
     }
 
     private async Task RefreshSelectionIfDueAsync(HttpClient client)
@@ -285,7 +317,8 @@ public sealed class X402Prober
         }
     }
 
-    private async Task<(int StatusCode, int LatencyMs, bool? SchemaValid)> ProbeAsync(HttpClient client, X402ProbeTarget target)
+    /// <summary>The answer's status, its latency, and the challenge when it is a 402 carrying a valid one.</summary>
+    private async Task<(int StatusCode, int LatencyMs, X402Challenge? Challenge)> ProbeAsync(HttpClient client, X402ProbeTarget target)
     {
         var sw = Stopwatch.StartNew();
         try
@@ -304,11 +337,10 @@ public sealed class X402Prober
 
             var status = (int)response.StatusCode;
             var latency = SeedProber.ClampLatency(sw.ElapsedMilliseconds);
-            bool? schemaValid = status == 402
-                ? X402Challenge.Parse(HeaderValue(response, X402Challenge.HeaderName), body) is not null
-                // Any other answer says nothing about the challenge: conformity is unknown.
+            var challenge = status == 402
+                ? X402Challenge.Parse(HeaderValue(response, X402Challenge.HeaderName), body)
                 : null;
-            return (status, latency, schemaValid);
+            return (status, latency, challenge);
         }
         catch (Exception)
         {
