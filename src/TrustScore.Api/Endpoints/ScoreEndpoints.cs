@@ -36,27 +36,13 @@ public static class ScoreEndpoints
 
             ServiceScore score;
             bool known;
+            object? provider = null;
 
             if (isProvider)
             {
-                // Provider-level query: aggregate all endpoints under this domain
-                var endpoints = await serviceRepo.GetByProviderAsync(serviceId);
-
-                // Also check if there's a direct entry for the domain itself
-                var directEntity = await serviceRepo.GetByDidAsync(serviceId);
-                if (directEntity is not null)
-                    endpoints = endpoints.Append(directEntity).ToList().AsReadOnly();
-
-                if (endpoints.Count > 0)
-                {
-                    score = scoringEngine.CalculateProviderScore(serviceId, endpoints);
-                    known = true;
-                }
-                else
-                {
-                    score = scoringEngine.CalculateScore(new ServiceEntity { Did = serviceId });
-                    known = false;
-                }
+                var aggregate = await ProviderScoreAsync(serviceId, serviceRepo, scoringEngine);
+                known = aggregate is not null;
+                score = aggregate?.Score ?? scoringEngine.CalculateScore(new ServiceEntity { Did = serviceId });
             }
             else
             {
@@ -66,6 +52,26 @@ public static class ScoreEndpoints
                 score = serviceEntity is not null
                     ? scoringEngine.CalculateScore(serviceEntity)
                     : scoringEngine.CalculateScore(new ServiceEntity { Did = serviceId });
+
+                // Nothing on this endpoint: say what is known about the rest of its domain, kept
+                // apart from the endpoint's own (neutral) score so it is never mistaken for a
+                // measurement of this endpoint.
+                if (!known)
+                {
+                    var providerId = ServiceIdentifier.ExtractProvider(serviceId);
+                    if (await ProviderScoreAsync(providerId, serviceRepo, scoringEngine) is { } aggregate)
+                    {
+                        provider = new
+                        {
+                            service = providerId,
+                            score = aggregate.Score.Score,
+                            confidence = aggregate.Score.Confidence,
+                            ratings_count = aggregate.Score.RatingsCount,
+                            endpoints_rated = aggregate.Endpoints,
+                            last_rated = aggregate.Score.LastRatedAt,
+                        };
+                    }
+                }
             }
 
             var response = new
@@ -85,6 +91,7 @@ public static class ScoreEndpoints
                 service_supports_receipts = score.ServiceSupportsReceipts,
                 known,
                 level = isProvider ? "provider" : "endpoint",
+                provider,
             };
 
             await cache.SetAsync($"score:{serviceId}", JsonSerializer.Serialize(response), CacheTtl);
@@ -103,6 +110,25 @@ public static class ScoreEndpoints
             "Pass a full URL (api.example.com/v1/translate) for endpoint-level score, " +
             "or just a domain (api.example.com) for aggregated provider score. " +
             "Unknown services return a neutral 0.5 with known=false, never a 404; read that as " +
-            "unverified rather than as safe.");
+            "unverified rather than as safe. For an unknown endpoint whose domain has rated " +
+            "endpoints, 'provider' carries the domain's aggregate score: a hint about the " +
+            "operator, not a measurement of that endpoint.");
+    }
+
+    /// <summary>
+    /// The aggregate score of every rated endpoint under <paramref name="providerId"/> (and of the
+    /// domain itself, when it was rated directly), or null when none is.
+    /// </summary>
+    private static async Task<(ServiceScore Score, int Endpoints)?> ProviderScoreAsync(
+        string providerId, IServiceRepository serviceRepo, IScoringEngine scoringEngine)
+    {
+        var endpoints = await serviceRepo.GetByProviderAsync(providerId);
+        var directEntity = await serviceRepo.GetByDidAsync(providerId);
+        if (directEntity is not null)
+            endpoints = endpoints.Append(directEntity).ToList().AsReadOnly();
+
+        return endpoints.Count > 0
+            ? (scoringEngine.CalculateProviderScore(providerId, endpoints), endpoints.Count)
+            : null;
     }
 }

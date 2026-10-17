@@ -1,6 +1,7 @@
 using System.Data;
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using FluentAssertions;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
@@ -68,6 +69,33 @@ public class ScoreEndpointTests : IClassFixture<WebApplicationFactory<Program>>
         body.Should().Contain("seeded.example.com/v1/translate");
         body.Should().Contain("\"level\":\"endpoint\"");
         body.Should().Contain("\"known\":true");
+    }
+
+    [Fact]
+    public async Task GetScore_UnknownEndpointOfAKnownDomain_StaysNeutral_AndCarriesTheDomainAggregate()
+    {
+        using var doc = JsonDocument.Parse(
+            await _client.GetStringAsync("/v1/score?service=https://seeded.example.com/v1/never-rated"));
+        var root = doc.RootElement;
+
+        root.GetProperty("known").GetBoolean().Should().BeFalse();
+        root.GetProperty("score").GetDouble().Should().Be(0.5, "the endpoint itself was never measured");
+
+        var provider = root.GetProperty("provider");
+        provider.GetProperty("service").GetString().Should().Be("seeded.example.com");
+        provider.GetProperty("endpoints_rated").GetInt32().Should().Be(3, "two endpoints and the domain itself");
+        provider.GetProperty("ratings_count").GetInt32().Should().Be(100);
+        provider.GetProperty("score").GetDouble().Should().BeInRange(0, 1).And.NotBe(0.5);
+    }
+
+    [Theory]
+    [InlineData("/v1/score?service=https://seeded.example.com/v1/translate")]   // known endpoint
+    [InlineData("/v1/score?service=https://nobody.example.org/v1/x")]          // unknown domain
+    [InlineData("/v1/score?service=seeded.example.com")]                       // provider query
+    public async Task GetScore_ProviderIsNull_UnlessTheEndpointIsUnknownAndItsDomainIsNot(string url)
+    {
+        using var doc = JsonDocument.Parse(await _client.GetStringAsync(url));
+        doc.RootElement.GetProperty("provider").ValueKind.Should().Be(JsonValueKind.Null);
     }
 
     [Fact]

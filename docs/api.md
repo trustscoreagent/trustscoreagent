@@ -51,7 +51,8 @@ GET /v1/score?service=api.example.com
   "dimensions": { "availability": 0.99, "latency": 0.82, "conformity": 0.91 },
   "recent_incidents": null,
   "last_rated": "2026-03-29T14:23:01Z",
-  "service_supports_receipts": true
+  "service_supports_receipts": true,
+  "provider": null
 }
 ```
 
@@ -59,7 +60,19 @@ GET /v1/score?service=api.example.com
 a `0` would wrongly read as "none". Unknown service:
 
 ```json
-{ "service": "never-seen.com", "known": false, "score": 0.5, "ratings_count": 0 }
+{ "service": "never-seen.com", "known": false, "score": 0.5, "ratings_count": 0, "provider": null }
+```
+
+An unknown endpoint on a domain that has rated endpoints keeps its own neutral score, and
+`provider` gives the domain's aggregate as a hint about the operator, not a measurement of that
+endpoint (it is `null` otherwise):
+
+```json
+{
+  "service": "api.example.com/v2/new-endpoint", "level": "endpoint", "known": false, "score": 0.5,
+  "provider": { "service": "api.example.com", "score": 0.84, "confidence": 0.71,
+                "ratings_count": 412, "endpoints_rated": 6, "last_rated": "2026-10-17T13:00:58Z" }
+}
 ```
 
 ---

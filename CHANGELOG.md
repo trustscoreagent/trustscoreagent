@@ -12,6 +12,10 @@ and the MCP server share one version number per release.
   availability, latency, and whether the 402 payment challenge is valid
   ([docs/x402-probe.md](docs/x402-probe.md))
 
+- `GET /v1/score` on an unknown endpoint whose domain has rated endpoints returns, in `provider`,
+  the domain's aggregate score (score, confidence, ratings, endpoints rated), kept apart from the
+  endpoint's own neutral score; `provider` is `null` otherwise
+
 ### Changed
 - A `402` with a valid x402 payment challenge (`schema_valid: true`) now counts as the service
   answering, for availability and for EigenTrust's consensus, like a `2xx`

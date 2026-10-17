@@ -24,6 +24,8 @@ of it. Report the services that worked too: a score is only useful if both outco
 
 **An unknown service is information.** Most services are not yet in the registry, and that
 returns `known: false` with a neutral 0.5, never a 404. Read it as unverified, not as safe.
+When the endpoint is unknown but other endpoints of its domain are rated, `provider` carries the
+domain's aggregate score: a hint about the operator, not a measurement of that endpoint.
 You are also the one who can change it: call the service, then report what happened.
 
 Participation does not need to be universal to work. A few percent of agents reporting is
