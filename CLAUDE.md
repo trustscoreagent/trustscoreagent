@@ -24,6 +24,7 @@ TrustScoreAgent — Free, open reputation registry for AI microservices.
 - `migrations/` — SQL migration files (run by DbUp on startup)
 - `mcp-server/` — TypeScript MCP server (3 tools, published to npm)
 - `tools/ProbeCandidates/` — Checks seed-probe targets before they go into appsettings
+- `src/TrustScore.Api/Jobs/X402Prober.cs` — x402 probe: daily selection from the Bazaar catalog, unpaid probes every 6 hours
 - `tools/verify-proof/` — Independent Node verifier for audit proofs (no dependencies)
 - `infra/` — GCP setup and Cloud Scheduler scripts (batch job every 6 hours)
 - `integrations/` — LangChain / CrewAI tools

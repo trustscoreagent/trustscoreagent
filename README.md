@@ -4,7 +4,7 @@ Free, open reputation registry for AI microservices. Agents check trust scores b
 
 > **Status: Phase 1 (early).** The API, scoring (Beta + EigenTrust), receipt verification,
 > Merkle audit trail and MCP server are implemented and tested, but the public dataset is
-> still small (seeded by a transparent probe of public APIs), and parts of the design
+> still small (seeded by a transparent probe of public APIs and x402 endpoints), and parts of the design
 > (x402 payments, *mandatory* agent signatures) are Phase 2. We publish
 > early and openly on purpose: the trust layer for the agentic economy should exist, be
 > auditable, and be adoptable *before* it becomes critical. See the trust model in
@@ -156,7 +156,9 @@ TrustScoreAgent is **Phase 1 (early)**. What that means in practice:
 
 - **Baseline data is real and auditable.** Initial scores come from a transparent operated
   probe (`did:web:trustscoreagent.com:probe`) that measures the availability, latency and
-  conformity of a curated list of public, free APIs: real, Merkle-audited measurements, not
+  conformity of a curated list of public, free APIs, and of the x402 endpoints agents pay the
+  most (picked daily from the public Bazaar catalog and probed without paying, see
+  [docs/x402-probe.md](docs/x402-probe.md)): real, Merkle-audited measurements, not
   fabricated numbers. Community and receipt-verified ratings accumulate on top. (The earlier
   fictitious `*.example.com` seeds have been removed.)
 - **Single operator.** Neutrality currently rests on open-source scoring code and a
