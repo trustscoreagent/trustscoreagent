@@ -49,6 +49,19 @@ const known = await call("check_reputation", { service_did: "api.open-meteo.com"
 console.log("check known  :", known.trust_level, known.score, known.ratings_count);
 const unknown = await call("check_reputation", { service_did: `never-seen-${Date.now()}.example.net` });
 console.log("check unknown:", unknown.trust_level, unknown.known);
+// A paid endpoint the probe records: its own payee matches, any other one does not.
+const paid = "https://www.api-xpay.com/x402/ping";
+const terms = await call("check_reputation", { service_did: paid });
+if (!terms.x402?.accepts?.length) throw new Error(`no x402 terms on ${paid}`);
+const payee = terms.x402.accepts[0].pay_to;
+const match = await call("check_reputation", { service_did: paid, pay_to: payee.toUpperCase().replace("0X", "0x") });
+const mismatch = await call("check_reputation", { service_did: paid, pay_to: "0x000000000000000000000000000000000000dead" });
+console.log("x402 pay_to  :", match.pay_to_check, mismatch.pay_to_check);
+if (match.pay_to_check !== "match" || mismatch.pay_to_check !== "mismatch")
+  throw new Error("pay_to comparison is wrong");
+const sibling = await call("check_reputation", { service_did: "https://www.api-xpay.com/x402/never-rated" });
+console.log("provider hint:", sibling.known, sibling.provider?.service, sibling.provider?.endpoints_rated);
+
 const list = await call("list_services", { limit: 3 });
 console.log("list         :", list.count, list.services.map((s) => `${s.service}=${s.score}`).join(", "));
 const rated = await call("submit_rating", { service_did: "api.open-meteo.com", status_code: 200, latency_ms: 120 });
