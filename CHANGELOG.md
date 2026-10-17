@@ -5,7 +5,14 @@ and the MCP server share one version number per release.
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-10-17
+
 ### Added
+- MCP `check_reputation` takes an optional `pay_to`, the payTo of the x402 402 the agent
+  received, and returns `pay_to_check` (`match`, `mismatch`, `rotating`, `no_data`); it also
+  returns the `x402` terms and, for an unknown endpoint, the domain's `provider` aggregate, in
+  both the text and `structuredContent`
+
 - The batch job measures x402 endpoints: once a day it picks, from the public Bazaar catalog, the
   endpoints with more than 10 distinct payers over 30 days (at most 20 per host, 500 in all), and
   every 6 hours sends each one request without payment. The answer is recorded as a probe rating:

@@ -8,9 +8,28 @@ for AI microservices. It lets an LLM agent check whether an external service is 
 
 | Tool | Purpose |
 |------|---------|
-| `check_reputation` | Get the trust score (0 to 1), confidence, rating count and dimensional breakdown (availability, latency, conformity) of a service. Call it **before** using an untrusted service. |
+| `check_reputation` | Get the trust score (0 to 1), confidence, rating count and dimensional breakdown (availability, latency, conformity) of a service. Call it **before** using an untrusted service. For an x402 endpoint, pass the `payTo` of the 402 you received as `pay_to`: it says whether that payee is the one the registry has seen there. |
 | `submit_rating` | Rate a service after calling it, from your interaction metrics (status code, latency, schema validity, optional quality score and receipt). |
 | `list_services` | Discover rated services sorted by trust score, with score/ratings filters. |
+
+### Before paying an x402 endpoint
+
+```
+check_reputation({ service_did: "https://api.example.com/x402/search", pay_to: "0x7284...299c" })
+```
+
+The result carries `x402`, the payment terms the registry's probe saw on that endpoint (amount,
+asset, network, payee) and when the payee or the price last changed, and `pay_to_check`:
+
+| `pay_to_check` | Meaning |
+|---|---|
+| `match` | The payee is one the registry saw on this endpoint. |
+| `mismatch` | It is not. Stop and check before paying: the server or its domain may have been compromised. |
+| `rotating` | The endpoint issues a new payee on every request, so no comparison is possible. |
+| `no_data` | The registry has no payment terms for this endpoint. |
+
+For an endpoint nobody rated yet, `provider` gives the aggregate score of its domain's rated
+endpoints: a hint about the operator, not a measurement of that endpoint.
 
 ## Configure
 

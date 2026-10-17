@@ -356,9 +356,111 @@ const CHECK_OUTPUT = {
     recent_incidents: { type: ["integer", "null"], description: "null while incidents are not tracked" },
     service_supports_receipts: { type: "boolean" },
     last_rated: { type: ["string", "null"] },
+    provider: {
+      type: ["object", "null"],
+      description:
+        "For an unknown endpoint whose domain has rated endpoints: the domain's aggregate, a hint " +
+        "about the operator, not a measurement of this endpoint",
+      properties: {
+        service: { type: "string" },
+        score: { type: "number" },
+        confidence: { type: "number" },
+        ratings_count: { type: "integer" },
+        endpoints_rated: { type: "integer" },
+        last_rated: { type: ["string", "null"] },
+      },
+    },
+    x402: {
+      type: ["object", "null"],
+      description: "For a paid x402 endpoint the registry probes: the payment terms last seen and their stability",
+      properties: {
+        accepts: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              scheme: { type: "string" },
+              network: { type: "string" },
+              asset: { type: "string" },
+              amount: { type: "string" },
+              pay_to: { type: "string" },
+            },
+          },
+        },
+        last_seen: { type: ["string", "null"] },
+        observations: { type: "integer" },
+        pay_to_changed_at: { type: ["string", "null"] },
+        pay_to_changes: { type: "integer" },
+        pay_to_rotates: { type: "boolean" },
+        price_changed_at: { type: ["string", "null"] },
+        price_changes: { type: "integer" },
+        price_varies: { type: "boolean" },
+      },
+    },
+    pay_to_check: {
+      type: ["string", "null"],
+      enum: ["match", "mismatch", "rotating", "no_data", null],
+      description:
+        "When pay_to was given: match (a payee the registry saw on this endpoint), mismatch (not " +
+        "one: stop and check before paying), rotating (the endpoint issues a new payee per " +
+        "request, so no comparison is possible), no_data (no payment terms recorded)",
+    },
   },
   required: ["service", "known", "score", "trust_level", "confidence", "ratings_count"],
 };
+
+// EVM addresses are hex and arrive lowercase or checksummed: the same address. Other chains'
+// addresses (Solana's base58) are case-sensitive.
+const sameAddress = (a: string, b: string): boolean =>
+  a.toLowerCase().startsWith("0x") ? a.toLowerCase() === b.toLowerCase() : a === b;
+
+type X402Terms = {
+  accepts?: { scheme: string; network: string; asset: string; amount: string; pay_to: string }[];
+  last_seen?: string | null;
+  observations?: number;
+  pay_to_changed_at?: string | null;
+  pay_to_changes?: number;
+  pay_to_rotates?: boolean;
+  price_changed_at?: string | null;
+  price_changes?: number;
+  price_varies?: boolean;
+};
+
+type PayToCheck = "match" | "mismatch" | "rotating" | "no_data" | null;
+
+function payToCheck(x402: X402Terms | null, payTo: string | undefined): PayToCheck {
+  if (!payTo) return null;
+  if (!x402?.accepts?.length) return "no_data";
+  if (x402.pay_to_rotates) return "rotating";
+  return x402.accepts.some((a) => sameAddress(a.pay_to, payTo)) ? "match" : "mismatch";
+}
+
+// What a payer reads before paying: the terms, how stable they are, and the comparison.
+function x402Lines(x402: X402Terms | null, check: PayToCheck, payTo: string | undefined): string[] {
+  const lines: string[] = [];
+  if (x402?.accepts?.length) {
+    lines.push(``, `x402 payment terms seen by the registry (last seen ${x402.last_seen ?? "n/a"}):`);
+    for (const a of x402.accepts)
+      lines.push(`  ${a.amount} of ${a.asset} on ${a.network} (${a.scheme}), payee ${a.pay_to}`);
+    if (x402.pay_to_rotates)
+      lines.push(`  The payee changes on every request: comparing addresses does not apply here.`);
+    else if (x402.pay_to_changes)
+      lines.push(`  Payee changed ${x402.pay_to_changes} time(s), last on ${x402.pay_to_changed_at}.`);
+    else lines.push(`  Payee unchanged over ${x402.observations ?? 1} observation(s).`);
+    if (x402.price_varies) lines.push(`  The price varies from one request to the next.`);
+    else if (x402.price_changes)
+      lines.push(`  Price changed ${x402.price_changes} time(s), last on ${x402.price_changed_at}.`);
+  }
+  if (check === "match") lines.push(``, `The payee ${payTo} matches what the registry saw on this endpoint.`);
+  if (check === "mismatch")
+    lines.push(
+      ``,
+      `WARNING: the payee ${payTo} is NOT the one the registry saw on this endpoint.`,
+      `Do not pay before checking: the server or its domain may have been compromised.`,
+    );
+  if (check === "no_data") lines.push(``, `The registry has no payment terms recorded for this endpoint.`);
+  return lines;
+}
 
 const SUBMIT_OUTPUT = {
   type: "object" as const,
@@ -417,7 +519,9 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         "yet, so treat it as unverified rather than as safe, and weigh the call accordingly. " +
         "One check costs a fraction of what a wasted call, a stalled task, or a payment to a " +
         "service that does not deliver costs you. If you got a 402 Payment Required from a " +
-        "service you do not know, this is the check to run before paying.",
+        "service you do not know, this is the check to run before paying: pass the payTo " +
+        "address of that 402 as pay_to, and the result says whether it is the payee the " +
+        "registry has seen on this endpoint.",
       inputSchema: {
         type: "object" as const,
         properties: {
@@ -427,6 +531,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
               "The service to check. Accepts any format: " +
               "URL (https://api.example.com), domain (api.example.com), " +
               "or DID (did:web:api.example.com). All resolve to the same service.",
+          },
+          pay_to: {
+            type: "string",
+            description:
+              "Optional: the payTo address of the x402 Payment Required you received, to compare " +
+              "with the payee the registry has seen on this endpoint",
           },
         },
         required: ["service_did"],
@@ -551,6 +661,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   if (name === "check_reputation") {
     const serviceDid = requireString(args?.service_did, "service_did");
     if (typeof serviceDid !== "string") return asError(serviceDid.error);
+    const payTo =
+      typeof args?.pay_to === "string" && args.pay_to.trim() ? args.pay_to.trim().slice(0, 256) : undefined;
 
     try {
       const response = await apiFetch(`/v1/score?service=${encodeURIComponent(serviceDid)}`);
@@ -563,6 +675,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       const score = await response.json();
+      const provider = score.provider ?? null;
+      const x402: X402Terms | null = score.x402 ?? null;
+      const check = payToCheck(x402, payTo);
 
       // Unknown service — neutral score, no data
       if (score.known === false) {
@@ -578,6 +693,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             recent_incidents: null,
             service_supports_receipts: false,
             last_rated: null,
+            provider,
+            x402,
+            pay_to_check: check,
           },
           content: [
             {
@@ -588,6 +706,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 `Confidence: 0 (no data)`,
                 ``,
                 `This service has never been rated. Proceed with caution.`,
+                ...(provider
+                  ? [
+                      ``,
+                      `Its domain ${provider.service} has ${provider.endpoints_rated} rated endpoint(s): ` +
+                        `aggregate score ${provider.score} (confidence ${provider.confidence}, ` +
+                        `${provider.ratings_count} ratings).`,
+                      `That is a hint about the operator, not a measurement of this endpoint.`,
+                    ]
+                  : []),
+                ...x402Lines(x402, check, payTo),
+                ``,
                 `If you call it, submit a rating: the next check of this service will read it back.`,
               ].join("\n"),
             },
@@ -609,6 +738,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           recent_incidents: typeof score.recent_incidents === "number" ? score.recent_incidents : null,
           service_supports_receipts: Boolean(score.service_supports_receipts),
           last_rated: score.last_rated ?? null,
+          provider,
+          x402,
+          pay_to_check: check,
         },
         content: [
           {
@@ -633,6 +765,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 : `This service does not yet support trust receipts`,
               ``,
               `Last rated: ${score.last_rated || "never"}`,
+              ...x402Lines(x402, check, payTo),
             ].join("\n"),
           },
         ],

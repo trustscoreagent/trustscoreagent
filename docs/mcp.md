@@ -75,6 +75,8 @@ Check the trust score of any AI microservice before calling it.
 
 **Parameters:**
 - `service_did` (required): the service, as a domain, URL or DID (e.g., `api.example.com`)
+- `pay_to` (optional): the `payTo` address of an x402 Payment Required you received, compared
+  with the payee the registry has seen on that endpoint
 
 **Example response:**
 ```
@@ -91,9 +93,26 @@ This service supports trust receipts (verified ratings)
 
 Incidents are not tracked yet, so no incident line is shown (0.2.3 and later).
 
+Since 0.2.6, for a paid x402 endpoint the registry probes, the result adds the payment terms it
+saw and their stability, and with `pay_to` a comparison:
+
+```
+x402 payment terms seen by the registry (last seen 2026-10-17T15:24:58Z):
+  5000 of 0x8335...2913 on eip155:8453 (exact), payee 0x7284...299c
+  Payee unchanged over 33 observation(s).
+
+WARNING: the payee 0x0000...dead is NOT the one the registry saw on this endpoint.
+Do not pay before checking: the server or its domain may have been compromised.
+```
+
+`pay_to_check` is `match`, `mismatch`, `rotating` (the endpoint issues a new payee per request,
+so no comparison is possible) or `no_data`. An unknown endpoint whose domain has rated endpoints
+also gets `provider`, the domain's aggregate score, as a hint about the operator.
+
 Since 0.2.4 every tool also returns its data as `structuredContent` matching a declared
 `outputSchema` (for `check_reputation`: `service`, `known`, `score`, `trust_level`, `confidence`,
-`ratings_count`, `dimensions`, `recent_incidents`, `service_supports_receipts`, `last_rated`), and
+`ratings_count`, `dimensions`, `recent_incidents`, `service_supports_receipts`, `last_rated`, and
+since 0.2.6 `provider`, `x402` and `pay_to_check`), and
 declares annotations: `check_reputation` and `list_services` are read-only, `submit_rating` writes a
 rating (not destructive, not idempotent). `submit_rating` returns the `rating_id` to fetch the
 rating's [audit proof](./api.md#audit).
