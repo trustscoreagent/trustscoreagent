@@ -249,8 +249,18 @@ GET /v1/services?sort_by=score&order=desc&min_score=0.7&min_ratings=10&limit=20&
 | `order`     | `desc`  | `asc`, `desc` |
 | `min_score` | `0`     | 0.0-1.0 |
 | `min_ratings` | `0`   | integer |
+| `x402`      | none    | `true`: only x402 endpoints with recorded payment terms; `false`: the others |
 | `limit`     | `20`    | 1-100 |
 | `offset`    | `0`     | integer |
+
+The response carries `pagination` with `limit`, `offset`, `count` (services on this page) and
+`total` (services matching the filters across all pages). Page through with `offset` until
+`offset + count` reaches `total`. Sorted by score, services with few ratings sit near the
+neutral 0.5 and appear further down: use `sort_by=last_rated` to see recently measured ones.
+
+```
+GET /v1/services?x402=true&sort_by=last_rated&limit=100
+```
 
 ---
 

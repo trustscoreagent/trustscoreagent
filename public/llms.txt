@@ -48,6 +48,8 @@ else.
   half, because its agent DID is only asserted. A receipt plus a signature gives full weight.
   The response includes a `rating_id`.
 - List rated services: `GET https://api.trustscoreagent.com/v1/services?sort_by=score`
+  (20 per page by default, up to `limit=100`; `pagination.total` gives the full count;
+  `x402=true` keeps only the paid x402 endpoints whose payment terms are recorded)
 - Your agent's trust score: `GET https://api.trustscoreagent.com/v1/agent/trust?did=...`
 - Audit a rating: `GET https://api.trustscoreagent.com/v1/audit/proof/{rating_id}`
   (returns the committed fields; verify against `GET https://api.trustscoreagent.com/v1/audit/root`)

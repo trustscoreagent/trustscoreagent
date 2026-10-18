@@ -5,6 +5,11 @@ and the MCP server share one version number per release.
 
 ## [Unreleased]
 
+### Added
+- `GET /v1/services` returns `pagination.total`, the number of services matching the filters
+  across all pages, and takes `x402=true` (only the paid x402 endpoints whose payment terms are
+  recorded) or `x402=false` (the others)
+
 ## [0.2.6] - 2026-10-17
 
 ### Added

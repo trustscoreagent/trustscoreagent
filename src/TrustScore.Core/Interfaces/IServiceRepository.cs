@@ -9,6 +9,9 @@ public interface IServiceRepository
     Task<IReadOnlyList<ServiceEntity>> GetByDidsAsync(IReadOnlyList<string> dids);
     Task<IReadOnlyList<ServiceEntity>> GetByProviderAsync(string provider);
     Task<IReadOnlyList<ServiceEntity>> ListAsync(ServiceListFilter filter);
+
+    /// <summary>Number of listed services matching the filter, ignoring limit and offset.</summary>
+    Task<int> CountAsync(ServiceListFilter filter);
     Task UpsertAsync(ServiceEntity service);
     Task ApplyRatingAtomicAsync(string did, RatingDelta delta);
 
@@ -25,4 +28,5 @@ public sealed class ServiceListFilter
     public string? Order { get; init; } = "desc";      // "asc", "desc"
     public double? MinScore { get; init; }
     public int? MinRatings { get; init; }
+    public bool? X402 { get; init; }                   // true: has recorded x402 terms, false: has none
 }

@@ -370,4 +370,29 @@ public class PostgresRepositoryTests : PostgresDatabaseTest
         listed.Select(s => s.Did).Should().Contain("shown.test").And.NotContain("hidden.test");
         (await repo.GetByDidAsync("hidden.test")).Should().NotBeNull("an unlisted service still has a score");
     }
+
+    [PostgresFact]
+    public async Task ListAndCount_FilterOnRecordedX402Terms()
+    {
+        using (var conn = Db.CreateConnection())
+        {
+            await conn.ExecuteAsync(
+                """
+                INSERT INTO services (did, alpha, beta, ratings_count)
+                VALUES ('paid.test/a', 5, 1, 3), ('free.test/a', 5, 1, 3);
+                INSERT INTO x402_terms (service_did, x402_version, accepts, first_seen_at, last_seen_at)
+                VALUES ('paid.test/a', 2, '[]'::jsonb, now(), now());
+                """);
+        }
+        var repo = Services();
+
+        var paid = new ServiceListFilter { SortBy = "ratings_count", Limit = 100, X402 = true };
+        var free = new ServiceListFilter { SortBy = "ratings_count", Limit = 100, X402 = false };
+        var any = new ServiceListFilter { SortBy = "ratings_count", Limit = 1 };
+
+        (await repo.ListAsync(paid)).Select(s => s.Did).Should().Contain("paid.test/a").And.NotContain("free.test/a");
+        (await repo.ListAsync(free)).Select(s => s.Did).Should().Contain("free.test/a").And.NotContain("paid.test/a");
+        (await repo.CountAsync(paid)).Should().Be((await repo.ListAsync(paid)).Count);
+        (await repo.CountAsync(any)).Should().BeGreaterThanOrEqualTo(2, "the count ignores limit");
+    }
 }

@@ -13,9 +13,21 @@ public static class ServicesEndpoints
             string? order,
             double? min_score,
             int? min_ratings,
+            string? x402,
             IServiceRepository serviceRepo,
             IScoringEngine scoringEngine) =>
         {
+            // Parsed here rather than bound as bool?, which turns a bad value into a 500.
+            bool? x402Filter = x402?.ToLowerInvariant() switch
+            {
+                null => null,
+                "true" => true,
+                "false" => false,
+                _ => default(bool?),
+            };
+            if (x402 is not null && x402Filter is null)
+                return Results.BadRequest(new { error = "invalid_x402", message = "x402 must be true or false" });
+
             var filter = new ServiceListFilter
             {
                 Limit = limit ?? 20,
@@ -24,6 +36,7 @@ public static class ServicesEndpoints
                 Order = order ?? "desc",
                 MinScore = min_score,
                 MinRatings = min_ratings,
+                X402 = x402Filter,
             };
 
             // Validate inputs
@@ -41,6 +54,7 @@ public static class ServicesEndpoints
                 });
 
             var services = await serviceRepo.ListAsync(filter);
+            var total = await serviceRepo.CountAsync(filter);
             var results = services.Select(s =>
             {
                 var score = scoringEngine.CalculateScore(s);
@@ -69,6 +83,7 @@ public static class ServicesEndpoints
                     limit = filter.Limit,
                     offset = filter.Offset,
                     count = services.Count,
+                    total,
                 }
             });
         })
@@ -78,6 +93,8 @@ public static class ServicesEndpoints
         .Produces(400)
         .WithSummary("List rated services")
         .WithDescription("Returns a paginated list of services with their trust scores. " +
-            "Use this to discover which services have been rated and find reliable ones.");
+            "Use this to discover which services have been rated and find reliable ones. " +
+            "pagination.total is the number of services matching the filters across all pages. " +
+            "x402=true keeps only the paid x402 endpoints whose payment terms the registry records.");
     }
 }
