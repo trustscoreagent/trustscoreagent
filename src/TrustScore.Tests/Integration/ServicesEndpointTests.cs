@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Net;
 using FluentAssertions;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -77,5 +78,47 @@ public class ServicesEndpointTests : IClassFixture<WebApplicationFactory<Program
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.Content.ReadAsStringAsync();
         body.Should().Contain("seeded.example.com");
+    }
+
+    [Fact]
+    public async Task ListServices_TotalCountsAllPages()
+    {
+        using var all = JsonDocument.Parse(await _client.GetStringAsync("/v1/services?limit=100"));
+        using var page = JsonDocument.Parse(await _client.GetStringAsync("/v1/services?limit=1"));
+
+        var total = all.RootElement.GetProperty("pagination").GetProperty("total").GetInt32();
+        total.Should().Be(all.RootElement.GetProperty("services").GetArrayLength()).And.BeGreaterThan(1);
+        page.RootElement.GetProperty("pagination").GetProperty("count").GetInt32().Should().Be(1);
+        page.RootElement.GetProperty("pagination").GetProperty("total").GetInt32().Should().Be(total);
+    }
+
+    [Fact]
+    public async Task ListServices_X402True_KeepsOnlyEndpointsWithPaymentTerms()
+    {
+        using var doc = JsonDocument.Parse(await _client.GetStringAsync("/v1/services?x402=true"));
+
+        doc.RootElement.GetProperty("services").EnumerateArray()
+            .Select(s => s.GetProperty("service").GetString())
+            .Should().Equal(FakeX402TermsRepository.Did);
+        doc.RootElement.GetProperty("pagination").GetProperty("total").GetInt32().Should().Be(1);
+    }
+
+    [Fact]
+    public async Task ListServices_X402False_ExcludesEndpointsWithPaymentTerms()
+    {
+        using var doc = JsonDocument.Parse(await _client.GetStringAsync("/v1/services?x402=false&limit=100"));
+
+        var dids = doc.RootElement.GetProperty("services").EnumerateArray()
+            .Select(s => s.GetProperty("service").GetString()).ToList();
+        dids.Should().NotBeEmpty().And.NotContain(FakeX402TermsRepository.Did);
+    }
+
+    [Fact]
+    public async Task ListServices_InvalidX402_Returns400()
+    {
+        var response = await _client.GetAsync("/v1/services?x402=maybe");
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync()).Should().Contain("invalid_x402");
     }
 }

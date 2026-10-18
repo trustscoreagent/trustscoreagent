@@ -455,9 +455,10 @@ public class HealthEndpointTests : IClassFixture<WebApplicationFactory<Program>>
 internal class FakeX402TermsRepository : IX402TermsRepository
 {
     public const string PayTo = "0x1111111111111111111111111111111111111111";
+    public const string Did = "seeded.example.com/v1/translate";
 
     public Task<X402TermsRecord?> GetAsync(string serviceDid) =>
-        Task.FromResult(serviceDid == "seeded.example.com/v1/translate"
+        Task.FromResult(serviceDid == Did
             ? new X402TermsRecord(
                 serviceDid, 2,
                 [new X402Requirement("exact", "eip155:8453", "10000", "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", PayTo)],
@@ -546,7 +547,7 @@ internal class FakeServiceRepository : IServiceRepository
         return Task.CompletedTask;
     }
 
-    public Task<IReadOnlyList<ServiceEntity>> ListAsync(ServiceListFilter filter)
+    private IEnumerable<ServiceEntity> Matching(ServiceListFilter filter)
     {
         var query = _services.Values.AsEnumerable();
 
@@ -555,6 +556,19 @@ internal class FakeServiceRepository : IServiceRepository
 
         if (filter.MinScore.HasValue)
             query = query.Where(s => s.Alpha / (s.Alpha + s.Beta) >= filter.MinScore.Value);
+
+        // Mirrors FakeX402TermsRepository, which records terms for this one endpoint.
+        if (filter.X402.HasValue)
+            query = query.Where(s => (s.Did == FakeX402TermsRepository.Did) == filter.X402.Value);
+
+        return query;
+    }
+
+    public Task<int> CountAsync(ServiceListFilter filter) => Task.FromResult(Matching(filter).Count());
+
+    public Task<IReadOnlyList<ServiceEntity>> ListAsync(ServiceListFilter filter)
+    {
+        var query = Matching(filter);
 
         query = filter.SortBy switch
         {

@@ -217,9 +217,7 @@ public sealed class ServiceRepository : IServiceRepository
                    created_at AS CreatedAt,
                    updated_at AS UpdatedAt
             FROM services
-            WHERE listed
-              AND ratings_count >= @MinRatings
-              AND {BetaReputationSystem.ScoreSql} >= @MinScore
+            {ListWhere(filter)}
             ORDER BY {orderColumn} {orderDir}, did
             LIMIT @Limit OFFSET @Offset
             """;
@@ -233,6 +231,31 @@ public sealed class ServiceRepository : IServiceRepository
         });
 
         return results.ToList().AsReadOnly();
+    }
+
+    public async Task<int> CountAsync(ServiceListFilter filter)
+    {
+        using var conn = _db.CreateConnection();
+        return await conn.ExecuteScalarAsync<int>(
+            $"SELECT COUNT(*) FROM services {ListWhere(filter)}",
+            new { MinRatings = filter.MinRatings ?? 0, MinScore = filter.MinScore ?? 0.0 });
+    }
+
+    // Shared by ListAsync and CountAsync so the total always describes the same set as the page.
+    private static string ListWhere(ServiceListFilter filter)
+    {
+        var x402 = filter.X402 switch
+        {
+            true => "AND EXISTS (SELECT 1 FROM x402_terms t WHERE t.service_did = services.did)",
+            false => "AND NOT EXISTS (SELECT 1 FROM x402_terms t WHERE t.service_did = services.did)",
+            null => "",
+        };
+        return $"""
+            WHERE listed
+              AND ratings_count >= @MinRatings
+              AND {BetaReputationSystem.ScoreSql} >= @MinScore
+              {x402}
+            """;
     }
 
     public async Task<bool> ExistsAsync(string did)
