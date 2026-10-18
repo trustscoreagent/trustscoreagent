@@ -27,8 +27,10 @@ An open, free reputation registry where:
 - The full history is **auditable** via an append-only Merkle tree.
 
 It is a registry you *consult*: like DNS is for names, this is for trust. It is **not** a
-proxy, an SDK that wraps your calls, a payment system, or a marketplace. It never sits in
-your request path.
+proxy, a payment system, or a marketplace, and it never sits in your request path. The
+optional [x402 plugin](../x402-plugin) runs inside your agent, next to its payment code: it
+consults the registry before a payment and leaves the decision to your agent. Your requests
+never go through TrustScoreAgent, and when the registry cannot answer the payment goes ahead.
 
 ## Why an individual agent should use it
 

@@ -125,6 +125,22 @@ for full setup instructions. Also listed on the
 [Glama](https://glama.ai/mcp/servers/trustscoreagent/trustscoreagent); each GitHub release attaches an
 `.mcpb` bundle for Claude Desktop.
 
+## x402 plugin
+
+[`@trustscoreagent/x402`](x402-plugin) plugs into the x402 client SDK (`@x402/core`, used by
+`@x402/fetch` and `@x402/axios`). Before each payment it checks the payee against the one the
+registry saw on that endpoint and stops the payment on a mismatch, before anything is signed.
+
+```ts
+const guard = trustScoreGuard();
+guard.attach(client, http);
+const fetchWithPayment = wrapFetchWithPayment(guard.wrapFetch(fetch), http);
+```
+
+The score alone never blocks unless you set `minScore`, an unreachable registry never blocks
+unless you set `failClosed`, and rating after payment is opt-in (`rate: true`). It runs in your
+agent: requests never go through TrustScoreAgent. See [x402-plugin/README.md](x402-plugin/README.md).
+
 ## Framework integrations
 
 Drop-in tools for agent frameworks (no account or API key needed):
@@ -141,6 +157,7 @@ Each exposes `trustscore_check_reputation`, `trustscore_submit_rating`, and
 - [Examples & Recipes](docs/examples.md)
 - [Receipt Standard](docs/receipts.md)
 - [MCP Server Setup](docs/mcp.md): Claude, Cursor, Windsurf
+- [x402 plugin](x402-plugin/README.md): check the payee before paying
 - [Why Trust Matters for Agents](docs/why.md)
 - [Privacy & Data Handling](docs/privacy.md)
 - [Audit Log Specification](docs/MERKLE-SPEC.md), with an independent verifier in

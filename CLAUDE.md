@@ -23,6 +23,7 @@ TrustScoreAgent — Free, open reputation registry for AI microservices.
 - `src/TrustScore.Tests/` — Unit and integration tests (300; `[PostgresFact]` tests skip without a reachable PostgreSQL)
 - `migrations/` — SQL migration files (run by DbUp on startup)
 - `mcp-server/` — TypeScript MCP server (3 tools, published to npm)
+- `x402-plugin/` — `@trustscoreagent/x402`, x402 client SDK plugin (payee check before paying, opt-in rating); own npm version
 - `tools/ProbeCandidates/` — Checks seed-probe targets before they go into appsettings
 - `src/TrustScore.Api/Jobs/X402Prober.cs` — x402 probe: daily selection from the Bazaar catalog, unpaid probes every 6 hours
 - `tools/verify-proof/` — Independent Node verifier for audit proofs (no dependencies)

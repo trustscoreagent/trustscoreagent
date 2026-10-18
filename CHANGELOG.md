@@ -6,6 +6,11 @@ and the MCP server share one version number per release.
 ## [Unreleased]
 
 ### Added
+- x402 client plugin `@trustscoreagent/x402` 0.1.0 (its own npm package and version): hooks
+  into `@x402/core` 2.23+ and stops a payment whose payee is not the one the registry saw on the
+  endpoint in the last 24 hours. The score blocks only with `minScore`, an unreachable registry
+  only with `failClosed`; rating after payment is opt-in. `docs/why.md` and `docs/privacy.md`
+  describe what it does and sends
 - `GET /v1/services` returns `pagination.total`, the number of services matching the filters
   across all pages, and takes `x402=true` (only the paid x402 endpoints whose payment terms are
   recorded) or `x402=false` (the others)

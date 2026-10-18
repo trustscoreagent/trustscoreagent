@@ -49,9 +49,11 @@ coverage/
 publish/
 out/
 
-# Node (MCP server)
+# Node (MCP server, x402 plugin)
 mcp-server/node_modules/
 mcp-server/dist/
+x402-plugin/node_modules/
+x402-plugin/dist/
 
 # Cloudflare Wrangler (landing / DID doc deploys)
 .wrangler/
