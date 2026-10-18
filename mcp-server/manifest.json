@@ -2,7 +2,7 @@
   "manifest_version": "0.2",
   "name": "trustscoreagent",
   "display_name": "TrustScoreAgent",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "description": "Check the reputation of AI microservices and public APIs from an open trust registry.",
   "long_description": "TrustScoreAgent is a free, open reputation registry for AI microservices. This MCP server lets an agent check whether an external service is trustworthy *before* calling it, and contribute a rating afterward. It exposes three tools (check_reputation, submit_rating, list_services) backed by the public API at https://api.trustscoreagent.com, with no account or API key. Before paying an x402 endpoint, check_reputation compares the payTo address of the 402 you received with the payee the registry has seen on that endpoint, and says when it last changed. On first run it generates an Ed25519 key and signs every rating with it, so ratings count at full weight and nobody can rate in its name. Scores come from Bayesian reputation math plus EigenTrust, can be strengthened by cryptographic service receipts, and every rating is committed to a verifiable Merkle audit log whose roots are timestamped in Bitcoin.",
   "author": {
@@ -51,7 +51,7 @@
     },
     {
       "name": "list_services",
-      "description": "Discover rated services sorted by trust score, with score and rating-count filters."
+      "description": "Discover rated services sorted by trust score, with score and rating-count filters, an x402 filter for paid endpoints, and paging through the total."
     }
   ],
   "user_config": {

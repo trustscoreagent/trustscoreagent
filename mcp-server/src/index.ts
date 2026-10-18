@@ -482,6 +482,9 @@ const LIST_OUTPUT = {
   type: "object" as const,
   properties: {
     count: { type: "integer", minimum: 0 },
+    // Services matching the filters across all pages; null if the registry did not say.
+    total: { type: ["integer", "null"], minimum: 0 },
+    offset: { type: "integer", minimum: 0 },
     services: {
       type: "array",
       items: {
@@ -619,7 +622,9 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         "gambling on an unknown one, or to find an alternative when the service you were going " +
         "to use scores badly. " +
         "Filter on min_score and min_ratings together: a high score backed by one rating is an " +
-        "opinion, the same score backed by many is evidence.",
+        "opinion, the same score backed by many is evidence. Set x402 to true to list only the paid " +
+        "x402 endpoints whose payment terms (payee, price) the registry records. The result gives " +
+        "the total matching the filters; page through it with offset.",
       inputSchema: {
         type: "object" as const,
         properties: {
@@ -644,6 +649,16 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
             minimum: 1,
             maximum: 100,
             description: "Number of results (default 20, max 100)",
+          },
+          offset: {
+            type: "number",
+            minimum: 0,
+            description: "Number of results to skip, to page through the total (default 0)",
+          },
+          x402: {
+            type: "boolean",
+            description:
+              "true: only paid x402 endpoints with recorded payment terms; false: only the others",
           },
         },
         required: [],
@@ -874,6 +889,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       !["score", "ratings_count", "last_rated"].includes(args.sort_by as string)
     )
       return asError("Error: sort_by must be one of 'score', 'ratings_count', 'last_rated'");
+    // Some clients pass booleans as strings.
+    const x402 = args?.x402 === "true" ? true : args?.x402 === "false" ? false : args?.x402;
+    if (x402 !== undefined && typeof x402 !== "boolean")
+      return asError("Error: x402 must be true or false");
 
     try {
       const params = new URLSearchParams();
@@ -882,6 +901,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       if (args?.min_score !== undefined) params.set("min_score", String(args.min_score));
       if (args?.min_ratings !== undefined) params.set("min_ratings", String(args.min_ratings));
       if (args?.limit !== undefined) params.set("limit", String(args.limit));
+      if (args?.offset !== undefined) params.set("offset", String(args.offset));
+      if (x402 !== undefined) params.set("x402", String(x402));
 
       const response = await apiFetch(`/v1/services?${params.toString()}`);
 
@@ -899,25 +920,37 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           dimensions: { availability: number; latency: number; conformity: number };
           service_supports_receipts: boolean;
         }>;
-        pagination: { count: number; limit: number; offset: number };
+        pagination: { count: number; limit: number; offset: number; total?: number };
       };
+      const offset = data.pagination?.offset ?? 0;
+      const total = typeof data.pagination?.total === "number" ? data.pagination.total : null;
 
       if (!Array.isArray(data.services) || data.services.length === 0) {
         return {
-          structuredContent: { count: 0, services: [] },
-          content: [{ type: "text" as const, text: "No services found matching the criteria." }],
+          structuredContent: { count: 0, total, offset, services: [] },
+          content: [
+            {
+              type: "text" as const,
+              text:
+                total && offset >= total
+                  ? `No services past offset ${offset}: ${total} match the criteria.`
+                  : "No services found matching the criteria.",
+            },
+          ],
         };
       }
 
       const lines = data.services.map((s, i) => {
         const trustLevel = trustLevelOf(s.score);
         const receipt = s.service_supports_receipts ? " [receipts]" : "";
-        return `${i + 1}. ${s.service}: ${s.score}/1.0 (${trustLevel}), ${s.ratings_count} ratings${receipt}`;
+        return `${offset + i + 1}. ${s.service}: ${s.score}/1.0 (${trustLevel}), ${s.ratings_count} ratings${receipt}`;
       });
 
       return {
         structuredContent: {
-          count: data.pagination?.count ?? data.services.length,
+          count: data.services.length,
+          total,
+          offset,
           services: data.services.map((s) => ({
             service: s.service,
             score: s.score,
@@ -932,7 +965,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           {
             type: "text" as const,
             text: [
-              `Found ${data.pagination?.count ?? data.services.length} service(s):`,
+              total !== null
+                ? `Showing ${offset + 1}-${offset + data.services.length} of ${total} service(s):`
+                : `Found ${data.services.length} service(s):`,
               "",
               ...lines,
             ].join("\n"),
