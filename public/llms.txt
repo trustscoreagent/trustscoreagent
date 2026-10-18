@@ -72,4 +72,7 @@ A service identifier can be a domain (`api.example.com`), a URL, or a DID
 
 ## Integrate
 - MCP server: `npx -y @trustscoreagent/mcp-server` (tools: check_reputation, submit_rating, list_services)
+- x402 client plugin: `npm install @trustscoreagent/x402`. Hooks into the x402 SDK (`@x402/core`)
+  and stops a payment whose payee is not the one the registry saw on that endpoint. Runs in your
+  agent; ratings after payment are opt-in. https://github.com/trustscoreagent/trustscoreagent/tree/main/x402-plugin
 - Source & spec: https://github.com/trustscoreagent/trustscoreagent

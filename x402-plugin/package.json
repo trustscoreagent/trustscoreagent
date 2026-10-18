@@ -1,0 +1,60 @@
+{
+  "name": "@trustscoreagent/x402",
+  "version": "0.1.0",
+  "description": "x402 client plugin for TrustScoreAgent: check the payee and the reputation of an x402 endpoint before paying it",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "pretest": "tsc",
+    "test": "node --test test/guard.test.mjs",
+    "prelive-check": "tsc",
+    "live-check": "node scripts/live-check.mjs",
+    "prepublishOnly": "npm test"
+  },
+  "keywords": [
+    "x402",
+    "payments",
+    "trust",
+    "reputation",
+    "ai-agents",
+    "microservices"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/trustscoreagent/trustscoreagent.git",
+    "directory": "x402-plugin"
+  },
+  "homepage": "https://trustscoreagent.com",
+  "bugs": {
+    "url": "https://github.com/trustscoreagent/trustscoreagent/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependencies": {
+    "@x402/core": "^2.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@x402/core": "^2.28.0",
+    "@x402/fetch": "^2.28.0",
+    "typescript": "^5.5.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

@@ -113,6 +113,13 @@ jobs:
           npm ci
           npm run build
 
+      # The x402 plugin runs inside the real x402 SDK against an in-memory endpoint and registry.
+      - name: Test the x402 plugin
+        working-directory: x402-plugin
+        run: |
+          npm ci
+          npm test
+
       # The independent verifier checks the golden leaf, root and consistency vectors that the
       # C# tests also pin; if either side drifts, one of them fails.
       - name: Self-test the audit proof verifier

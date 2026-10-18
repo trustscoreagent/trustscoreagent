@@ -64,6 +64,17 @@ not yet mandatory, so existing clients keep working. See [SECURITY.md](../SECURI
   Both are stored and served publicly. Neither is part of the audit log's hashes, which is what
   allows them to be erased: an erasure clears these two fields and keeps the rating itself.
 
+## The x402 plugin
+
+[`@trustscoreagent/x402`](../x402-plugin) runs in your agent. Before each x402 payment it sends
+`GET /v1/score` with the endpoint's URL, **stripped of its query string and fragment**, which
+can carry your data. That lookup is not stored beyond the aggregate usage counters above.
+
+Rating after a payment is **off by default**. When you turn it on (`rate: true`), each paid
+request produces a rating as described in [What is stored](#what-is-stored): it is public and
+permanent, and says that your agent's `did:key` paid that endpoint. The key is created locally
+in `~/.trustscoreagent/agent-key.pem` (shared with the MCP server) and never leaves your machine.
+
 ## Receipts
 
 A receipt is a JWT signed by the **service** proving you interacted with it. TrustScoreAgent
