@@ -5,7 +5,12 @@ and the MCP server share one version number per release.
 
 ## [Unreleased]
 
+## [0.2.7] - 2026-10-18
+
 ### Added
+- MCP `list_services` takes `x402` (only the paid x402 endpoints with recorded payment terms, or
+  only the others) and `offset`, and returns `total` and `offset` in the text and in
+  `structuredContent`
 - x402 client plugin `@trustscoreagent/x402` 0.1.0 (its own npm package and version): hooks
   into `@x402/core` 2.23+ and stops a payment whose payee is not the one the registry saw on the
   endpoint in the last 24 hours. The score blocks only with `minScore`, an unreachable registry
@@ -210,7 +215,9 @@ and the MCP server share one version number per release.
 - Swagger disabled in production
 - Global rate limiting: 120 requests/minute per IP
 
-[Unreleased]: https://github.com/trustscoreagent/trustscoreagent/compare/v0.2.5...HEAD
+[Unreleased]: https://github.com/trustscoreagent/trustscoreagent/compare/v0.2.7...HEAD
+[0.2.7]: https://github.com/trustscoreagent/trustscoreagent/compare/v0.2.6...v0.2.7
+[0.2.6]: https://github.com/trustscoreagent/trustscoreagent/compare/v0.2.5...v0.2.6
 [0.2.5]: https://github.com/trustscoreagent/trustscoreagent/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/trustscoreagent/trustscoreagent/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/trustscoreagent/trustscoreagent/compare/v0.2.2...v0.2.3

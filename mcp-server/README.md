@@ -10,7 +10,7 @@ for AI microservices. It lets an LLM agent check whether an external service is 
 |------|---------|
 | `check_reputation` | Get the trust score (0 to 1), confidence, rating count and dimensional breakdown (availability, latency, conformity) of a service. Call it **before** using an untrusted service. For an x402 endpoint, pass the `payTo` of the 402 you received as `pay_to`: it says whether that payee is the one the registry has seen there. |
 | `submit_rating` | Rate a service after calling it, from your interaction metrics (status code, latency, schema validity, optional quality score and receipt). |
-| `list_services` | Discover rated services sorted by trust score, with score/ratings filters. |
+| `list_services` | Discover rated services sorted by trust score, with score/ratings filters, `x402: true` for paid x402 endpoints only, and `offset` to page through the `total`. |
 
 ### Before paying an x402 endpoint
 

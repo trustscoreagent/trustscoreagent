@@ -63,7 +63,11 @@ const sibling = await call("check_reputation", { service_did: "https://www.api-x
 console.log("provider hint:", sibling.known, sibling.provider?.service, sibling.provider?.endpoints_rated);
 
 const list = await call("list_services", { limit: 3 });
-console.log("list         :", list.count, list.services.map((s) => `${s.service}=${s.score}`).join(", "));
+console.log("list         :", list.count, "of", list.total, list.services.map((s) => `${s.service}=${s.score}`).join(", "));
+if (!(list.total > list.count)) throw new Error("list_services should report a total beyond the page");
+const paidList = await call("list_services", { x402: true, limit: 2, offset: 1, sort_by: "last_rated" });
+console.log("list x402    :", paidList.count, "of", paidList.total, "from", paidList.offset, paidList.services.map((s) => s.service).join(", "));
+if (paidList.offset !== 1 || !(paidList.total < list.total)) throw new Error("x402 filter or offset ignored");
 const rated = await call("submit_rating", { service_did: "api.open-meteo.com", status_code: 200, latency_ms: 120 });
 console.log("submit       :", rated.accepted, rated.agent_identity, rated.rating_id);
 

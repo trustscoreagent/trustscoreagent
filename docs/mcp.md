@@ -143,6 +143,13 @@ List rated services, most-trusted first.
 - `limit` (optional): 1-100 (default 20)
 - `min_score` (optional): only return services at or above this score
 - `min_ratings` (optional): only return services with at least this many ratings
+- `x402` (optional): `true` for only the paid x402 endpoints whose payment terms the registry
+  records, `false` for only the others
+- `offset` (optional): number of results to skip
+
+Since 0.2.7 the result gives `total`, the number of services matching the filters across all
+pages, and the `offset` it starts from: sorted by score, endpoints with few ratings sit near the
+neutral 0.5, far down the list, so page with `offset` or sort by `last_rated` to reach them.
 
 ## Agent Identity
 
