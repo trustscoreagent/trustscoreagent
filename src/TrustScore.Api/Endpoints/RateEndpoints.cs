@@ -51,6 +51,13 @@ public static class RateEndpoints
                 return Results.BadRequest(new { error = "missing_service_did", message = "Field 'service_did' (or 'service') is required" });
 
             var serviceId = SvcId.Normalize(request.ServiceDid);
+            if (!PublicHost.IsPublic(serviceId))
+                return Results.BadRequest(new
+                {
+                    error = "invalid_service",
+                    message = $"'{SvcId.ExtractProvider(serviceId)}' is not a public host: ratings must name a service " +
+                        "reachable on the internet, not localhost, a private or link-local address, or a local name",
+                });
 
             var agentDid = httpContext.Request.Headers["X-Agent-DID"].FirstOrDefault();
             if (string.IsNullOrWhiteSpace(agentDid))

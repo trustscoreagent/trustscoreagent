@@ -140,7 +140,7 @@ does not verify is rejected with `401`.
 
 | Field | Required | Notes |
 |-------|----------|-------|
-| `service` (or `service_did`) | yes | Service identifier. |
+| `service` (or `service_did`) | yes | Service identifier, on a public host: `localhost`, private, loopback and link-local addresses, and local names (`.local`, `.internal`, names without a dot) are refused with `invalid_service`. |
 | `metrics.status_code` | yes | 100-599. |
 | `metrics.latency_ms` | yes | 1-600000. |
 | `metrics.response_size_bytes` | no | |
@@ -184,7 +184,7 @@ The result is then scaled by the rater's agent trust score (EigenTrust).
 `agent_identity_note` appears only when a valid signature could not be counted as signed
 because replay protection was temporarily unavailable.
 
-**Errors:** `400` (validation, including `nonce_replay` for a reused receipt or while the
+**Errors:** `400` (validation, including `invalid_service` for a host only the rater can reach, `nonce_replay` for a reused receipt or while the
 receipt nonce store is unreachable), `401` (`invalid_agent_signature`), `429` (rate limit:
 unsigned ratings, 10 per IP per service per hour; signed ratings, 10 per agent per service
 per hour and 100 per IP per service per hour). Every endpoint except `/health` is also limited

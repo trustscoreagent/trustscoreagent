@@ -3,6 +3,7 @@ using System.Net.Sockets;
 using System.Text.Json;
 using TrustScore.Api.Logging;
 using TrustScore.Core.Interfaces;
+using TrustScore.Core.Models;
 
 namespace TrustScore.Api.Receipts;
 
@@ -242,42 +243,7 @@ internal static class SsrfGuard
         }
     }
 
-    public static bool IsBlocked(IPAddress ip)
-    {
-        if (ip.IsIPv4MappedToIPv6)
-            ip = ip.MapToIPv4();
-
-        if (IPAddress.IsLoopback(ip))
-            return true;
-
-        if (ip.AddressFamily == AddressFamily.InterNetwork)
-        {
-            var b = ip.GetAddressBytes();
-            if (b[0] == 0) return true;                                   // 0.0.0.0/8
-            if (b[0] == 10) return true;                                  // 10.0.0.0/8
-            if (b[0] == 100 && b[1] >= 64 && b[1] <= 127) return true;    // 100.64.0.0/10 CGNAT
-            if (b[0] == 127) return true;                                 // loopback
-            if (b[0] == 169 && b[1] == 254) return true;                 // link-local + cloud metadata
-            if (b[0] == 172 && b[1] >= 16 && b[1] <= 31) return true;     // 172.16.0.0/12
-            if (b[0] == 192 && b[1] == 168) return true;                 // 192.168.0.0/16
-            if (b[0] >= 224) return true;                                 // multicast + reserved
-            return false;
-        }
-
-        if (ip.AddressFamily == AddressFamily.InterNetworkV6)
-        {
-            if (ip.Equals(IPAddress.IPv6Any) || ip.Equals(IPAddress.IPv6Loopback)) return true;
-            if (ip.IsIPv6LinkLocal || ip.IsIPv6SiteLocal || ip.IsIPv6Multicast) return true;
-            var b = ip.GetAddressBytes();
-            if ((b[0] & 0xfe) == 0xfc) return true;                       // fc00::/7 unique local
-            // 64:ff9b::/96 NAT64: block so 64:ff9b::a9fe:a9fe (→169.254.169.254) can't reach metadata.
-            if (b[0] == 0x00 && b[1] == 0x64 && b[2] == 0xff && b[3] == 0x9b &&
-                b[4] == 0 && b[5] == 0 && b[6] == 0 && b[7] == 0 &&
-                b[8] == 0 && b[9] == 0 && b[10] == 0 && b[11] == 0) return true;
-            return false;
-        }
-
-        return true; // unknown address family → block
-    }
+    // One list of reserved ranges for outbound connections and for the services ratings may name.
+    public static bool IsBlocked(IPAddress ip) => PublicHost.IsReserved(ip);
 }
 

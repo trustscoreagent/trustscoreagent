@@ -115,4 +115,42 @@ public class ServiceIdentifierTests
         var act = () => ServiceIdentifier.Normalize(longInput);
         act.Should().Throw<ArgumentException>();
     }
+
+    // --- PublicHost: only services others can reach may be rated ---
+
+    [Theory]
+    [InlineData("http://127.0.0.1/control")]
+    [InlineData("127.0.0.1/t/f007112/1/control")]
+    [InlineData("http://localhost:3000/api")]
+    [InlineData("localhost")]
+    [InlineData("10.1.2.3/x")]
+    [InlineData("172.16.0.1")]
+    [InlineData("172.31.255.255/x")]
+    [InlineData("192.168.1.10:8080/x")]
+    [InlineData("169.254.169.254/latest/meta-data")]
+    [InlineData("0.0.0.0")]
+    [InlineData("http://[::1]:8080/x")]
+    [InlineData("http://[fd00::1]/x")]
+    [InlineData("printer.local")]
+    [InlineData("api.corp.internal/v1")]
+    [InlineData("app.localhost")]
+    [InlineData("nas.home.arpa")]
+    [InlineData("intranet/x")]
+    public void PublicHost_RejectsHostsOnlyTheRaterCanReach(string input)
+    {
+        PublicHost.IsPublic(ServiceIdentifier.Normalize(input)).Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("https://api.example.com/v1/translate")]
+    [InlineData("did:web:api.example.com")]
+    [InlineData("8.8.8.8/dns")]
+    [InlineData("172.32.0.1")]
+    [InlineData("http://[2606:4700::1111]/x")]
+    [InlineData("www.api-xpay.com/x402/ping")]
+    [InlineData("example.com.")]
+    public void PublicHost_AcceptsPublicNamesAndAddresses(string input)
+    {
+        PublicHost.IsPublic(ServiceIdentifier.Normalize(input)).Should().BeTrue();
+    }
 }

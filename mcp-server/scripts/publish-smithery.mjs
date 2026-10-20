@@ -117,5 +117,7 @@ const res = await fetch("https://api.smithery.ai/servers/trustscoreagent%2Ftrust
 });
 const body = await res.json().catch(() => ({}));
 console.log(`HTTP ${res.status}: status ${body.status ?? "?"}, release ${body.deploymentId ?? "?"}`);
+// The API's own explanation (e.g. a missing permission); it never contains the key.
+if (!res.ok) console.log(`  ${body.error ?? body.message ?? JSON.stringify(body).slice(0, 300)}`);
 if (!res.ok || body.status !== "SUCCESS") process.exit(1);
 console.log("Published. The public registry caches listings for up to 4 hours.");

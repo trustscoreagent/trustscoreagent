@@ -224,6 +224,24 @@ public class RateEndpointTests : IClassFixture<WebApplicationFactory<Program>>
         body.Should().Contain("\"accepted\":true");
     }
 
+    [Theory]
+    [InlineData("http://127.0.0.1/control")]
+    [InlineData("localhost:3000")]
+    [InlineData("printer.local/status")]
+    public async Task Rate_NonPublicHost_Returns400(string service)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, "/v1/rate")
+        {
+            Content = JsonContent.Create(new { service, metrics = new { status_code = 200, latency_ms = 150 } })
+        };
+        request.Headers.Add("X-Agent-DID", "did:web:test-agent.example.com");
+
+        var response = await _client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync()).Should().Contain("invalid_service").And.Contain("not a public host");
+    }
+
     [Fact]
     public async Task Rate_ReturnsTheRatingId_ToFetchItsAuditProof()
     {
