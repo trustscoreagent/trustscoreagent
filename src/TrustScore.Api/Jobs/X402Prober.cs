@@ -293,6 +293,8 @@ public sealed class X402Prober
 
             var serviceId = ServiceIdentifier.Normalize(entry.Resource);
             var host = ServiceIdentifier.ExtractProvider(serviceId);
+            // The connection itself is guarded against SSRF; this keeps such entries out of the list too.
+            if (!PublicHost.IsPublic(serviceId)) continue;
             if (excluded.Any(e => host == e || host.EndsWith("." + e, StringComparison.Ordinal))) continue;
             if (!seen.Add(serviceId)) continue;
             if (perHost.GetValueOrDefault(host) >= maxPerHost) continue;

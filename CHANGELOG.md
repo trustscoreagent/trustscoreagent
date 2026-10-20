@@ -5,6 +5,13 @@ and the MCP server share one version number per release.
 
 ## [Unreleased]
 
+### Changed
+- `POST /v1/rate` refuses services on hosts nobody else can reach (`localhost`, loopback,
+  private, link-local and CGNAT addresses, `.local`, `.internal`, names without a dot) with
+  `400 invalid_service`, and the x402 probe skips such catalog entries. The four `127.0.0.1`
+  services rated from a sandbox on 2026-10-03 and 04 are unlisted (migration 019); their
+  ratings stay in the audit log
+
 ## [0.2.7] - 2026-10-18
 
 ### Added

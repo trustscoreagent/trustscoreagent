@@ -85,6 +85,21 @@ public class X402ProberTests
     }
 
     [Fact]
+    public void Selection_LeavesOutNonPublicHosts()
+    {
+        var selected = X402Prober.SelectTargets(
+            [
+                Entry("https://169.254.169.254/latest", 90),
+                Entry("https://10.0.0.5/pay", 85),
+                Entry("https://pay.internal/x", 80),
+                Entry("https://public.test/c", 70),
+            ],
+            10, 20, 500);
+
+        selected.Select(t => t.ServiceDid).Should().Equal("public.test/c");
+    }
+
+    [Fact]
     public void Selection_LeavesOutExcludedHostsAndTheirSubdomains()
     {
         var selected = X402Prober.SelectTargets(
