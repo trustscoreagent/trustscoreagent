@@ -51,6 +51,7 @@ public class HourlyJobEndToEndTests : PostgresDatabaseTest
         services.AddScoped<IProbeHealthRepository, ProbeHealthRepository>();
         services.AddSingleton<ICacheService, FakeCacheService>();
         services.AddSingleton<IScoringEngine>(new BetaReputationSystem());
+        services.AddSingleton(new EigenTrustEngine(new[] { TrustIdentity.For(ProbeDid, signatureVerified: false) }));
         services.AddScoped<IRatingWriter, TransactionalRatingWriter>();
 
         if (registerSeedProber)
@@ -256,6 +257,7 @@ public class HourlyJobStepIsolationTests : PostgresDatabaseTest
         services.AddScoped<IAgentRepository, AgentRepository>();
         services.AddScoped<IProbeHealthRepository, ProbeHealthRepository>();
         services.AddSingleton<ICacheService, FakeCacheService>();
+        services.AddSingleton(new EigenTrustEngine());
         using var provider = services.BuildServiceProvider();
 
         var exitCode = await HourlyJob.RunAsync(provider);

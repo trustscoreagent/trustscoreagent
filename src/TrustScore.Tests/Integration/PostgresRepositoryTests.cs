@@ -302,7 +302,7 @@ public class PostgresRepositoryTests : PostgresDatabaseTest
         var fresh = new AgentRepository(Db, new FakeCacheService());
         (await fresh.GetTrustScoreAsync("did:web:agent-a.test")).Should().BeApproximately(0.9, 1e-9);
         (await fresh.GetTrustScoreAsync("did:web:agent-b.test")).Should().BeApproximately(0.2, 1e-9);
-        (await fresh.GetTrustScoreAsync("did:web:agent-unknown.test")).Should().Be(0.5);
+        (await fresh.GetTrustScoreAsync("did:web:agent-unknown.test")).Should().Be(EigenTrustEngine.DefaultTrustScore);
     }
 
     // --- SQL aggregates ---
