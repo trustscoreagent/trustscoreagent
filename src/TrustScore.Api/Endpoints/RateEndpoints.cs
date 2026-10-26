@@ -1,3 +1,5 @@
+using TrustScore.Api.Middleware;
+using TrustScore.Api.Scoring;
 using TrustScore.Core.Interfaces;
 using TrustScore.Core.Models;
 using ReceiptStatus = TrustScore.Core.Models.ReceiptVerificationStatus;
@@ -10,7 +12,7 @@ public static class RateEndpoints
     private const int MaxRatingsPerHour = 10;
 
     /// <summary>
-    /// Signed ratings per caller IP per service per hour, across every key used from that IP.
+    /// Signed ratings per caller IP per provider domain per hour, across every key used from that IP.
     /// Ten times the per-agent limit: room for a handful of honest agents behind one NAT, not for
     /// a fresh keypair per request.
     /// </summary>
@@ -24,13 +26,23 @@ public static class RateEndpoints
     /// </summary>
     public const string RatePath = "/v1/rate";
 
+
     /// <summary>
-    /// How much an unsigned rating is discounted. Identity and attestation are orthogonal: a
-    /// receipt says the service saw the call, a signature says we know who is reporting it. An
-    /// unsigned rating still counts (existing clients keep working) but only half, because its
-    /// X-Agent-DID is self-asserted and could name any agent.
+    /// How far back repeat ratings from one source are counted. The n-th rating of a provider from
+    /// the same source (caller address, and agent key when signed) within this window counts 1/n:
+    /// a source saying the same thing again adds little, and saying it a thousand times must not
+    /// outweigh independent observers.
     /// </summary>
-    private const double UnsignedIdentityFactor = 0.5;
+    internal static readonly TimeSpan RepeatWindow = TimeSpan.FromHours(24);
+
+    /// <summary>
+    /// Ratings per provider domain per <see cref="RepeatWindow"/> that count from agents with no
+    /// earned trust (new keys, and every unsigned rating, since unsigned identities cost nothing).
+    /// Past it a newcomer rating is still recorded, at zero weight: newcomers together can move a
+    /// score only so far in a day, however many identities or addresses they use, while agents that
+    /// earned trust are not affected.
+    /// </summary>
+    internal const int NewcomerRatingsPerProviderPerDay = 5;
 
     public static void MapRateEndpoints(this WebApplication app)
     {
@@ -81,6 +93,13 @@ public static class RateEndpoints
             if (agentDid.Length > 500)
                 return Results.BadRequest(new { error = "invalid_agent_did", message = "X-Agent-DID too long" });
 
+            if (TrustIdentity.IsReserved(agentDid))
+                return Results.BadRequest(new
+                {
+                    error = "reserved_agent_did",
+                    message = $"did:web identities on {TrustIdentity.RegistryDomain} belong to the registry's probe and cannot be used to rate",
+                });
+
             // Verify the agent signature BEFORE the per-agent rate limit, so that limit can be keyed
             // on an identity that was proven rather than one that was merely claimed. Running the
             // crypto ahead of the counter is safe: GlobalRateLimitMiddleware already caps every
@@ -124,14 +143,18 @@ public static class RateEndpoints
             // fresh key would get a fresh per-agent bucket each time. So signed requests are also
             // counted per caller, with a ceiling generous enough for several honest agents sharing
             // an egress IP but low enough that key rotation stops being a way around the limit.
-            var clientIp = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+            //
+            // Buckets are per provider domain, not per endpoint: otherwise every path of a domain
+            // (evil.com/a1, evil.com/a2, ...) would be a fresh allowance on the same domain's score.
+            var caller = ClientAddress.Bucket(httpContext.Connection.RemoteIpAddress);
+            var provider = SvcId.ExtractProvider(serviceId);
             var buckets = signatureResult.IsVerified
                 ? new[]
                 {
-                    ($"ip-signed:{clientIp}:{serviceId}", MaxSignedRatingsPerCallerPerHour, "caller"),
-                    ($"agent:{agentDid}:{serviceId}", MaxRatingsPerHour, "agent"),
+                    ($"ip-signed:{caller}:{provider}", MaxSignedRatingsPerCallerPerHour, "caller"),
+                    ($"agent:{agentDid}:{provider}", MaxRatingsPerHour, "agent"),
                 }
-                : new[] { ($"ip:{clientIp}:{serviceId}", MaxRatingsPerHour, "caller") };
+                : new[] { ($"ip:{caller}:{provider}", MaxRatingsPerHour, "caller") };
 
             foreach (var (key, limit, scope) in buckets)
             {
@@ -141,18 +164,18 @@ public static class RateEndpoints
                         new
                         {
                             error = "rate_limited",
-                            message = $"Maximum {limit} ratings per {scope} per service per hour",
+                            message = $"Maximum {limit} ratings per {scope} per provider domain per hour",
                             remaining = rateLimitResult.Remaining,
                         },
                         statusCode: 429);
             }
 
-            // Verify receipt if provided. Per spec §5, an unverified rating still counts, but at a
-            // reduced base weight (0.3); a verified receipt grants full weight (1.0). The base
-            // weight is then scaled by the agent's EigenTrust score (spec §6.2).
+            // Verify the receipt if one is provided. A verified receipt for the call this rating
+            // reports raises its base weight; see RatingWeight for how signature, trust, repeats and
+            // the newcomers' allowance then scale it.
             var hasReceipt = !string.IsNullOrWhiteSpace(request.Receipt);
             var receiptVerified = false;
-            var weight = 0.3;
+            var notes = new List<string>();
 
             if (hasReceipt)
             {
@@ -163,20 +186,50 @@ public static class RateEndpoints
                         new { error = "nonce_replay", message = "This receipt has already been used" },
                         statusCode: 400);
 
-                weight = verification.Weight;
                 receiptVerified = verification.IsVerified;
+
+                // A receipt vouches for one call: the endpoint it names and the status the service
+                // returned. Used for any other endpoint, or with other metrics, it proves nothing
+                // about this rating, which then counts as unverified.
+                if (receiptVerified && !ReceiptCovers(verification.Payload!, serviceId, request.Metrics.StatusCode))
+                {
+                    receiptVerified = false;
+                    notes.Add("the receipt is valid but covers a different endpoint or status code than this rating, so the rating counts as unverified");
+                }
             }
 
-            // Discount the rating if we cannot prove who sent it.
-            if (!signatureResult.IsVerified)
-                weight *= UnsignedIdentityFactor;
-
-            // Apply agent trust score (EigenTrust) to rating weight. The lookup uses the identity
-            // this rating actually accrues under: an unsigned rating must not borrow the standing
-            // of the DID it names, or naming a reputable agent would be a free weight multiplier.
+            // The lookup uses the identity this rating actually accrues under: an unsigned rating
+            // must not borrow the standing of the DID it names, or naming a reputable agent would be
+            // a free weight multiplier.
             var agentTrust = await agentRepo.GetTrustScoreAsync(
                 TrustIdentity.For(agentDid, signatureResult.IsVerified));
-            weight *= agentTrust;
+
+            // Repeat ratings from the same source saturate: the caller address always identifies
+            // the source, the agent key too when it is proven.
+            var repeat = 1;
+            var sources = signatureResult.IsVerified
+                ? new[] { $"repeat:{caller}:{provider}", $"repeat-agent:{agentDid}:{provider}" }
+                : new[] { $"repeat:{caller}:{provider}" };
+            foreach (var key in sources)
+                repeat = Math.Max(repeat, (await rateLimiter.CheckAsync(key, int.MaxValue, RepeatWindow)).CurrentCount);
+            if (repeat > 1)
+                notes.Add($"repeat rating: rating {repeat} of {provider} from the same source in 24 hours, so it counts 1/{repeat}");
+
+            // Agents without earned trust share a daily allowance per provider.
+            var allowanceExhausted = false;
+            if (agentTrust <= EigenTrustEngine.DefaultTrustScore)
+            {
+                var allowance = await rateLimiter.CheckAsync($"newcomers:{provider}", NewcomerRatingsPerProviderPerDay, RepeatWindow);
+                allowanceExhausted = !allowance.Allowed;
+                if (allowanceExhausted)
+                    notes.Add($"recorded at zero weight: ratings of {provider} from agents without earned trust have reached today's limit. " +
+                        "Trust is earned by ratings that agree with what trusted agents observe");
+            }
+
+            if (receiptVerified && agentTrust <= EigenTrustEngine.DefaultTrustScore)
+                notes.Add("the receipt is verified, but it lends full weight only once this agent has earned trust");
+
+            var weight = RatingWeight.Counted(receiptVerified, signatureResult.IsVerified, agentTrust, repeat, allowanceExhausted);
 
             var rating = new Rating
             {
@@ -208,7 +261,6 @@ public static class RateEndpoints
             // Invalidate cache — both the endpoint-level key and the provider-level aggregate,
             // since an endpoint rating also changes the provider's rolled-up score.
             await cache.RemoveAsync($"score:{serviceId}");
-            var provider = SvcId.ExtractProvider(serviceId);
             if (provider != serviceId)
                 await cache.RemoveAsync($"score:{provider}");
 
@@ -231,9 +283,16 @@ public static class RateEndpoints
                 agent_identity_note = signatureResult.Status == AgentSignatureStatus.ReplayCheckUnavailable
                     ? "signature valid but counted as unsigned: replay protection is temporarily unavailable"
                     : null,
+                // The weight the rating counted at, as committed in its audit leaf, and why it is
+                // below the base weight when it is.
+                effective_weight = Math.Round(weight, 6),
+                weight_notes = notes,
                 new_score = score.Score,
             });
         })
+        // Agents call this from code, not from web pages. Without CORS a page cannot make its
+        // visitors' browsers submit ratings from thousands of addresses.
+        .WithMetadata(new Microsoft.AspNetCore.Cors.DisableCorsAttribute())
         .WithName("SubmitRating")
         .WithTags("Rating")
         .Produces(200)
@@ -251,6 +310,32 @@ public static class RateEndpoints
             "provided one, for full rating weight. Sign the request with your agent key " +
             "(X-Agent-Signature) so the rating is attributed to you rather than merely claimed; " +
             "unsigned ratings are accepted at reduced weight.");
+    }
+
+    /// <summary>
+    /// Whether a verified receipt vouches for this rating: same status code, and the endpoint the
+    /// receipt names is the one rated (any endpoint of the domain when the rating is for the domain).
+    /// </summary>
+    internal static bool ReceiptCovers(ReceiptPayload receipt, string serviceId, int statusCode)
+    {
+        if (receipt.StatusCode != statusCode)
+            return false;
+        if (SvcId.IsProviderLevel(serviceId))
+            return true;
+
+        try
+        {
+            var endpoint = receipt.Endpoint.Trim();
+            var url = endpoint.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+                      || endpoint.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
+                ? endpoint
+                : $"https://{SvcId.ExtractProvider(serviceId)}/{endpoint.TrimStart('/')}";
+            return SvcId.Normalize(url) == serviceId;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
     }
 
     /// <summary>

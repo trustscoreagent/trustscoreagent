@@ -156,7 +156,8 @@ neutral 0.5, far down the list, so page with `offset` or sort by `last_rated` to
 On first run the server generates an Ed25519 keypair in `~/.trustscoreagent/agent-key.pem`
 (mode `0600`) and uses the matching `did:key` as its identity. Every rating is signed with
 that key (`X-Agent-Signature`), so the registry attributes it to this installation instead of
-taking the DID header on faith, and signed ratings count at full weight.
+taking the DID header on faith, and signed ratings count double an unsigned one
+([how ratings are weighted](./trust.md)).
 
 Ratings are sent **unsigned, at half weight**, if the key cannot be read or written (the server
 then keeps a stable fallback id in `~/.trustscoreagent/agent-id`), or if you set

@@ -306,15 +306,22 @@ internal sealed class CapturingRateLimiter : IRateLimiter
 {
     private readonly Dictionary<string, int> _counts = new();
 
-    /// <summary>Keys checked by /v1/rate, excluding the per-IP global middleware bucket.</summary>
+    /// <summary>Quota buckets checked by /v1/rate, excluding the per-IP global middleware bucket
+    /// and the counters that only scale the weight (see <see cref="WeightKeys"/>).</summary>
     public List<string> RatingKeys { get; } = new();
+
+    /// <summary>Counters /v1/rate reads to scale a rating's weight: repeat ratings from one source,
+    /// and the newcomers' daily allowance per provider.</summary>
+    public List<string> WeightKeys { get; } = new();
 
     /// <summary>Buckets with this prefix report as already exhausted.</summary>
     public string? ExhaustPrefix { get; set; }
 
     public Task<RateLimitResult> CheckAsync(string key, int maxRequests, TimeSpan window)
     {
-        if (!key.StartsWith("global:", StringComparison.Ordinal))
+        if (key.StartsWith("repeat", StringComparison.Ordinal) || key.StartsWith("newcomers:", StringComparison.Ordinal))
+            WeightKeys.Add(key);
+        else if (!key.StartsWith("global:", StringComparison.Ordinal))
             RatingKeys.Add(key);
 
         if (ExhaustPrefix is not null && key.StartsWith(ExhaustPrefix, StringComparison.Ordinal))

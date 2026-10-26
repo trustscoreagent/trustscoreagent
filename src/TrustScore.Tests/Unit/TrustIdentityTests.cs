@@ -14,9 +14,14 @@ namespace TrustScore.Tests.Unit;
 /// </summary>
 public class TrustIdentityTests
 {
-    private readonly EigenTrustEngine _engine = new();
+    private const string ProbeDid = "did:web:trustscoreagent.com:probe";
+    private readonly EigenTrustEngine _engine = new(new[] { TrustIdentity.For(ProbeDid, signatureVerified: false) });
 
     private const string Victim = "did:key:zVictim";
+
+    // The pre-trusted probe's observation, which anchors the consensus on a service.
+    private static AgentRatingRecord Probe(string service, int status, int latency) =>
+        new(ProbeDid, service, status, latency, SchemaValid: true, ReceiptVerified: false, SignatureVerified: false);
 
     private static AgentRatingRecord Signed(string agent, string service, int status, int latency) =>
         new(agent, service, status, latency, SchemaValid: true, ReceiptVerified: false, SignatureVerified: true);
@@ -82,7 +87,7 @@ public class TrustIdentityTests
         // agent genuinely signed counts against it, as it should.
         // Enough honest raters that the added ratings cannot flip the majority consensus, which
         // would otherwise make the outlier look correct and raise its score instead.
-        var honest = new List<AgentRatingRecord> { Signed(Victim, "service-1", 200, 100) };
+        var honest = new List<AgentRatingRecord> { Probe("service-1", 200, 100), Signed(Victim, "service-1", 200, 100) };
         for (var i = 0; i < 8; i++)
             honest.Add(Signed($"did:key:zPeer{i}", "service-1", 200, 100));
 
@@ -106,6 +111,7 @@ public class TrustIdentityTests
         // dropping it from consensus would leave the engine with nothing to measure agents against.
         var ratings = new List<AgentRatingRecord>
         {
+            Probe("service-1", 200, 100),
             Unsigned("did:key:zA", "service-1", 200, 100),
             Unsigned("did:key:zB", "service-1", 200, 105),
             Unsigned("did:key:zC", "service-1", 500, 30000),

@@ -59,4 +59,6 @@ adopt it without asking anyone's permission.
 2. **Free at the core**: checking a score and submitting a rating are always free.
 3. **Agent-native**: no account, no signup, no human in the loop.
 4. **Discoverable**: via MCP, A2A, `llms.txt`, OpenAPI, and documentation.
-5. **Auditable and neutral**: open source, verifiable Merkle log, transparent scoring.
+5. **Auditable and neutral**: open source, verifiable Merkle log, transparent scoring. Agent
+   trust is anchored on the registry's own probe, which measures objective facts in public;
+   [How ratings are weighted](./trust.md) says what that costs in neutrality and why.

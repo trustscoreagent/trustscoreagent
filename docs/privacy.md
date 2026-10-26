@@ -41,8 +41,10 @@ core feature. It means ratings are effectively **permanent and public**.
 
 ## What is *not* stored
 
-- **No IP addresses in the database.** Your IP is used only transiently, in Redis, for
-  rate limiting, and is never written to durable storage or linked to a rating.
+- **No IP addresses in the database.** Your IP (an IPv6 address reduced to its /56) is used
+  only transiently, in Redis, for rate limiting and for counting repeat ratings from the same
+  source; those counters expire within 24 hours. It is never written to durable storage or
+  linked to a rating.
 - **No request/response bodies** of the services you rate, only the metrics you send.
 - **No credentials, tokens, or API keys.** The API has none to collect.
 - **No cookies, no tracking, no analytics pixels** on the API. The only usage measure is a set of

@@ -35,18 +35,21 @@ curl -X POST "https://api.trustscoreagent.com/v1/rate" \
     "comment": "fast and accurate"
   }'
 # -> { "accepted": true, "rating_id": "…", "rating_weight": "unverified",
-#       "agent_identity": "unsigned", "new_score": 0.86 }
+#       "agent_identity": "unsigned", "effective_weight": 0.0375, "weight_notes": [],
+#       "new_score": 0.86 }
 ```
 
-Without a receipt and unsigned, this counts 0.15 (0.3 for no receipt, halved because the agent
-DID is only asserted). [Signing the request](./api.md#signing-a-rating) brings it to 0.3; the
-[MCP server](./mcp.md) signs for you. Keep `rating_id` to fetch the rating's audit proof later.
+Without a receipt and unsigned, the base weight is 0.15 (0.3 for no receipt, halved because the
+agent DID is only asserted), times the agent's trust: 0.25 for a new agent, so 0.0375.
+[Signing the request](./api.md#signing-a-rating) doubles it; the [MCP server](./mcp.md) signs
+for you. Trust grows as your reports agree with what trusted raters saw:
+[How ratings are weighted](./trust.md). Keep `rating_id` to fetch the rating's audit proof later.
 
 ## 3. Submit a *verified* rating with a receipt
 
 A receipt is a JWT signed by the **service** (EdDSA / Ed25519) proving you actually
-interacted with it. A verified receipt gives full weight (1.0) when the request is also
-signed, 0.5 when it is not. This is the trustworthy signal in Phase 1. Full spec: [receipts.md](./receipts.md).
+interacted with it. A verified receipt for the call you rate gives a base weight of 1.0 when
+the request is also signed (0.5 when it is not), once your agent has earned trust. This is the trustworthy signal in Phase 1. Full spec: [receipts.md](./receipts.md).
 
 The service returns the receipt in the `X-Trust-Receipt` response header; you forward it:
 
@@ -103,12 +106,13 @@ provable once the next anchor (every 6 hours) includes it; before that the endpo
 
 ```bash
 curl "https://api.trustscoreagent.com/v1/agent/trust?did=did:web:my-agent.example.com"
-# -> { "agent": "…", "trust_score": 0.5, "interpretation": "MODERATE",
-#      "unsigned_trust_score": 0.5, "unsigned_interpretation": "MODERATE" }
+# -> { "agent": "…", "trust_score": 0.25, "interpretation": "LOW",
+#      "unsigned_trust_score": 0.25, "unsigned_interpretation": "LOW" }
 ```
 
-New agents start at `0.5`; EigenTrust recomputes every 6 hours based on how consistent an
-agent's ratings are with the consensus.
+New agents start at `0.25`. Every 6 hours the score is recomputed from how often the agent's
+reports agree with what the registry's probe, or agents that earned trust, saw on the same
+services: up to `0.9` after 10 compared services.
 
 ## 7. Use it from an LLM agent (MCP)
 

@@ -6,8 +6,15 @@ namespace TrustScore.Api.Scoring;
 
 public sealed class BetaReputationSystem : IScoringEngine
 {
-    private readonly double _lambda;
+    private readonly double _halfLifeDays;
     private readonly int _latencyThresholdMs;
+
+    /// <summary>
+    /// Evidence loses half its weight every this many days. Forgetting follows elapsed time, not
+    /// the number of ratings: decaying by a fixed factor on every rating let anyone erase a
+    /// service's history simply by rating it often.
+    /// </summary>
+    public const double DefaultHalfLifeDays = 30.0;
 
     private const double AvailabilityWeight = 0.4;
     private const double LatencyWeight = 0.35;
@@ -45,7 +52,7 @@ public sealed class BetaReputationSystem : IScoringEngine
 
     public BetaReputationSystem(IConfiguration? config = null)
     {
-        _lambda = config?.GetValue<double>("Scoring:Lambda", 0.995) ?? 0.995;
+        _halfLifeDays = config?.GetValue<double>("Scoring:HalfLifeDays", DefaultHalfLifeDays) ?? DefaultHalfLifeDays;
         _latencyThresholdMs = config?.GetValue<int>("Scoring:LatencyThresholdMs", 2000) ?? 2000;
     }
 
@@ -99,9 +106,12 @@ public sealed class BetaReputationSystem : IScoringEngine
             };
         }
 
-        // Weighted average by ratings_count (more ratings = more influence)
+        // Weighted by the evidence each endpoint holds (its effective observations, which already
+        // reflect rating weight and age), not by its raw number of ratings: a flood of near-weightless
+        // ratings on one path must not drown the endpoints that carry real evidence.
         var totalRatings = endpoints.Sum(e => e.RatingsCount);
         if (totalRatings == 0) totalRatings = 1;
+        var totalEvidence = endpoints.Sum(Evidence);
 
         double avgScore = 0, avgAvail = 0, avgLatency = 0, avgConf = 0, avgConfidence = 0;
         var supportsReceipts = false;
@@ -109,7 +119,7 @@ public sealed class BetaReputationSystem : IScoringEngine
 
         foreach (var ep in endpoints)
         {
-            var w = (double)ep.RatingsCount / totalRatings;
+            var w = totalEvidence > 0 ? Evidence(ep) / totalEvidence : (double)ep.RatingsCount / totalRatings;
             var score = CalculateScore(ep);
             avgScore += score.Score * w;
             avgAvail += score.Dimensions.Availability * w;
@@ -137,20 +147,31 @@ public sealed class BetaReputationSystem : IScoringEngine
         };
     }
 
-    public ServiceEntity ApplyRating(ServiceEntity service, Rating rating)
+    /// <summary>
+    /// The factor existing evidence is multiplied by after <paramref name="elapsed"/>: 0.5 per
+    /// half-life. ServiceRepository applies the same formula in SQL.
+    /// </summary>
+    public static double DecayFactor(TimeSpan elapsed, double halfLifeDays) =>
+        elapsed <= TimeSpan.Zero ? 1.0 : Math.Pow(0.5, elapsed.TotalDays / halfLifeDays);
+
+    public ServiceEntity ApplyRating(ServiceEntity service, Rating rating) =>
+        ApplyRating(service, rating, DateTimeOffset.UtcNow);
+
+    public ServiceEntity ApplyRating(ServiceEntity service, Rating rating, DateTimeOffset now)
     {
         var weight = rating.Weight;
         var metrics = rating.Metrics;
 
-        // Apply forgetting factor
-        service.Alpha = service.Alpha * _lambda;
-        service.Beta = service.Beta * _lambda;
-        service.AlphaAvailability *= _lambda;
-        service.BetaAvailability *= _lambda;
-        service.AlphaLatency *= _lambda;
-        service.BetaLatency *= _lambda;
-        service.AlphaConformity *= _lambda;
-        service.BetaConformity *= _lambda;
+        // Forget in proportion to the time since evidence was last added.
+        var decay = service.LastRatedAt is { } last ? DecayFactor(now - last, _halfLifeDays) : 1.0;
+        service.Alpha *= decay;
+        service.Beta *= decay;
+        service.AlphaAvailability *= decay;
+        service.BetaAvailability *= decay;
+        service.AlphaLatency *= decay;
+        service.BetaLatency *= decay;
+        service.AlphaConformity *= decay;
+        service.BetaConformity *= decay;
 
         // Availability: 2xx (or a valid x402 challenge) = positive, 5xx = negative, others = neutral
         if (ResponseOutcome.IsSuccess(metrics.StatusCode, metrics.SchemaValid))
@@ -199,9 +220,19 @@ public sealed class BetaReputationSystem : IScoringEngine
                 service.Beta += qualityWeight * Math.Abs(qualityFactor);
         }
 
+        // Same floor as the SQL update, so this stays a faithful model of what is stored.
+        service.Alpha = Math.Max(1.0, service.Alpha);
+        service.Beta = Math.Max(1.0, service.Beta);
+        service.AlphaAvailability = Math.Max(1.0, service.AlphaAvailability);
+        service.BetaAvailability = Math.Max(1.0, service.BetaAvailability);
+        service.AlphaLatency = Math.Max(1.0, service.AlphaLatency);
+        service.BetaLatency = Math.Max(1.0, service.BetaLatency);
+        service.AlphaConformity = Math.Max(1.0, service.AlphaConformity);
+        service.BetaConformity = Math.Max(1.0, service.BetaConformity);
+
         service.RatingsCount++;
-        service.LastRatedAt = DateTimeOffset.UtcNow;
-        service.UpdatedAt = DateTimeOffset.UtcNow;
+        service.LastRatedAt = now;
+        service.UpdatedAt = now;
 
         if (rating.ReceiptVerified)
             service.SupportsReceipts = true;
@@ -275,6 +306,8 @@ public sealed class BetaReputationSystem : IScoringEngine
             SupportsReceipts = rating.ReceiptVerified,
         };
     }
+
+    private static double Evidence(ServiceEntity e) => Math.Max(0.0, e.Alpha + e.Beta - 2.0);
 
     private static double BetaScore(double alpha, double beta)
     {

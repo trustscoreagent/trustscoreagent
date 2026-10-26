@@ -109,7 +109,7 @@ Only outcomes the service owns are rated: a 2xx (it delivered) and a 5xx (it fai
 after paying usually means the payment itself was refused, so it is not held against the service.
 
 Ratings are signed with an Ed25519 key kept in `~/.trustscoreagent/agent-key.pem` (the same file
-the TrustScoreAgent MCP server uses), created on first use. Signed ratings count at full weight;
+the TrustScoreAgent MCP server uses), created on first use. Signed ratings count double an unsigned one;
 the key never leaves your machine and only its public half appears in your `did:key`. Use
 `rate: { keyFile }` or `rate: { privateKey }` to choose another key.
 

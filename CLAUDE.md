@@ -20,7 +20,7 @@ TrustScoreAgent — Free, open reputation registry for AI microservices.
 ## Architecture
 - `src/TrustScore.Core/` — Models, interfaces, MerkleTree (no dependencies)
 - `src/TrustScore.Api/` — HTTP endpoints, data access, scoring, receipts
-- `src/TrustScore.Tests/` — Unit and integration tests (300; `[PostgresFact]` tests skip without a reachable PostgreSQL)
+- `src/TrustScore.Tests/` — Unit and integration tests (`[PostgresFact]` tests skip without a reachable PostgreSQL)
 - `migrations/` — SQL migration files (run by DbUp on startup)
 - `mcp-server/` — TypeScript MCP server (3 tools, published to npm)
 - `x402-plugin/` — `@trustscoreagent/x402`, x402 client SDK plugin (payee check before paying, opt-in rating); own npm version

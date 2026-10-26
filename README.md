@@ -156,6 +156,7 @@ Each exposes `trustscore_check_reputation`, `trustscore_submit_rating`, and
 - [API Reference](docs/api.md)
 - [Examples & Recipes](docs/examples.md)
 - [Receipt Standard](docs/receipts.md)
+- [How Ratings Are Weighted](docs/trust.md): agent trust, limits, and what an attacker can still do
 - [MCP Server Setup](docs/mcp.md): Claude, Cursor, Windsurf
 - [x402 plugin](x402-plugin/README.md): check the payee before paying
 - [Why Trust Matters for Agents](docs/why.md)

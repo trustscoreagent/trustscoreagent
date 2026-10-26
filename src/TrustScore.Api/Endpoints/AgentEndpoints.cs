@@ -23,7 +23,7 @@ public static class AgentEndpoints
             // Agent DIDs are stored verbatim from the X-Agent-DID header (see RateEndpoints) and
             // upserted as-is by EigenTrust. They must NOT go through ServiceIdentifier.Normalize,
             // which is service-specific and mangles agent DIDs (e.g. "did:agent:xyz" → "did"),
-            // making every lookup miss and always return the 0.5 default.
+            // making every lookup miss and always return the default trust.
             var agentId = raw.Trim();
             if (agentId.Length > 500)
                 return Results.BadRequest(new { error = "invalid_agent", message = "agent identifier too long (max 500 characters)" });
@@ -60,6 +60,7 @@ public static class AgentEndpoints
             IConfiguration config,
             IRatingRepository ratingRepo,
             IAgentRepository agentRepo,
+            EigenTrustEngine engine,
             ILogger<EigenTrustEngine> logger) =>
         {
             // API key authentication for admin endpoints. Fail closed if no key is configured,
@@ -70,8 +71,6 @@ public static class AgentEndpoints
                 || !CryptographicOperations.FixedTimeEquals(
                     Encoding.UTF8.GetBytes(providedKey), Encoding.UTF8.GetBytes(expectedKey)))
                 return Results.Json(new { error = "unauthorized", message = "Valid X-Admin-Key header required" }, statusCode: 401);
-
-            var engine = new EigenTrustEngine();
 
             var ratings = await ratingRepo.GetAllRatingsForTrustAsync();
             logger.LogInformation("Running EigenTrust on {Count} ratings", ratings.Count);

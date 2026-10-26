@@ -29,4 +29,26 @@ public static class TrustIdentity
     /// </summary>
     public static string For(string agentDid, bool signatureVerified) =>
         signatureVerified ? agentDid : UnsignedPrefix + agentDid;
+
+    /// <summary>The registry's own domain. Its did:web identities belong to the registry's probe.</summary>
+    public const string RegistryDomain = "trustscoreagent.com";
+
+    /// <summary>
+    /// Whether <paramref name="agentDid"/> is a did:web identity on the registry's own domain. The
+    /// probe rates as <c>did:web:trustscoreagent.com:probe</c> and anchors agent trust, so outside
+    /// callers may not rate under that name or any other on the domain: an unsigned rating filed
+    /// under it would land in the probe's identity.
+    /// </summary>
+    public static bool IsReserved(string agentDid)
+    {
+        const string prefix = "did:web:";
+        var did = agentDid.Trim();
+        if (!did.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        // did:web:<host>[%3A<port>][:<path>]
+        var host = did[prefix.Length..].Split(':')[0];
+        host = Uri.UnescapeDataString(host).Split(':')[0].TrimEnd('.').ToLowerInvariant();
+        return host == RegistryDomain || host.EndsWith("." + RegistryDomain, StringComparison.Ordinal);
+    }
 }

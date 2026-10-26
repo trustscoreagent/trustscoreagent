@@ -61,22 +61,86 @@ public class PostgresRepositoryTests : PostgresDatabaseTest
     }
 
     [PostgresFact]
-    public async Task ApplyRatingSql_SecondRating_AppliesForgettingFactor_AndFloorsAtOne()
+    public async Task ApplyRatingSql_ForgetsByElapsedTime_AndFloorsAtOne()
     {
         var repo = Services();
         var engine = new BetaReputationSystem();
         var positive = engine.ComputeDelta(MakeRating("apply-decay.test/api"));
 
         await repo.ApplyRatingAtomicAsync("apply-decay.test/api", positive);
+        // One half-life ago: the evidence held then must count for half now.
+        using (var conn = Db.CreateConnection())
+            await conn.ExecuteAsync(
+                "UPDATE services SET last_rated_at = NOW() - make_interval(days => @Days) WHERE did = 'apply-decay.test/api'",
+                new { Days = (int)BetaReputationSystem.DefaultHalfLifeDays });
         await repo.ApplyRatingAtomicAsync("apply-decay.test/api", positive);
 
         var svc = await repo.GetByDidAsync("apply-decay.test/api");
-        // alpha = max(1, 4·λ + 3) with λ = 0.995 ; beta decays below 1 and must be floored.
-        svc!.Alpha.Should().BeApproximately(4.0 * 0.995 + 3.0, 1e-9);
+        // alpha = max(1, 4 x 0.5 + 3); beta decays below 1 and must be floored at the prior.
+        svc!.Alpha.Should().BeApproximately(4.0 * 0.5 + 3.0, 1e-6);
         svc.Beta.Should().BeApproximately(1.0, 1e-9, "the Beta parameter is floored at the prior");
-        svc.AlphaAvailability.Should().BeApproximately(2.0 * 0.995 + 1.0, 1e-9);
+        svc.AlphaAvailability.Should().BeApproximately(2.0 * 0.5 + 1.0, 1e-6);
         svc.RatingsCount.Should().Be(2);
     }
+
+    [PostgresFact]
+    public async Task ApplyRatingSql_RatingsInQuickSuccession_DoNotErodeHistory()
+    {
+        // Audit E1: the per-rating forgetting factor let a flood of ratings erase a service's
+        // history. Forgetting now follows time, so zero-weight ratings leave it as it was.
+        var repo = Services();
+        var engine = new BetaReputationSystem();
+        await repo.ApplyRatingAtomicAsync("apply-flood.test/api", engine.ComputeDelta(MakeRating("apply-flood.test/api")));
+        var before = await repo.GetByDidAsync("apply-flood.test/api");
+
+        var junk = engine.ComputeDelta(MakeRating("apply-flood.test/api", statusCode: 500, latencyMs: 9000, schemaValid: false, weight: 0));
+        for (var i = 0; i < 50; i++)
+            await repo.ApplyRatingAtomicAsync("apply-flood.test/api", junk);
+
+        var after = await repo.GetByDidAsync("apply-flood.test/api");
+        after!.Alpha.Should().BeApproximately(before!.Alpha, 1e-4);
+    }
+
+    [PostgresFact]
+    public async Task ApplyRatingSql_MatchesTheInMemoryModel()
+    {
+        // The simulations in ManipulationResistanceTests run on BetaReputationSystem.ApplyRating;
+        // they only say something about production if it computes what the SQL stores.
+        var repo = Services();
+        var engine = new BetaReputationSystem();
+        const string did = "apply-model.test/api";
+        var rating = MakeRating(did, statusCode: 200, latencyMs: 2500, schemaValid: true, weight: 0.42);
+
+        await repo.ApplyRatingAtomicAsync(did, engine.ComputeDelta(rating));
+        using (var conn = Db.CreateConnection())
+            await conn.ExecuteAsync("UPDATE services SET last_rated_at = NOW() - INTERVAL '10 days' WHERE did = @Did", new { Did = did });
+        var stored = await repo.GetByDidAsync(did);
+        var model = engine.ApplyRating(Clone(stored!), rating, stored!.LastRatedAt!.Value.AddDays(10));
+
+        await repo.ApplyRatingAtomicAsync(did, engine.ComputeDelta(rating));
+        var after = await repo.GetByDidAsync(did);
+
+        after!.Alpha.Should().BeApproximately(model.Alpha, 1e-4);
+        after.Beta.Should().BeApproximately(model.Beta, 1e-4);
+        after.AlphaLatency.Should().BeApproximately(model.AlphaLatency, 1e-4);
+        after.BetaLatency.Should().BeApproximately(model.BetaLatency, 1e-4);
+    }
+
+    private static ServiceEntity Clone(ServiceEntity s) => new()
+    {
+        Did = s.Did,
+        Alpha = s.Alpha,
+        Beta = s.Beta,
+        AlphaAvailability = s.AlphaAvailability,
+        BetaAvailability = s.BetaAvailability,
+        AlphaLatency = s.AlphaLatency,
+        BetaLatency = s.BetaLatency,
+        AlphaConformity = s.AlphaConformity,
+        BetaConformity = s.BetaConformity,
+        RatingsCount = s.RatingsCount,
+        LastRatedAt = s.LastRatedAt,
+        UpdatedAt = s.UpdatedAt,
+    };
 
     [PostgresFact]
     public async Task ApplyRatingSql_SupportsReceipts_IsSticky()

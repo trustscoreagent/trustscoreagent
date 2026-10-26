@@ -25,8 +25,7 @@ public sealed class GlobalRateLimitMiddleware
             return;
         }
 
-        var ip = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-        var key = $"global:{ip}";
+        var key = $"global:{ClientAddress.Bucket(context.Connection.RemoteIpAddress)}";
 
         var result = await rateLimiter.CheckAsync(key, MaxRequestsPerMinute, TimeSpan.FromMinutes(1));
 

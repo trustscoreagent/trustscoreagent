@@ -1,8 +1,10 @@
 # TrustScoreAgent: Receipt Standard
 
 A **receipt** is a JWT signed by a *service*, proving that an agent actually called it.
-Receipts are **optional** but they raise a rating's weight from `0.3` (unverified) to
-`1.0` (verified). A verified rating has roughly 3× the influence on a score.
+Receipts are **optional**. A verified receipt for the call a rating reports raises its base
+weight from `0.3` (unverified) to `1.0` (verified), once the rating agent has earned trust: a
+receipt is signed by the very service it is about, so on its own it proves the call happened,
+not that the rater is independent of the service. See [How ratings are weighted](./trust.md).
 
 This page documents the format and verification rules as implemented today (Phase 1).
 
@@ -118,8 +120,11 @@ When a rating arrives with a receipt, TrustScoreAgent:
 | No receipt at all | **0.3** (unverified) |
 | Nonce already used, or the nonce store is unreachable | **rejected** (`400 nonce_replay`) |
 
-These are base weights. The rating's weight is then halved if the request is not signed by the
-agent (`X-Agent-Signature`) and multiplied by the agent's EigenTrust score. Replay protection
+These are base weights. A verified receipt keeps `1.0` only if its `endpoint` is the endpoint
+rated (any endpoint of the domain when the rating names the domain) and its `status_code` equals
+the rating's, and only for an agent with earned trust; otherwise the rating counts `0.3`. The
+weight is then halved if the request is not signed by the agent (`X-Agent-Signature`) and
+multiplied by the agent's trust. Replay protection
 fails closed: while the nonce store is down, receipts are refused rather than accepted
 unchecked.
 

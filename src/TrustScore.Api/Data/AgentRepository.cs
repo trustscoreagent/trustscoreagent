@@ -1,5 +1,6 @@
 using System.Globalization;
 using Dapper;
+using TrustScore.Api.Scoring;
 using TrustScore.Core.Interfaces;
 
 namespace TrustScore.Api.Data;
@@ -28,7 +29,8 @@ public sealed class AgentRepository : IAgentRepository
             "SELECT trust_score FROM agents WHERE did = @Did",
             new { Did = agentDid });
 
-        var result = score ?? 0.5; // Default: neutral
+        // Never compared yet: the default, which sits below the midpoint because a new key is free.
+        var result = score ?? EigenTrustEngine.DefaultTrustScore;
 
         await _cache.SetAsync($"agent-trust:{agentDid}", result.ToString("F4", CultureInfo.InvariantCulture), TimeSpan.FromHours(1));
         return result;

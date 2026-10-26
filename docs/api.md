@@ -157,6 +157,8 @@ does not verify is rejected with `401`.
   "rating_id": "3f2b8c1e-5d4a-4b7e-9c2f-0a1b2c3d4e5f",
   "rating_weight": "verified",
   "agent_identity": "signed",
+  "effective_weight": 0.9,
+  "weight_notes": [],
   "new_score": 0.87
 }
 ```
@@ -172,23 +174,33 @@ against conformity.
 [audit proof](#audit) that your rating is in the log as you submitted it.
 
 The two are independent: a receipt says the *service* saw the call, a signature says we know
-*who is reporting it*. Weights combine as:
+*who is reporting it*. Base weights combine as:
 
 | | signed | unsigned |
 |---|---|---|
 | **receipt verified** | 1.0 | 0.5 |
 | **no receipt** | 0.3 | 0.15 |
 
-The result is then scaled by the rater's agent trust score (EigenTrust).
+A receipt counts as verified only if it covers this call (same endpoint, same status code), and
+it raises the base weight only for an agent that has earned trust. The result is then scaled by
+the rater's agent trust, and the n-th rating of the same domain from the same source in 24 hours
+counts 1/n. Raters without earned trust share an allowance of 5 counted ratings per domain per
+24 hours. [How ratings are weighted](./trust.md) explains each rule.
+
+`effective_weight` is the weight the rating counted at, as committed in its audit leaf, and
+`weight_notes` lists the reasons it is below the base weight, if any (an empty list otherwise).
 
 `agent_identity_note` appears only when a valid signature could not be counted as signed
 because replay protection was temporarily unavailable.
 
-**Errors:** `400` (validation, including `invalid_service` for a host only the rater can reach, `nonce_replay` for a reused receipt or while the
-receipt nonce store is unreachable), `401` (`invalid_agent_signature`), `429` (rate limit:
-unsigned ratings, 10 per IP per service per hour; signed ratings, 10 per agent per service
-per hour and 100 per IP per service per hour). Every endpoint except `/health` is also limited
-to 120 requests per minute per IP.
+**Errors:** `400` (validation, including `invalid_service` for a host only the rater can reach,
+`reserved_agent_did` for a `did:web` identity on `trustscoreagent.com`, which belongs to the
+registry's probe, and `nonce_replay` for a reused receipt or while the receipt nonce store is
+unreachable), `401` (`invalid_agent_signature`), `429` (rate limit, per provider domain:
+unsigned ratings, 10 per IP per hour; signed ratings, 10 per agent per hour and 100 per IP per
+hour). Every endpoint except `/health` is also limited to 120 requests per minute per IP. IPv6
+addresses are grouped by /56 for every limit. `POST /v1/rate` sends no CORS headers: agents call
+it from code, not from web pages.
 
 ### Signing a rating
 
@@ -291,9 +303,11 @@ GET /v1/agent/trust?did=did:key:z6Mk...
 
 `trust_score` is the signed identity; `unsigned_trust_score` is what the unsigned ratings naming
 this DID have earned, reported apart so an agent that has not started signing still sees a live
-value. Passing `unsigned:<did>` as `did` returns the same response. New agents start at `0.5`
-(neutral). The score is recomputed every 6 hours by EigenTrust
-based on how consistent the agent's ratings are with the consensus.
+value. Passing `unsigned:<did>` as `did` returns the same response. New agents start at `0.25`
+and the score is recomputed every 6 hours: it rises toward `0.9` as the agent's reports agree
+with what the registry's probe, or agents that earned trust, observed on the same services, and
+falls toward `0.1` when they disagree. The probe itself has a fixed `1.0`. Details:
+[How ratings are weighted](./trust.md).
 
 ---
 

@@ -10,6 +10,8 @@ using TrustScore.Api.Middleware;
 using TrustScore.Api.Receipts;
 using TrustScore.Api.Scoring;
 using TrustScore.Core.Interfaces;
+using TrustScore.Core.Models;
+using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -86,6 +88,16 @@ builder.Services.AddSingleton<IAgentSignatureVerifier, AgentSignatureVerifier>()
 // Scoring
 builder.Services.AddSingleton<IScoringEngine>(sp =>
     new BetaReputationSystem(sp.GetRequiredService<IConfiguration>()));
+
+// Agent trust is anchored on the registry's own probe (a pre-trusted peer): its ratings are
+// unsigned, so the identity it accrues under is the namespaced unsigned:<probe DID>.
+builder.Services.AddSingleton(sp => new EigenTrustEngine(
+    new[]
+    {
+        sp.GetRequiredService<IOptions<SeedProbeOptions>>().Value.AgentDid,
+        sp.GetRequiredService<IOptions<X402ProbeOptions>>().Value.AgentDid,
+    }.Distinct().Select(did => TrustIdentity.For(did, signatureVerified: false)),
+    sp.GetRequiredService<ILogger<EigenTrustEngine>>()));
 
 // Seed prober — establishes a real, auditable baseline by probing public APIs in the hourly job.
 builder.Services.Configure<SeedProbeOptions>(builder.Configuration.GetSection(SeedProbeOptions.SectionName));

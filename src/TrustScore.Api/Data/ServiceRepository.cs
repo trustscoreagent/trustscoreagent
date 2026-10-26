@@ -1,7 +1,7 @@
 using System.Data;
 using Dapper;
-using TrustScore.Api.Scoring;
 using Microsoft.Extensions.Configuration;
+using TrustScore.Api.Scoring;
 using TrustScore.Core.Interfaces;
 using TrustScore.Core.Models;
 
@@ -10,14 +10,14 @@ namespace TrustScore.Api.Data;
 public sealed class ServiceRepository : IServiceRepository
 {
     private readonly DbConnectionFactory _db;
-    private readonly double _lambda;
+    private readonly double _halfLifeSeconds;
 
     public ServiceRepository(DbConnectionFactory db, IConfiguration config)
     {
         _db = db;
-        // Forgetting factor, read from the same config key as the C# scoring engine so the live
-        // SQL path and the configured value can't drift (was hard-coded 0.995).
-        _lambda = config.GetValue<double>("Scoring:Lambda", 0.995);
+        // Same config key and default as the C# scoring engine, so the live SQL path and the
+        // in-memory model of it cannot drift.
+        _halfLifeSeconds = config.GetValue<double>("Scoring:HalfLifeDays", BetaReputationSystem.DefaultHalfLifeDays) * 86400.0;
     }
 
     public async Task<ServiceEntity?> GetByDidAsync(string did)
@@ -146,14 +146,14 @@ public sealed class ServiceRepository : IServiceRepository
             GREATEST(1.0, 1.0 + @AlphaConformityDelta), GREATEST(1.0, 1.0 + @BetaConformityDelta),
             1, @SupportsReceipts, NOW(), NOW(), NOW())
         ON CONFLICT (did) DO UPDATE SET
-            alpha = GREATEST(1.0, services.alpha * @Lambda + @AlphaDelta),
-            beta = GREATEST(1.0, services.beta * @Lambda + @BetaDelta),
-            alpha_availability = GREATEST(1.0, services.alpha_availability * @Lambda + @AlphaAvailabilityDelta),
-            beta_availability = GREATEST(1.0, services.beta_availability * @Lambda + @BetaAvailabilityDelta),
-            alpha_latency = GREATEST(1.0, services.alpha_latency * @Lambda + @AlphaLatencyDelta),
-            beta_latency = GREATEST(1.0, services.beta_latency * @Lambda + @BetaLatencyDelta),
-            alpha_conformity = GREATEST(1.0, services.alpha_conformity * @Lambda + @AlphaConformityDelta),
-            beta_conformity = GREATEST(1.0, services.beta_conformity * @Lambda + @BetaConformityDelta),
+            alpha = GREATEST(1.0, services.alpha * POWER(0.5, GREATEST(0, EXTRACT(EPOCH FROM (NOW() - COALESCE(services.last_rated_at, services.updated_at)))) / @HalfLifeSeconds) + @AlphaDelta),
+            beta = GREATEST(1.0, services.beta * POWER(0.5, GREATEST(0, EXTRACT(EPOCH FROM (NOW() - COALESCE(services.last_rated_at, services.updated_at)))) / @HalfLifeSeconds) + @BetaDelta),
+            alpha_availability = GREATEST(1.0, services.alpha_availability * POWER(0.5, GREATEST(0, EXTRACT(EPOCH FROM (NOW() - COALESCE(services.last_rated_at, services.updated_at)))) / @HalfLifeSeconds) + @AlphaAvailabilityDelta),
+            beta_availability = GREATEST(1.0, services.beta_availability * POWER(0.5, GREATEST(0, EXTRACT(EPOCH FROM (NOW() - COALESCE(services.last_rated_at, services.updated_at)))) / @HalfLifeSeconds) + @BetaAvailabilityDelta),
+            alpha_latency = GREATEST(1.0, services.alpha_latency * POWER(0.5, GREATEST(0, EXTRACT(EPOCH FROM (NOW() - COALESCE(services.last_rated_at, services.updated_at)))) / @HalfLifeSeconds) + @AlphaLatencyDelta),
+            beta_latency = GREATEST(1.0, services.beta_latency * POWER(0.5, GREATEST(0, EXTRACT(EPOCH FROM (NOW() - COALESCE(services.last_rated_at, services.updated_at)))) / @HalfLifeSeconds) + @BetaLatencyDelta),
+            alpha_conformity = GREATEST(1.0, services.alpha_conformity * POWER(0.5, GREATEST(0, EXTRACT(EPOCH FROM (NOW() - COALESCE(services.last_rated_at, services.updated_at)))) / @HalfLifeSeconds) + @AlphaConformityDelta),
+            beta_conformity = GREATEST(1.0, services.beta_conformity * POWER(0.5, GREATEST(0, EXTRACT(EPOCH FROM (NOW() - COALESCE(services.last_rated_at, services.updated_at)))) / @HalfLifeSeconds) + @BetaConformityDelta),
             ratings_count = services.ratings_count + 1,
             supports_receipts = services.supports_receipts OR @SupportsReceipts,
             last_rated_at = NOW(),
@@ -163,7 +163,7 @@ public sealed class ServiceRepository : IServiceRepository
     private object BuildApplyRatingParams(string did, RatingDelta delta) => new
     {
         Did = did,
-        Lambda = _lambda,
+        HalfLifeSeconds = _halfLifeSeconds,
         delta.AlphaDelta,
         delta.BetaDelta,
         delta.AlphaAvailabilityDelta,

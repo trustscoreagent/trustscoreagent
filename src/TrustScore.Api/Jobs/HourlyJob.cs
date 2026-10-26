@@ -84,7 +84,7 @@ public static class HourlyJob
         var ratingRepo = scope.ServiceProvider.GetRequiredService<IRatingRepository>();
         var agentRepo = scope.ServiceProvider.GetRequiredService<IAgentRepository>();
 
-        var engine = new EigenTrustEngine();
+        var engine = scope.ServiceProvider.GetRequiredService<EigenTrustEngine>();
         var ratings = await ratingRepo.GetAllRatingsForTrustAsync();
 
         logger.LogInformation("EigenTrust: processing {Count} ratings", ratings.Count);

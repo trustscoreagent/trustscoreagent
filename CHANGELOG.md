@@ -6,6 +6,25 @@ and the MCP server share one version number per release.
 ## [Unreleased]
 
 ### Changed
+- Resistance to rating manipulation ([docs/trust.md](docs/trust.md)):
+  - agent trust is anchored on the registry's probe, a pre-trusted peer with a fixed trust of
+    1.0, instead of the 10 agents with the most verified receipts (a service can sign receipts
+    for itself, so one self-issued receipt made its author the only seed). The consensus an
+    agent is compared with is the probe's observation where it has one, elsewhere a vote
+    weighted by earned trust; an agent is compared without its own vote, one vote per service,
+    and an unpaid 402 challenge is never compared with the result of a paid call
+  - new identities start at a trust of 0.25 instead of 0.5, and earn up to 0.9
+  - `POST /v1/rate`: quotas per provider domain instead of per endpoint; the n-th rating of a
+    domain from the same source in 24 hours counts 1/n; raters without earned trust share 5
+    counted ratings per domain per 24 hours; a receipt counts only for the endpoint and status
+    code it covers, and gives full weight only to an agent with earned trust; `did:web`
+    identities on trustscoreagent.com are refused (`400 reserved_agent_did`); no CORS; the
+    response gives `effective_weight` and `weight_notes`
+  - IPv6 callers are grouped by /56 for every rate limit
+  - evidence fades by elapsed time (half-life 30 days) instead of by a factor on every rating,
+    which let a flood of ratings erase a service's history; `Scoring:Lambda` is replaced by
+    `Scoring:HalfLifeDays`
+  - a domain's score averages its endpoints by the evidence they hold, not by ratings count
 - `POST /v1/rate` refuses services on hosts nobody else can reach (`localhost`, loopback,
   private, link-local and CGNAT addresses, `.local`, `.internal`, names without a dot) with
   `400 invalid_service`, and the x402 probe skips such catalog entries. The four `127.0.0.1`

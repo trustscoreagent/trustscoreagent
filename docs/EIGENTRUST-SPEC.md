@@ -1,75 +1,82 @@
-# EigenTrust : score anti-Sybil des agents
+# EigenTrust : confiance des agents evaluateurs
 
-> Implemente (`src/TrustScore.Api/Scoring/EigenTrustEngine.cs`) et execute par le job batch
-> toutes les 6 heures. Ce document garde les decisions de conception.
+> Implemente dans `src/TrustScore.Api/Scoring/EigenTrustEngine.cs`, execute par le job batch
+> toutes les 6 heures. Ce document garde les decisions de conception ; la version publique, en
+> anglais, est [trust.md](./trust.md).
 
 ## Principe
 
-EigenTrust calcule un score de confiance (0.0-1.0) pour chaque agent evaluateur.
-Les agents qui evaluent de maniere coherente avec le consensus ont un trust eleve.
-Les agents Sybil (faux agents votant en clique) convergent vers un trust ~0.
+Chaque agent evaluateur a une confiance (0.1 a 1.0) qui multiplie le poids de ses notes. Elle est
+ancree sur des **pairs de confiance** fixes (l'approche d'EigenTrust, Kamvar et al. 2003) et se
+propage aux agents dont les observations concordent avec celles des agents de confiance.
 
 ## Algorithme
 
 ```
-1. Construire la matrice de confiance C :
-   c_ij = (nombre de ratings coherents de i) / (total ratings de i)
-
-2. Normaliser chaque ligne de C
-
-3. Iterer : t(k+1) = C^T * t(k)
-   avec t(0) = seed raters
-
-4. Convergence en O(log n) iterations
-
-5. Le vecteur t donne le trust score de chaque agent
+1. Un vote par (agent, service, nature d'observation) : succes / sous le seuil de latence
+   (2000 ms, celui du score) / schema valide, a la majorite des notes de l'agent.
+   Nature : 402 = challenge de paiement non paye ; autre statut = resultat d'un appel.
+2. Confiance initiale : pairs de confiance 1.0, tous les autres 0.25.
+3. Repeter jusqu'a convergence (20 tours max, ecart < 1e-4) :
+   a. Consensus par (service, nature) : si un pair de confiance l'a observe, c'est son
+      observation ; sinon vote des autres agents pondere par max(0, confiance - 0.25).
+   b. Chaque agent (hors pairs de confiance) est compare au consensus SANS son propre vote ;
+      un sujet ou plus personne d'autre ne pese ne compte pas.
+   c. confiance = 0.25 + (cible - 0.25) * min(1, compares / 10),
+      cible = 0.1 + 0.8 * taux d'accord.
 ```
 
 ## Decisions
 
-### Frequence
-Recalcul **toutes les 6 heures** par le job batch (meme image, flag `--job`, qui enchaine
-seed probe, EigenTrust puis ancrage Merkle). Un Sybil a au maximum 6 h d'impact avant detection.
+### Pair de confiance : la sonde du registre (decision du 2026-10-26)
+`unsigned:did:web:trustscoreagent.com:probe` (la sonde note sans signature), confiance fixe 1.0.
+Elle ne mesure que des faits objectifs et son code et ses notes sont publics. Contrepartie
+assumee et documentee : l'operateur du registre pese plus que les autres evaluateurs. Les DID
+`did:web:` du domaine `trustscoreagent.com` sont refuses en entree de `POST /v1/rate`
+(`reserved_agent_did`), sinon n'importe qui pourrait noter sous l'identite de la sonde.
 
-### Seed raters
-Les **10 agents avec le plus de ratings verifies** (receipts), recalcules dynamiquement.
-Pas de liste manuelle. Si un seed rater se comporte mal, il sort du top 10 naturellement.
+Avant : les seeds etaient les 10 agents ayant le plus de recus verifies. Un recu est signe par le
+service note lui-meme, et la prod n'en avait aucun : un seul recu auto-emis faisait de son auteur
+l'unique seed (audit 2026-10, C1). Les recus ne jouent plus aucun role dans la confiance.
+A terme (quand des services emettront de vrais recus), des agents ayant des recus de plusieurs
+services independants pourront devenir pairs de confiance a leur tour.
 
-### Definition de "coherent"
-On compare les **metriques objectives uniquement** (status_code, latency_ms, schema_valid),
-PAS le quality_score subjectif. Les metriques objectives sont infalsifiables si le receipt
-est verifie. Cela resiste au "consensus empoisonne" (Sybil qui gonflent le quality_score).
+### Deux natures d'observation
+La sonde voit le challenge 402 d'un endpoint x402 sans payer. Un agent qui a paye et recu une 500
+rapporte ce que la sonde ne peut pas voir : comparer les deux le punirait pour le signal que le
+registre doit justement proteger. Challenge et resultat d'appel ne sont donc jamais compares.
 
-### Impact sur les scores
+### Latence jugee au seuil du score
+Concordance = meme cote du seuil de 2000 ms, et non "dans un facteur 2 de la mediane" : un agent
+loin du service (150 ms contre 40 ms pour la sonde) n'est pas incoherent pour autant.
 
+### Un vote par agent, rien pour les nouveaux
+Le consensus ne compte que la confiance gagnee au-dessus du defaut : une foule d'identites neuves
+ne vote pas, une clique isolee ne peut pas se certifier elle-meme (aucun de ses sujets n'a de
+consensus), et noter cent fois la meme chose reste un seul vote.
+
+### Confiance par defaut : 0.25
+Sous le milieu 0.5 parce qu'une cle est gratuite. Un vrai nouvel agent n'est pas bloque : il
+remonte au batch suivant (6 h) s'il note des services deja observes, jusqu'a 0.9 apres 10.
+
+### Poids d'une note
 ```
-rating_weight = receipt_weight (1.0 ou 0.3) × 0.5 si non signe × agent_trust_score
-
-Agent signe, trust 0.9, receipt verifie : poids 0.9   (influence forte)
-Agent signe, trust 0.9, sans receipt    : poids 0.27  (influence moderee)
-Agent non signe, trust 0.9, sans receipt: poids 0.135
-Sybil, trust plancher 0.1, sans receipt : poids 0.03 ou moins (quasi ignore)
+poids = base x identite x confiance / n
+base = 1.0 si recu verifie couvrant l'appel ET agent ayant gagne de la confiance, sinon 0.3
+identite = 1 si signe, 0.5 sinon
+n = rang de la note du meme domaine par la meme source (adresse, et cle si signe) en 24 h
 ```
+Plus l'allocation des nouveaux venus : par domaine et par 24 h, seules les 5 premieres notes
+d'agents sans confiance gagnee comptent (les suivantes sont enregistrees a poids 0). Detail et
+chiffres de simulation : [trust.md](./trust.md).
 
-Les notes non signees accumulent la confiance sous une identite separee (`unsigned:<did>`),
-pour qu'on ne puisse ni ruiner ni emprunter la reputation d'un agent en notant en son nom.
-
-Plancher de trust a 0.1 : meme un Sybil detecte garde un poids residuel minimal.
-
-### Trust par defaut (nouveaux agents)
-**0.5** (neutre). Ratings comptent a moitie. Le score evolue des le prochain batch.
-Compromis : un Sybil a jusqu'a 6 h de ratings a poids 0.5 avant correction,
-mais un vrai nouvel agent n'est pas bloque.
+### Plafond
+5000 agents (les plus actifs, pairs de confiance toujours inclus) ; le reste a la confiance par
+defaut. 100 000 notes les plus recentes sur 90 jours.
 
 ### Visibilite
-`GET /v1/agent/trust?did={did}` repond pour n'importe quel DID : les scores sont publics par
-conception. Il renvoie le score de l'identite signee (`trust_score`) et celui des notes non
-signees (`unsigned_trust_score`).
-
-### Execution
-Cloud Run Job + Cloud Scheduler (`0 */6 * * *`). Meme image Docker, flag `--job`.
-Charge le graphe depuis PostgreSQL, calcule, ecrit dans PostgreSQL.
+`GET /v1/agent/trust?did={did}` repond pour n'importe quel DID : `trust_score` (identite signee)
+et `unsigned_trust_score` (notes non signees sous ce DID).
 
 ### Stockage
-Table `agents` existante, champ `trust_score` (defaut 0.5).
-Lu a travers un cache Redis (TTL 1 h) lors du calcul des poids de rating.
+Table `agents`, champ `trust_score`, lu a travers un cache Redis (TTL 1 h).

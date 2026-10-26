@@ -4,355 +4,236 @@ using TrustScore.Core.Models;
 namespace TrustScore.Api.Scoring;
 
 /// <summary>
-/// EigenTrust algorithm for computing agent trust scores.
+/// Agent trust, in the spirit of EigenTrust (Kamvar, Schlosser, Garcia-Molina, 2003): trust is
+/// anchored on pre-trusted peers and propagates to the agents whose observations agree with what
+/// trusted agents observed. See docs/EIGENTRUST-SPEC.md for the design decisions.
 ///
-/// Agents who rate consistently with the objective consensus (status_code, latency, schema_valid)
-/// get high trust. Sybil agents who rate in isolated cliques converge toward 0.
+/// <para>Each round, every (service, kind of observation) gets a consensus. Where a pre-trusted
+/// peer (the registry's own probe) observed it, the consensus is that observation. Elsewhere it is
+/// a vote of the other agents weighted by the trust they have earned above the default, so a crowd
+/// of brand-new identities carries no vote at all. An agent's trust then follows how often it
+/// agrees with that consensus and on how many services it was compared, and the rounds repeat
+/// until the scores settle.</para>
 ///
-/// Based on: Kamvar, Schlosser, Garcia-Molina (2003) "The EigenTrust Algorithm
-/// for Reputation Management in P2P Networks"
+/// <para>Only identity matters here, not receipts: a receipt is signed by the very service it is
+/// about, so it proves a call happened but not that the rater is independent of that service.</para>
 /// </summary>
 public sealed class EigenTrustEngine
 {
-    private const int MaxIterations = 50;
+    /// <summary>Trust of an identity never compared yet. Below the 0.5 midpoint so that a fresh
+    /// key (free to mint) weighs less than an agent that has shown it reports what others see.</summary>
+    public const double DefaultTrustScore = 0.25;
+
+    /// <summary>Floor: even an agent that disagrees with everything keeps a residual weight.</summary>
+    public const double MinTrustScore = 0.1;
+
+    /// <summary>The most an agent can earn. Below the pre-trusted peers, whose observation is the
+    /// consensus where they have one.</summary>
+    public const double MaxEarnedTrust = 0.9;
+
+    /// <summary>Fixed trust of the pre-trusted peers.</summary>
+    public const double PreTrustedScore = 1.0;
+
+    /// <summary>Services an agent must have been compared on before its trust moves all the way to
+    /// what its agreement rate earns. Fewer comparisons keep it proportionally closer to the default.</summary>
+    internal const int ExperienceServices = 10;
+
+    private const int MaxRounds = 20;
     private const double ConvergenceThreshold = 0.0001;
-    private const double MinTrustScore = 0.1;
-    private const double DefaultTrustScore = 0.5;
     private const int LatencyThresholdMs = 2000;
 
-    // The EigenTrust step allocates a dense n×n matrix. Agent DIDs are self-asserted and
-    // unauthenticated (X-Agent-DID), so an attacker can mint tens of thousands of distinct DIDs
-    // and OOM the hourly job (n=20k ≈ 3.2 GB). Cap the matrix at the highest-volume agents; the
-    // excluded long tail (lowest rating counts) falls back to the neutral default trust, exactly
-    // like a brand-new agent, so a mass-Sybil flood is bounded, not amplified. Below the cap the
-    // behaviour is unchanged. 5000 ≈ a 200 MB matrix, within the hourly job's memory budget.
+    // Agent DIDs are cheap to mint, so the number of agents is bounded to keep the job's memory and
+    // time predictable. The excluded long tail (lowest rating counts) gets the default trust, like
+    // any agent never compared. Pre-trusted peers are always kept.
     private const int MaxAgents = 5000;
 
-    private readonly ILogger<EigenTrustEngine>? _logger;
+    private readonly HashSet<string> _preTrusted;
+    private readonly ILogger? _logger;
 
-    public EigenTrustEngine(ILogger<EigenTrustEngine>? logger = null)
+    /// <param name="preTrusted">Identities whose observations anchor the consensus, as
+    /// <see cref="TrustIdentity.For"/> spells them (the probe rates unsigned, so
+    /// <c>unsigned:did:web:trustscoreagent.com:probe</c>).</param>
+    public EigenTrustEngine(IEnumerable<string>? preTrusted = null, ILogger? logger = null)
     {
+        _preTrusted = new HashSet<string>(preTrusted ?? Array.Empty<string>(), StringComparer.Ordinal);
         _logger = logger;
     }
 
-    /// <summary>
-    /// Compute trust scores for all agents based on their rating history.
-    /// </summary>
+    /// <summary>The kind of observation a rating is. A 402 is the unpaid payment challenge (what the
+    /// probe measures on x402 endpoints); anything else is what came back from an actual call. The
+    /// two are only ever compared with their own kind: an agent that paid and got a 500 is reporting
+    /// something the probe could not see, not contradicting it.</summary>
+    internal enum ObservationKind { Challenge, Delivery }
+
+    internal static ObservationKind KindOf(int statusCode) =>
+        statusCode == 402 ? ObservationKind.Challenge : ObservationKind.Delivery;
+
     public Dictionary<string, double> ComputeTrustScores(IReadOnlyList<AgentRatingRecord> ratings)
     {
         if (ratings.Count == 0)
             return new Dictionary<string, double>();
 
-        // 0. Resolve each rating to the identity it may accrue reputation under. An unsigned rating
-        // names a DID the sender never proved it holds, so it is namespaced away from the real one;
-        // otherwise anyone could tank a victim's trust score (and therefore the weight of the
-        // victim's honest ratings) by submitting deliberately inconsistent ratings in their name.
-        // Done here, before any grouping, so every downstream step sees the same identity.
+        // An unsigned rating names a DID the sender never proved it holds, so it accrues under a
+        // separate identity; otherwise anyone could ruin or borrow a victim's standing.
         ratings = ratings
             .Select(r => r with { AgentDid = TrustIdentity.For(r.AgentDid, r.SignatureVerified) })
             .ToList();
 
-        // 1. Get all unique agents. If there are more than MaxAgents, keep only the highest-volume
-        // ones so the dense matrix stays bounded; the rest get default trust below.
         var distinctAgents = ratings.Select(r => r.AgentDid).Distinct().ToList();
-
-        List<string> agents;
+        var scored = new HashSet<string>(distinctAgents, StringComparer.Ordinal);
         if (distinctAgents.Count > MaxAgents)
         {
-            var ratingCounts = ratings
+            scored = ratings
                 .GroupBy(r => r.AgentDid)
-                .ToDictionary(g => g.Key, g => g.Count());
-            agents = ratingCounts
-                .OrderByDescending(kv => kv.Value)
+                .OrderByDescending(g => _preTrusted.Contains(g.Key))
+                .ThenByDescending(g => g.Count())
                 .Take(MaxAgents)
-                .Select(kv => kv.Key)
-                .ToList();
+                .Select(g => g.Key)
+                .ToHashSet(StringComparer.Ordinal);
             _logger?.LogWarning(
-                "EigenTrust: {Total} distinct agents exceeds cap {Cap}; scoring the top {Cap} by rating count, the rest get default trust",
-                distinctAgents.Count, MaxAgents, MaxAgents);
+                "EigenTrust: {Total} distinct agents exceeds cap {Cap}; the rest get default trust",
+                distinctAgents.Count, MaxAgents);
         }
-        else
+
+        // One vote per agent per (service, kind): a rater that reported the same thing a thousand
+        // times is still one opinion.
+        var votes = ratings
+            .Where(r => scored.Contains(r.AgentDid))
+            .GroupBy(r => (r.AgentDid, r.ServiceDid, Kind: KindOf(r.StatusCode)))
+            .Select(g => Vote.From(g.Key.AgentDid, (g.Key.ServiceDid, g.Key.Kind), g.ToList()))
+            .ToList();
+        var votesByTopic = votes.GroupBy(v => v.Topic).ToDictionary(g => g.Key, g => g.ToList());
+        var votesByAgent = votes.GroupBy(v => v.Agent).ToDictionary(g => g.Key, g => g.ToList());
+
+        var trust = scored.ToDictionary(
+            a => a, a => _preTrusted.Contains(a) ? PreTrustedScore : DefaultTrustScore, StringComparer.Ordinal);
+
+        for (var round = 0; round < MaxRounds; round++)
         {
-            agents = distinctAgents;
+            var consensus = votesByTopic.ToDictionary(kv => kv.Key, kv => Consensus.Of(kv.Value, trust, _preTrusted));
+
+            var next = new Dictionary<string, double>(trust, StringComparer.Ordinal);
+            var change = 0.0;
+            foreach (var (agent, agentVotes) in votesByAgent)
+            {
+                if (_preTrusted.Contains(agent))
+                    continue;
+
+                var weight = VoteWeight(trust[agent]);
+                int compared = 0, agreed = 0;
+                foreach (var vote in agentVotes)
+                {
+                    var c = consensus[vote.Topic];
+                    // Leave the agent's own vote out, so a service only it rated (or only it and
+                    // untrusted identities rated) can never make it look coherent.
+                    var verdict = c.Judge(vote, c.Anchored ? 0.0 : weight);
+                    if (verdict is null)
+                        continue;
+                    compared++;
+                    if (verdict == true) agreed++;
+                }
+
+                var updated = Earned(compared, agreed);
+                change = Math.Max(change, Math.Abs(updated - trust[agent]));
+                next[agent] = updated;
+            }
+
+            trust = next;
+            if (change < ConvergenceThreshold)
+                break;
         }
 
-        var agentIndex = agents.Select((a, i) => (a, i)).ToDictionary(x => x.a, x => x.i);
-        var n = agents.Count;
-
-        if (n < 2)
-        {
-            // With 0 or 1 agent, everyone gets default trust
-            return distinctAgents.ToDictionary(a => a, _ => DefaultTrustScore);
-        }
-
-        // If we capped, restrict the rating set to scored agents so consensus/local trust ignore
-        // the excluded DIDs, and seed the excluded agents with default trust in the result.
-        var cappedOut = distinctAgents.Count != n;
-        if (cappedOut)
-            ratings = ratings.Where(r => agentIndex.ContainsKey(r.AgentDid)).ToList();
-
-        // 2. Compute per-service consensus (objective metrics only)
-        var serviceConsensus = ComputeServiceConsensus(ratings);
-
-        // 3. Compute local trust: how consistent is each agent with the consensus?
-        var localTrust = ComputeLocalTrust(ratings, serviceConsensus, agentIndex, n);
-
-        // 4. Identify seed raters (top 10 agents by number of verified ratings)
-        var seedRaters = IdentifySeedRaters(ratings, agentIndex);
-
-        // 5. Iterate EigenTrust until convergence
-        var trustVector = IterateEigenTrust(localTrust, seedRaters, n);
-
-        // 6. Map back to agent DIDs, enforce minimum trust
-        var result = new Dictionary<string, double>();
-        for (int i = 0; i < n; i++)
-        {
-            var score = Math.Max(MinTrustScore, Math.Min(1.0, trustVector[i]));
-            result[agents[i]] = Math.Round(score, 4);
-        }
-
-        // Agents excluded by the cap get the neutral default trust.
-        if (cappedOut)
-            foreach (var a in distinctAgents)
-                if (!result.ContainsKey(a))
-                    result[a] = DefaultTrustScore;
-
+        var result = trust.ToDictionary(kv => kv.Key, kv => Math.Round(kv.Value, 4), StringComparer.Ordinal);
+        foreach (var a in distinctAgents)
+            result.TryAdd(a, DefaultTrustScore);
         return result;
     }
 
-    /// <summary>
-    /// For each service, compute the consensus metrics (majority vote on objective data).
-    /// </summary>
-    private static Dictionary<string, ServiceConsensus> ComputeServiceConsensus(
-        IReadOnlyList<AgentRatingRecord> ratings)
+    /// <summary>How much an agent's view counts in the consensus where no pre-trusted peer
+    /// observed: only the trust it earned above the default, so new identities count for nothing.</summary>
+    internal static double VoteWeight(double trust) => Math.Max(0.0, trust - DefaultTrustScore);
+
+    /// <summary>Trust earned from being compared on <paramref name="compared"/> services and agreeing
+    /// on <paramref name="agreed"/>: the agreement rate maps onto [Min, MaxEarned], and the fewer the
+    /// comparisons the closer the result stays to the default.</summary>
+    internal static double Earned(int compared, int agreed)
     {
-        return ratings
-            .GroupBy(r => r.ServiceDid)
-            .ToDictionary(
-                g => g.Key,
-                g =>
+        if (compared == 0)
+            return DefaultTrustScore;
+        var agreement = (double)agreed / compared;
+        var target = MinTrustScore + (MaxEarnedTrust - MinTrustScore) * agreement;
+        var experience = Math.Min(1.0, (double)compared / ExperienceServices);
+        return DefaultTrustScore + (target - DefaultTrustScore) * experience;
+    }
+
+    /// <summary>What one agent reported about one (service, kind), reduced to the three facts the
+    /// score is built from: did it work, was it under the latency threshold, was the schema valid.</summary>
+    internal sealed record Vote(string Agent, (string Service, ObservationKind Kind) Topic, bool Success, bool Fast, bool? Schema)
+    {
+        public static Vote From(string agent, (string, ObservationKind) topic, List<AgentRatingRecord> records)
+        {
+            var success = records.Count(r => ResponseOutcome.IsSuccess(r.StatusCode, r.SchemaValid)) * 2 > records.Count;
+            var fast = records.Count(r => r.LatencyMs <= LatencyThresholdMs) * 2 > records.Count;
+            var withSchema = records.Where(r => r.SchemaValid.HasValue).ToList();
+            bool? schema = withSchema.Count == 0 ? null : withSchema.Count(r => r.SchemaValid == true) * 2 > withSchema.Count;
+            return new Vote(agent, topic, success, fast, schema);
+        }
+    }
+
+    /// <summary>The consensus on one (service, kind), as weighted tallies so that any one voter can
+    /// be left out of it cheaply.</summary>
+    internal sealed class Consensus
+    {
+        public bool Anchored { get; private init; }
+        private double _total, _success, _fast, _schemaTotal, _schemaValid;
+
+        public static Consensus Of(List<Vote> votes, IReadOnlyDictionary<string, double> trust, IReadOnlySet<string> preTrusted)
+        {
+            var anchors = votes.Where(v => preTrusted.Contains(v.Agent)).ToList();
+            var c = new Consensus { Anchored = anchors.Count > 0 };
+            foreach (var v in c.Anchored ? anchors : votes)
+                c.Add(v, c.Anchored ? 1.0 : VoteWeight(trust[v.Agent]));
+            return c;
+        }
+
+        private void Add(Vote v, double w)
+        {
+            if (w <= 0) return;
+            _total += w;
+            if (v.Success) _success += w;
+            if (v.Fast) _fast += w;
+            if (v.Schema.HasValue)
+            {
+                _schemaTotal += w;
+                if (v.Schema.Value) _schemaValid += w;
+            }
+        }
+
+        /// <summary>Whether <paramref name="vote"/> agrees with the consensus once its own
+        /// <paramref name="ownWeight"/> is taken out; null when nobody else carries any weight here.</summary>
+        public bool? Judge(Vote vote, double ownWeight)
+        {
+            var total = _total - ownWeight;
+            if (total <= 1e-9)
+                return null;
+
+            var success = (_success - (vote.Success ? ownWeight : 0)) * 2 > total;
+            var fast = (_fast - (vote.Fast ? ownWeight : 0)) * 2 > total;
+            if (vote.Success != success || vote.Fast != fast)
+                return false;
+
+            if (vote.Schema.HasValue)
+            {
+                var schemaTotal = _schemaTotal - ownWeight;
+                if (schemaTotal > 1e-9)
                 {
-                    var records = g.ToList();
-                    var schemaRatings = records.Where(r => r.SchemaValid.HasValue).ToList();
-                    return new ServiceConsensus
-                    {
-                        MedianStatusIsSuccess = records.Count(r => ResponseOutcome.IsSuccess(r.StatusCode, r.SchemaValid)) > records.Count / 2.0,
-                        MedianLatencyMs = ComputeMedianLatency(records),
-                        HasSchemaConsensus = schemaRatings.Count > 0,
-                        MedianSchemaValid = schemaRatings.Count(r => r.SchemaValid == true) > schemaRatings.Count / 2.0,
-                    };
-                });
-    }
-
-    /// <summary>
-    /// Compute local trust matrix: c[i,j] = how much does agent i's rating of services
-    /// agree with the objective consensus?
-    /// Normalized per row so each row sums to 1.
-    /// </summary>
-    private static double[,] ComputeLocalTrust(
-        IReadOnlyList<AgentRatingRecord> ratings,
-        Dictionary<string, ServiceConsensus> consensus,
-        Dictionary<string, int> agentIndex,
-        int n)
-    {
-        // For EigenTrust, we need agent-to-agent trust.
-        // We derive it from: agents who rate the same services similarly are trustworthy to each other.
-        var agentCoherence = new double[n]; // How coherent is each agent overall?
-
-        var agentRatings = ratings.GroupBy(r => r.AgentDid).ToDictionary(g => g.Key, g => g.ToList());
-
-        foreach (var (agentDid, agentRecs) in agentRatings)
-        {
-            var idx = agentIndex[agentDid];
-            var coherent = 0;
-            var total = 0;
-
-            foreach (var rec in agentRecs)
-            {
-                if (!consensus.TryGetValue(rec.ServiceDid, out var svcConsensus))
-                    continue;
-
-                total++;
-                var isCoherent = true;
-
-                // Check status code agreement
-                var ratingIsSuccess = ResponseOutcome.IsSuccess(rec.StatusCode, rec.SchemaValid);
-                if (ratingIsSuccess != svcConsensus.MedianStatusIsSuccess)
-                    isCoherent = false;
-
-                // Check latency agreement (within 2x of median)
-                if (rec.LatencyMs > svcConsensus.MedianLatencyMs * 2 ||
-                    rec.LatencyMs < svcConsensus.MedianLatencyMs / 2)
-                    isCoherent = false;
-
-                // Check schema_valid agreement (only when both the rating and the consensus have a
-                // value; a null on either side is neutral). Without this, an agent could lie on
-                // schema_valid — a quarter of the score — and stay perfectly coherent.
-                if (rec.SchemaValid.HasValue && svcConsensus.HasSchemaConsensus &&
-                    rec.SchemaValid.Value != svcConsensus.MedianSchemaValid)
-                    isCoherent = false;
-
-                if (isCoherent) coherent++;
-            }
-
-            agentCoherence[idx] = total > 0 ? (double)coherent / total : 0.5;
-        }
-
-        // Build normalized trust matrix
-        // c[i,j] = coherence[j] / sum(coherence[k] for all k)
-        // This means agents trust coherent agents more
-        var c = new double[n, n];
-        var totalCoherence = agentCoherence.Sum();
-
-        if (totalCoherence <= 0)
-            totalCoherence = n; // Fallback: uniform
-
-        for (int i = 0; i < n; i++)
-        {
-            for (int j = 0; j < n; j++)
-            {
-                if (i == j) continue; // No self-trust
-                c[i, j] = agentCoherence[j] / totalCoherence;
-            }
-
-            // Normalize row
-            var rowSum = 0.0;
-            for (int j = 0; j < n; j++) rowSum += c[i, j];
-            if (rowSum > 0)
-                for (int j = 0; j < n; j++) c[i, j] /= rowSum;
-        }
-
-        return c;
-    }
-
-    /// <summary>
-    /// Identify seed raters: top 10 agents by number of verified (receipt) ratings.
-    /// </summary>
-    private static double[] IdentifySeedRaters(
-        IReadOnlyList<AgentRatingRecord> ratings,
-        Dictionary<string, int> agentIndex)
-    {
-        var n = agentIndex.Count;
-        var seed = new double[n];
-
-        var verifiedCounts = ratings
-            .Where(r => r.ReceiptVerified)
-            .GroupBy(r => r.AgentDid)
-            .OrderByDescending(g => g.Count())
-            .Take(10)
-            .Select(g => g.Key)
-            .ToHashSet();
-
-        if (verifiedCounts.Count == 0)
-        {
-            // No verified ratings yet — use uniform distribution
-            for (int i = 0; i < n; i++)
-                seed[i] = 1.0 / n;
-        }
-        else
-        {
-            foreach (var agentDid in verifiedCounts)
-            {
-                if (agentIndex.TryGetValue(agentDid, out var idx))
-                    seed[idx] = 1.0 / verifiedCounts.Count;
-            }
-        }
-
-        return seed;
-    }
-
-    /// <summary>
-    /// Power iteration: t(k+1) = C^T * t(k), blended with seed raters.
-    /// </summary>
-    private static double[] IterateEigenTrust(double[,] c, double[] seed, int n)
-    {
-        const double alpha = 0.5; // Weight of seed raters in blending
-
-        var t = new double[n];
-        Array.Copy(seed, t, n);
-
-        // If seed is all zeros, start uniform
-        if (t.Sum() <= 0)
-            for (int i = 0; i < n; i++)
-                t[i] = 1.0 / n;
-
-        for (int iter = 0; iter < MaxIterations; iter++)
-        {
-            var tNew = new double[n];
-
-            // Matrix-vector multiply: tNew = C^T * t
-            for (int i = 0; i < n; i++)
-            {
-                for (int j = 0; j < n; j++)
-                {
-                    tNew[i] += c[j, i] * t[j];
+                    var valid = (_schemaValid - (vote.Schema.Value ? ownWeight : 0)) * 2 > schemaTotal;
+                    if (vote.Schema.Value != valid)
+                        return false;
                 }
             }
 
-            // Blend with seed raters to prevent manipulation
-            for (int i = 0; i < n; i++)
-            {
-                tNew[i] = (1 - alpha) * tNew[i] + alpha * seed[i];
-            }
-
-            // Normalize
-            var sum = tNew.Sum();
-            if (sum > 0 && !double.IsNaN(sum) && !double.IsInfinity(sum))
-                for (int i = 0; i < n; i++) tNew[i] /= sum;
-            else
-            {
-                // Fallback to uniform if computation diverged
-                for (int i = 0; i < n; i++) tNew[i] = 1.0 / n;
-                break;
-            }
-
-            // Sanitize NaN values
-            for (int i = 0; i < n; i++)
-                if (double.IsNaN(tNew[i]) || double.IsInfinity(tNew[i]))
-                    tNew[i] = 1.0 / n;
-
-            // Check convergence
-            var diff = 0.0;
-            for (int i = 0; i < n; i++)
-                diff += Math.Abs(tNew[i] - t[i]);
-
-            t = tNew;
-
-            if (diff < ConvergenceThreshold)
-                break;
+            return true;
         }
-
-        // Map the converged distribution (sums to 1) to an absolute [0,1] trust scale anchored on
-        // the uniform baseline: an agent at the uniform share 1/n maps to 0.5, above-average agents
-        // rise toward 1, below-average fall toward 0. This is stable over time and does NOT force
-        // the top agent to 1.0 — dividing by max did, so a graph of equally-coherent agents scored
-        // everyone 1.0 and doubled the effective weight of their ratings versus the 0.5 default.
-        for (int i = 0; i < n; i++)
-        {
-            var ratioToUniform = t[i] * n;             // 1.0 == uniform share
-            t[i] = ratioToUniform / (ratioToUniform + 1.0); // uniform -> 0.5, monotonic in (0,1)
-        }
-
-        return t;
-    }
-
-    /// <summary>
-    /// Proper median: average of two middle values for even-length lists.
-    /// </summary>
-    private static int ComputeMedianLatency(List<AgentRatingRecord> records)
-    {
-        var sorted = records.OrderBy(r => r.LatencyMs).Select(r => r.LatencyMs).ToList();
-        if (sorted.Count == 0) return 0;
-        if (sorted.Count % 2 == 1)
-            return sorted[sorted.Count / 2];
-        return (sorted[sorted.Count / 2 - 1] + sorted[sorted.Count / 2]) / 2;
-    }
-
-    private class ServiceConsensus
-    {
-        public bool MedianStatusIsSuccess { get; init; }
-        public int MedianLatencyMs { get; init; }
-        public bool HasSchemaConsensus { get; init; }
-        public bool MedianSchemaValid { get; init; }
     }
 }
